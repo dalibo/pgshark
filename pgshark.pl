@@ -111,7 +111,9 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 		if ($ip->{proto} == IP_PROTO_TCP) {
 			# decode the TCP payload
 			$tcp = NetPacket::TCP->decode($ip->{data});
-			$sess_hash = $ip->{src_ip} . $tcp->{src_port} . $ip->{dest_ip} . $tcp->{dest_port};
+			# we could add "$ip->{dest_ip}$tcp->{dest_port}" to this hash, 
+			# but we are suppose to work with only one server
+			$sess_hash = $ip->{src_ip} . $tcp->{src_port};
 			$sess_hash =~ s/\.//g; # useless but for better debug messages
 		}
 
@@ -140,51 +142,133 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								
 				# if we have at least 5 byte, we can analyze the begin of message
 				while ($data_len >= 5) {
-					my ($pg_type, $pg_len) = unpack('AN', $sessions->{$sess_hash}->{data});
 					
-					# pg_len includes itself (int32) in the message size
-					$sessions->{$sess_hash}->{pg_len} = $pg_len;
-
+					# hash about message informations
+					my $pg_msg = {
+						sess_hash => $sess_hash
+					};
+					($pg_msg->{type}, $pg_msg->{len}) = unpack('AN', $sessions->{$sess_hash}->{data});
+					
 					# pg_len is the size of the message length field + data. it doesn't include the message type char
 					# so a full pgsql message is pg_len + 1
-					if ($data_len >= $pg_len + 1) {
+					if ($data_len >= $pg_msg->{len} + 1) {
 						# we have enough data for a message
-
-						### do some processing here
 						
-						debug(1, "    PGSQL: pckt=%d session=%s type=%s, len=%d, data_len=%d\n", $pckt_num, $sess_hash, $pg_type, $pg_len, $data_len);
-						my $pg_msg = substr($sessions->{$sess_hash}->{data}, 5, $pg_len);
+						debug(1, "    PGSQL: pckt=%d session=%s type=%s, len=%d, data_len=%d\n", $pckt_num, $sess_hash,
+							$pg_msg->{type}, $pg_msg->{len}, $data_len
+						);
+						$pg_msg->{data} = substr($sessions->{$sess_hash}->{data}, 5, $pg_msg->{len} - 4);
 						
 						SWITCH: {
-							if ( $pg_type eq 'P') {
-								process_parse($sessions, $sess_hash);
+							# message: P
+							#   name=String
+							#   query=String 
+							#   nun_params=int16
+							#   params_types[]=int32[nb_formats] 
+							if ( $pg_msg->{type} eq 'P') {
+								my @params_types;
+								($pg_msg->{name}, $pg_msg->{query},
+									$pg_msg->{num_params}, @params_types
+								) = unpack('Z*Z*nN*', $pg_msg->{data});
+								$pg_msg->{params_types} = [@params_types];
+								
+								process_parse($pg_msg);
 								last SWITCH;
 							}
-							if ( $pg_type eq 'B') {
-								process_bind($sessions, $sess_hash);
+							
+							# message: B
+							#   portal=String 
+							#   name=String
+							#   nun_formats=int16 
+							#   formats[]=int16[nb_formats] 
+							#   nun_params=int16 
+							#   params[]=(len=int32,value=char[len])[nb_params]
+							if ( $pg_msg->{type} eq 'B') {
+								my @params_formats;
+								my @params;
+								my $msg = $pg_msg->{data};
+								
+								($pg_msg->{portal}, $pg_msg->{name}, $pg_msg->{num_formats}) = unpack('Z* Z* n', $msg);
+								# we add 1 bytes for both portal and name that are null-terminated
+								# + 2 bytes of int16 for $num_formats
+								$msg = substr($msg, length($pg_msg->{portal})+1 + length($pg_msg->{name})+1 +2);
+								
+								# catch formats and the $num_params as well
+								@params_formats = unpack("n$pg_msg->{num_formats} n", $msg);
+								$pg_msg->{num_params} = pop @params_formats;
+								$pg_msg->{params_types} = [@params_formats];
+								
+								$msg = substr($msg, ($pg_msg->{num_formats}+1) * 2);
+								
+								for (my $i=0; $i < $pg_msg->{num_params}; $i++) {
+									# unpack hasn't 32bit signed network template, so we use l>
+									my ($len) = unpack('l>', $msg);
+									
+									# if len < 0; the value is NULL
+									if ($len > 0) {
+										push @params, unpack("x4 a$len", $msg);
+										$msg = substr($msg, 4 + $len);
+									}
+									elsif ($len == 0) {
+										push @params, '';
+										$msg = substr($msg, 4);
+									}
+									else { # value is NULL
+										push @params, undef;
+										$msg = substr($msg, 4);
+									}
+									
+								}
+								
+								$pg_msg->{params} = [@params];
+
+								process_bind($pg_msg);
 								last SWITCH;
 							}
-							if ( $pg_type eq 'E') {
-								process_execute($sessions, $sess_hash);
+							
+							# message: E
+							#   name=String
+							#   nb_rows=int32
+							if ( $pg_msg->{type} eq 'E') {
+								($pg_msg->{name}, $pg_msg->{nb_rows}) = unpack('Z*N', $pg_msg->{data});
+								
+								process_execute($pg_msg);
 								last SWITCH;
 							}
-							if ( $pg_type eq 'C') {
-								process_close($sessions, $sess_hash);
+							
+							# message: C
+							#   type=char
+							#   name=String
+							if ( $pg_msg->{type} eq 'C') {
+								
+								($pg_msg->{type}, $pg_msg->{name}) = unpack('AZ*', $pg_msg->{data});
+	
+								process_close($pg_msg);
 								last SWITCH;
 							}
-							if ( $pg_type eq 'Q') {
-								process_query($sessions, $sess_hash);
+							
+							# message: Q
+							#    query=String
+							if ( $pg_msg->{type} eq 'Q') {
+								
+								# we remove the last char:
+								# query are null terminated in pgsql proto and pg_len includes it
+								$pg_msg->{query} = substr($pg_msg->{data}, 0, -1);
+								
+								process_query($pg_msg);
 								last SWITCH;
 							}
-							if ( $pg_type eq 'X') {
-								process_disconnect($sessions, $sess_hash);
+							
+							# message: X
+							if ( $pg_msg->{type} eq 'X') {
+								process_disconnect($pg_msg);
 								last SWITCH;
 							}
-							debug(2,"ignoring message type: %s\n", $pg_type);
+							debug(2,"ignoring message type: %s\n", $pg_msg->{type});
 						}
 
 						### end of processing, remove processed data
-						$sessions->{$sess_hash}->{data} = substr($sessions->{$sess_hash}->{data}, 1 + $pg_len);
+						$sessions->{$sess_hash}->{data} = substr($sessions->{$sess_hash}->{data}, 1 + $pg_msg->{len});
 						$data_len = length $sessions->{$sess_hash}->{data};
 					}
 					else {
@@ -194,8 +278,9 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 					}
 				}
 
-				# remove the session if we have no trailing data
-				# we can do way much better by tracking the session disconnection
+				# remove the session if we have no trailing data. It helps keeping the code 
+				# simple while tracking data splitted between many frame.
+				# we can do way much better by tracking the session disconnection.
 				if ($data_len == 0) {
 					debug(2, "PGSQL: data in session empty, destroying\n");
 					undef $sessions->{$sess_hash};
@@ -214,5 +299,3 @@ sub debug {
 pcap_close($pcap);
 
 debug(1, "bye.\n");
-
-

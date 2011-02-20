@@ -36,25 +36,22 @@ sub prep_name {
 }
 
 ## handle P command (parse)
-# @param $sessions hash of all current clients sessions 
-# @param $sess_hash hash of the current processed session
+# @param $pg_msg hash with pg message properties
 sub process_parse {
-	my ($sessions, $sess_hash) = @_;
-	my $msg = substr($sessions->{$sess_hash}->{data}, 5, $sessions->{$sess_hash}->{pg_len} - 4);
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{sess_hash};
 	
-	my ($name, $query, $num_params, @params_types) = unpack('Z*Z*nN*', $msg);
-	
-	my $prepname = prep_name($name, $sess_hash);
+	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
 	
 	# we can only have one anonymous prepd stmt per session, deallocate previous anonym xact
-	if (($name eq '') and (defined $prepd->{$sess_hash}->{$prepname})) {
+	if (($pg_msg->{name} eq '') and (defined $prepd->{$sess_hash}->{$prepname})) {
 		deallocate($prepname) if $prepd->{$sess_hash}->{$prepname}->{is_parsed};
 		undef $prepd->{$sess_hash};
 	}
 
 	# save the prepd stmt for this session
 	$prepd->{$sess_hash}->{$prepname} = {
-		query => $query,
+		query => $pg_msg->{query},
 		# we don't know exactly how many params we'll have when parsing
 		# so we delay the PREPARE query to the first BIND
 		is_parsed => 0,
@@ -63,57 +60,13 @@ sub process_parse {
 
 
 ## handle command B (bind)
-# @param $sessions hash of all current clients sessions 
-# @param $sess_hash hash of the current processed session
-# message:
-#   name=String
-#   portal=String 
-#   nb_formats=int16 
-#   formats[]=int16[nb_formats] 
-#   nb_params=int16 
-#   params[]=(len=int32,value=char[len])[nb_params]
+# @param $pg_msg hash with pg message properties
 sub process_bind {
-	my ($sessions, $sess_hash) = @_;
-	my ($portal, $name, $num_formats, $num_params, @params_formats, @params);
+	my $pg_msg = shift;
+	my @params;
+	my $sess_hash = $pg_msg->{sess_hash};
 
-	my $msg = substr($sessions->{$sess_hash}->{data}, 5, $sessions->{$sess_hash}->{pg_len} - 4);
-	
-	($portal, $name, $num_formats) = unpack('Z* Z* n', $msg);
-
-	# we add 1 bytes for both portal and name that are null-terminated
-	# + 2 bytes of int16 for $num_formats
-	$msg = substr($msg, length($portal)+1 + length($name)+1 +2);
-
-	# catch formats and the $num_params as well
-	@params_formats = unpack("n$num_formats n", $msg);
-	$msg = substr($msg, ($num_formats+1) * 2);
-
-	$num_params = pop @params_formats;
-	
-	for (my $i=0; $i < $num_params; $i++) {
-		# unpack hasn't 32bit signed network template, so we use l>
-		my ($len) = unpack('l>', $msg);
-		
-		# if len < 0; the value is NULL
-		if ($len > 0) {
-			my $val = unpack("x4 a$len", $msg);
-			# escape quotes
-			$val =~ s/'/''/g;
-			push @params, "'$val'";
-			$msg = substr($msg, 4 + $len);
-		}
-		elsif ($len == 0) {
-			push @params, "''";
-			$msg = substr($msg, 4);
-		}
-		else { # value is NULL
-			push @params, 'NULL';
-			$msg = substr($msg, 4);
-		}
-		
-	}
-	
-	my $prepname = prep_name($name, $sess_hash);
+	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
 	
 	if (defined($prepd->{$sess_hash}->{$prepname})) {
 
@@ -124,8 +77,8 @@ sub process_bind {
 
 			# print parameters: we use unknown as we can not know 
 			# args types in SQL mode.
-			if ($num_params) {
-				printf '(%s) ', substr('unknown,'x$num_params,0,-1);
+			if ($pg_msg->{num_params}) {
+				printf '(%s) ', substr('unknown,'x$pg_msg->{num_params},0,-1);
 			}
 			
 			printf "AS %s;\n", $prepd->{$sess_hash}->{$prepname}->{query};
@@ -133,7 +86,7 @@ sub process_bind {
 		}
 	}
 	else {
-		# we might be trying to bind to a query parsed before the tcpdump
+		# we might be trying to bind to a prepd stmt parsed before the tcpdump
 		# we should probably send some debug message about it...
 		return;
 	}
@@ -152,78 +105,79 @@ sub process_bind {
 	# Int16[C]
 	# 
 	# The parameter format codes. Each must presently be zero (text) or one (binary).
-	$prepd->{$sess_hash}->{$prepname}->{vals} = [@params] ;
+	
+	## escape params
+	# copy the params array instead of direct using the reference
+	
+	foreach my $param (@{$pg_msg->{params}}) {
+		if (defined $param) {
+			$param =~ s/'/''/g;
+			push @params, "'$param'";
+		}
+		else {
+			push @params, 'NULL';
+		}
+	}
+	$prepd->{$sess_hash}->{$prepname}->{params} = [ @params ] ;
+
 }
 
 ## handle command E (execute)
-# @param $sessions hash of all current clients sessions 
-# @param $sess_hash hash of the current processed session
+# @param $pg_msg hash with pg message properties
 #
 # Here, we can saftly ignore nb_rows as there's no way to use 
 # portals in SQL but with the simple query protocol
-#
-# message:
-#   name=String
-#   nb_rows=int32
 sub process_execute {
-	my ($sessions, $sess_hash) = @_;
-	my ($name,$nb_rows);
-
-	my $msg = substr($sessions->{$sess_hash}->{data}, 5, $sessions->{$sess_hash}->{pg_len} - 4);
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{sess_hash};
 	
-	($name,$nb_rows) = unpack('Z*N', $msg);
-	my $prepname = prep_name($name, $sess_hash);
+	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
 	
-	printf "EXECUTE %s", $prepname;
-	printf "(%s)", join (',', @{ $prepd->{$sess_hash}->{$prepname}->{vals} }) if defined $prepd->{$sess_hash}->{$prepname}->{vals};
-	printf ";\n";
+	if (defined ($prepd->{$sess_hash}->{$prepname})) {		
+		printf "EXECUTE %s", $prepname;
+		printf "(%s)", join (',', @{ $prepd->{$sess_hash}->{$prepname}->{params} })
+			if (scalar(@{ $prepd->{$sess_hash}->{$prepname}->{params} }));
+		printf ";\n";
+	}
+	else {
+		# we might be trying to bind to a prepd stmt parsed before the tcpdump
+		# we should probably send some debug message about it...
+		return;
+	}
 }
 
 ## handle command C (close)
-# @param $sessions hash of all current clients sessions 
-# @param $sess_hash hash of the current processed session
+# @param $pg_msg hash with pg message properties
 #
 # Here, we can saftly ignore nb_rows as there's no way to use 
-# portals in SQL but with the simple query protocol
-#
-# message:
-#   type=char
-#   name=String
+# portals in SQL but with the simple query protocol 
 sub process_close {
-	my ($sessions, $sess_hash) = @_;
-	my $msg = substr($sessions->{$sess_hash}->{data}, 5, $sessions->{$sess_hash}->{pg_len} - 4);
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{sess_hash};
 	
-	my ($type, $name) = unpack('AZ*', $msg);
-	
-	my $prepname = prep_name($name, $sess_hash);
+	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
 
-	if ($type eq 'S') {
+	if ($pg_msg->{type} eq 'S') {
 		deallocate($prepname);
 	}
 }
 
 ## handle command Q (query)
-# @param $sessions hash of all current clients sessions 
-# @param $sess_hash hash of the current processed session
-# message:
-#    query=String
+# @param $pg_msg hash with pg message properties
 sub process_query {
-	my ($sessions, $sess_hash) = @_;
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{sess_hash};
 	
-	# we remove the last char:
-	# query are null terminated in pgsql proto and pg_len includes it
-	my $query = substr($sessions->{$sess_hash}->{data}, 5, -1);
-	
-	printf "%s;\n", $query;
+	printf "%s;\n", $pg_msg->{query};
 }
 
 ## handle command X (terminate)
-# @param $sessions hash of all current clients sessions 
-# @param $sess_hash hash of the current processed session
+# @param $pg_msg hash with pg message properties
 sub process_disconnect {
 	# release all prepd stmt
 	
-	my ($sessions, $sess_hash) = @_;
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{sess_hash};
 	
 	delete $prepd->{$sess_hash};
 }
