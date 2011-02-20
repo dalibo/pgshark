@@ -1,47 +1,47 @@
-[1mpgshark.pl[0m
+pgshark.pl
     pgshark.pl - Mess with PostgreSQL client's traffic
 
-[1mSYNOPSIS[0m
+SYNOPSIS
     pgshark.pl [--debug] {--plugin plugin_name} pgshark.pl --help
 
-[1mDESCRIPTION[0m
+DESCRIPTION
     This program study PostgreSQL traffic captured in tcpdump format and is
     able to make various things with extracted client's activities.
 
-    [1mpgshark[0m comes with various plugins to do various things with client's
+    pgshark comes with various plugins to do various things with client's
     traffic.
 
-    Presently, [1mpgshark[0m is only able to read tcpdump files from its standart
+    Presently, pgshark is only able to read tcpdump files from its standart
     input.
 
-    * [1m-h[0m, [1m--help[0m
+    * -h, --help
 
       Show this help message and exit.
 
-    * [1m-d[0m, [1m--debug[0m
+    * -d, --debug
 
       Print some debug messages to the standart error. The more you repeat
-      this option, the more [1mpgshark[0m will be verbose.
+      this option, the more pgshark will be verbose.
 
-    * [1m-p[0m, [1m--plugin[0m
+    * -p, --plugin
 
       Select the traffic processing plugin. See section "PLUGINS".
 
-[1mPLUGINS[0m
-    There's only one plugin available presently. A lot more should come though
-    (proxy, normalizedSQL, report, ...).
+PLUGINS
+    There's only one plugin available presently. A lot more should come
+    though (proxy, normalizedSQL, report, ...).
 
-    * [1msql[0m
+    * sql
 
-      The [1msql[0m plugin write captured queries on stdout. Because of limitation
+      The sql plugin write captured queries on stdout. Because of limitation
       of SQL language it doesn't support unnamed prepared statement, so it
       actually name them.
 
       Presently, this plugin doesn't support cursors.
 
-[1mEXAMPLES[0m
+EXAMPLES
     cat some_capture.pcap | pgshark.pl --plugin SQL
 
-[1mAuthor[0m
+Author
     Dalibo's team. http://www.dalibo.org
 
