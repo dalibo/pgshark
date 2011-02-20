@@ -49,7 +49,7 @@ Select the traffic processing plugin. See section L</PLUGINS>.
 
 =head1 PLUGINS
 
-There's only one plugin available presently. A lot more should come though (proxy, denormalizedSQL, report, ...).
+There's only one plugin available presently. A lot more should come though (proxy, normalizedSQL, report, ...).
 
 =over 2
 

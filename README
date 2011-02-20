@@ -33,7 +33,7 @@ DDEESSCCRRIIPPTTIIOONN
 
 PPLLUUGGIINNSS
        There's only one plugin available presently. A lot more should come
-       though (proxy, denormalizedSQL, report, ...).
+       though (proxy, normalizedSQL, report, ...).
 
        · ssqqll
 
