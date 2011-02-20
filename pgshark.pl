@@ -34,13 +34,31 @@ Presently, B<pgshark> is only able to read tcpdump files from its standart input
 =over 2
 
 =item * B<-h>, B<--help>
+
 Show this help message and exit.
 
 =item * B<-d>, B<--debug> 
+
 Print some debug messages to the standart error. The more you repeat this option, the more B<pgshark> will be verbose.
 
 =item * B<-p>, B<--plugin>
-Select the traffic processing plugin
+
+Select the traffic processing plugin. See section L</PLUGINS>.
+
+=back
+
+=head1 PLUGINS
+
+There's only one plugin available presently. A lot more should come though (proxy, denormalizedSQL, report, ...).
+
+=over 2
+
+=item * B<sql>
+
+The B<sql> plugin write captured queries on stdout. Because of limitation of SQL language it doesn't support unnamed 
+prepared statement, so it actually name them.
+
+Presently, this plugin doesn't support cursors.
 
 =back
 
@@ -53,6 +71,7 @@ cat some_capture.pcap | pgshark.pl --plugin SQL
 Dalibo's team. http://www.dalibo.org
 
 =cut
+
 
 my $err = '';
 my %pckt_hdr;

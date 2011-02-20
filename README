@@ -1,0 +1,54 @@
+PGSHARK(1)            User Contributed Perl Documentation           PGSHARK(1)
+
+
+
+ppggsshhaarrkk..ppll
+       pgshark.pl - Mess with PostgreSQL client's traffic
+
+SSYYNNOOPPSSIISS
+       pgshark.pl [--debug] {--plugin plugin_name} pgshark.pl --help
+
+DDEESSCCRRIIPPTTIIOONN
+       This program study PostgreSQL traffic captured in tcpdump format and is
+       able to make various things with extracted client's activities.
+
+       ppggsshhaarrkk comes with various plugins to do various things with client's
+       traffic.
+
+       Presently, ppggsshhaarrkk is only able to read tcpdump files from its standart
+       input.
+
+       · --hh, ----hheellpp
+
+         Show this help message and exit.
+
+       · --dd, ----ddeebbuugg
+
+         Print some debug messages to the standart error. The more you repeat
+         this option, the more ppggsshhaarrkk will be verbose.
+
+       · --pp, ----pplluuggiinn
+
+         Select the traffic processing plugin. See section "PLUGINS".
+
+PPLLUUGGIINNSS
+       There's only one plugin available presently. A lot more should come
+       though (proxy, denormalizedSQL, report, ...).
+
+       · ssqqll
+
+         The ssqqll plugin write captured queries on stdout. Because of
+         limitation of SQL language it doesn't support unnamed prepared
+         statement, so it actually name them.
+
+         Presently, this plugin doesn't support cursors.
+
+EEXXAAMMPPLLEESS
+       cat some_capture.pcap | pgshark.pl --plugin SQL
+
+AAuutthhoorr
+       Dalibo's team. http://www.dalibo.org
+
+
+
+perl v5.12.1                      2011-02-20                        PGSHARK(1)
