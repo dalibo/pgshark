@@ -19,8 +19,15 @@ pgshark.pl - Mess with PostgreSQL client's traffic
 
 =head1 SYNOPSIS
 
-pgshark.pl [--debug] {--plugin plugin_name}
-pgshark.pl --help
+=over 2
+
+=item * pgshark.pl --help
+
+=item * pgshark.pl [--debug] {--plugin plugin_name}
+
+Where B<plugin_name> could be I<sql> or I<normalize>.
+
+=back
   
 =head1 DESCRIPTION
 
@@ -76,13 +83,14 @@ Dalibo's team. http://www.dalibo.org
 
 =cut
 
-
 my $err = '';
 my %pckt_hdr;
 my $pckt = {};
 my $pckt_num = 0;
 my $sessions = {};
 my $pcap;
+# simple number of query processed
+my $num_queries = 0;
 
 sub usage {
   pod2usage(-exitval => 1);
@@ -107,11 +115,14 @@ GetOptions(\%o, qw{
 
 longusage() if ($o{help});
 usage() if ($o{plugin} eq '' );
+# check if given plugin name exist (avoid loading potential dangerous external unknown files)
+usage() if (not ($o{plugin} eq 'sql' or $o{plugin} eq 'normalize'));
 
+debug (1, "Options:\n%s\n", Dumper(\%o));
 
 # load the plugin
-if ($o{plugin} eq 'sql') { use SQL; }
-elsif ($o{plugin} eq 'normalize') { use normalize; }
+require "./$o{plugin}.pm";
+$o{plugin}->import();
 
 # opening the pcap file 
 # TODO support input file ?
@@ -178,7 +189,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 					if ($data_len >= $pg_msg->{len} + 1) {
 						# we have enough data for a message
 						
-						debug(1, "    PGSQL: pckt=%d session=%s type=%s, len=%d, data_len=%d\n", $pckt_num, $sess_hash,
+						debug(2, "    PGSQL: pckt=%d session=%s type=%s, len=%d, data_len=%d\n", $pckt_num, $sess_hash,
 							$pg_msg->{type}, $pg_msg->{len}, $data_len
 						);
 						$pg_msg->{data} = substr($sessions->{$sess_hash}->{data}, 5, $pg_msg->{len} - 4);
@@ -288,12 +299,15 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								process_disconnect($pg_msg);
 								last SWITCH;
 							}
+							
 							debug(2,"ignoring message type: %s\n", $pg_msg->{type});
 						}
 
 						### end of processing, remove processed data
 						$sessions->{$sess_hash}->{data} = substr($sessions->{$sess_hash}->{data}, 1 + $pg_msg->{len});
 						$data_len = length $sessions->{$sess_hash}->{data};
+						
+						$num_queries++;
 					}
 					else {
 						# we don't have the full message in available data.
@@ -322,4 +336,9 @@ sub debug {
 
 pcap_close($pcap);
 
-debug(1, "bye.\n");
+END {
+	if ($? == 0) {
+		debug(1, "-- core: Total number of queries processed: $num_queries\n");
+		debug(1, "-- bye.\n");
+	}
+}

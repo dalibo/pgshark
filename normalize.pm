@@ -14,8 +14,9 @@ our $VERSION = 0.1;
 our @ISA = ('Exporter');
 our @EXPORT = qw/process_parse process_bind process_execute process_close process_query process_disconnect/;
 
-# simple number of query processed
-my $num_queries = 0;
+BEGIN {
+	print STDERR "normalize: Plugin loaded.\n";
+}
 
 ## hash handling normalized queries
 # $normalized = {
@@ -64,8 +65,6 @@ sub normalize {
 	else {
 		$normalized->{$query_hash}->{count}++;
 	}
-	
-	$num_queries++;
 	
 	return $query_hash;
 }
@@ -130,8 +129,7 @@ END {
 # 	print "$normalized->{$_}->{count} :\n$normalized->{$_}->{query}\n\n"
 # 		foreach (keys %{ $normalized });
 
-	print STDERR "-- Report finished.\n--   Number of normalized queries found: ". scalar(keys %{ $normalized }) ."\n";
-	print STDERR "--   Total number of queries processed: $num_queries\n";
+	print STDERR "-- normalize: Number of normalized queries found: ". scalar(keys %{ $normalized }) ."\n";
 }
 
 1;

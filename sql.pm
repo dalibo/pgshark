@@ -1,4 +1,4 @@
-package SQL;
+package sql;
 use strict;
 use warnings;
 
@@ -10,6 +10,10 @@ use Exporter;
 our $VERSION = 0.1;
 our @ISA = ('Exporter');
 our @EXPORT = qw/process_parse process_bind process_execute process_close process_query process_disconnect/;
+
+BEGIN {
+	print STDERR "sql: Plugin loaded.\n";
+}
 
 ## hash handling prepd stmt for all sessions
 # $prepd = {
