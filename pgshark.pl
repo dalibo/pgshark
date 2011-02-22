@@ -12,6 +12,7 @@ use Data::Hexdumper;
 use Data::Dumper;
 use Getopt::Long;
 use Pod::Usage;
+use pgShark::Utils;
 
 =head1 pgshark.pl
 
@@ -118,10 +119,13 @@ usage() if ($o{plugin} eq '' );
 # check if given plugin name exist (avoid loading potential dangerous external unknown files)
 usage() if (not ($o{plugin} eq 'sql' or $o{plugin} eq 'normalize'));
 
+# set debug level given in options
+set_debug($o{debug});
+
 debug (1, "Options:\n%s\n", Dumper(\%o));
 
 # load the plugin
-require "./$o{plugin}.pm";
+require "./pgShark/$o{plugin}.pm";
 $o{plugin}->import();
 
 # opening the pcap file 
@@ -326,12 +330,6 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 			}
 		}
 	}
-}
-
-sub debug {
-	my $lvl = shift;
-	my $format = shift;
-	printf(STDERR $format, @_) if $o{debug} >= $lvl;
 }
 
 pcap_close($pcap);

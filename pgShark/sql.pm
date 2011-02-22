@@ -1,6 +1,6 @@
-package sql;
 use strict;
 use warnings;
+use pgShark::Utils;
 
 ## TODO
 #  * Portal support (cursors)
@@ -12,7 +12,7 @@ our @ISA = ('Exporter');
 our @EXPORT = qw/process_parse process_bind process_execute process_close process_query process_disconnect/;
 
 BEGIN {
-	print STDERR "sql: Plugin loaded.\n";
+	debug(1, "sql: Plugin loaded.\n");
 }
 
 ## hash handling prepd stmt for all sessions

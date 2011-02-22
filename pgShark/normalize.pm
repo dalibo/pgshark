@@ -1,7 +1,7 @@
-package normalize;
 use strict;
 use warnings;
 use Digest::MD5 qw(md5_base64);
+use pgShark::Utils;
 
 ## TODO
 #  add some option to control what we want to catch:
@@ -15,7 +15,7 @@ our @ISA = ('Exporter');
 our @EXPORT = qw/process_parse process_bind process_execute process_close process_query process_disconnect/;
 
 BEGIN {
-	print STDERR "normalize: Plugin loaded.\n";
+	debug(1, "normalize: Plugin loaded.\n");
 }
 
 ## hash handling normalized queries
@@ -129,7 +129,7 @@ END {
 # 	print "$normalized->{$_}->{count} :\n$normalized->{$_}->{query}\n\n"
 # 		foreach (keys %{ $normalized });
 
-	print STDERR "-- normalize: Number of normalized queries found: ". scalar(keys %{ $normalized }) ."\n";
+	debug(1, "-- normalize: Number of normalized queries found: ". scalar(keys %{ $normalized }) ."\n");
 }
 
 1;
