@@ -40,6 +40,7 @@ Show this help message and exit.
 =item * B<-d>, B<--debug> 
 
 Print some debug messages to the standart error. The more you repeat this option, the more B<pgshark> will be verbose.
+(well, presently, only one level of debug from core only...)
 
 =item * B<-p>, B<--plugin>
 
@@ -49,8 +50,6 @@ Select the traffic processing plugin. See section L</PLUGINS>.
 
 =head1 PLUGINS
 
-There's only one plugin available presently. A lot more should come though (proxy, normalizedSQL, report, ...).
-
 =over 2
 
 =item * B<sql>
@@ -59,6 +58,11 @@ The B<sql> plugin write captured queries on stdout. Because of limitation of SQL
 prepared statement, so it actually name them.
 
 Presently, this plugin doesn't support cursors.
+
+=item * B<normalize>
+
+The B<normalize> will try to normalize queries and prepared queries and output them to stdoud. It aims to give you a list
+of unique queries, however the number of time they has been send by clients and whatever their parameters were.
 
 =back
 
@@ -107,6 +111,7 @@ usage() if ($o{plugin} eq '' );
 
 # load the plugin
 if ($o{plugin} eq 'sql') { use SQL; }
+elsif ($o{plugin} eq 'normalize') { use normalize; }
 
 # opening the pcap file 
 # TODO support input file ?
