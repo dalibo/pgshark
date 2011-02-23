@@ -1,0 +1,64 @@
+use strict;
+use warnings;
+use pgShark::Utils;
+
+## TODO
+#  * ...
+
+use Exporter;
+our $VERSION = 0.1;
+our @ISA = ('Exporter');
+our @EXPORT = qw/process_parse process_bind process_execute process_close process_query process_disconnect/;
+
+BEGIN {
+	debug(1, "XXX: Plugin loaded.\n");
+}
+
+# handle C command (close)
+# @param $pg_msg hash with pg message properties
+sub deallocate {
+	my $pg_msg = shift;
+}
+
+## handle P command (parse)
+# @param $pg_msg hash with pg message properties
+sub process_parse {
+	my $pg_msg = shift;
+}
+
+## handle command B (bind)
+# @param $pg_msg hash with pg message properties
+sub process_bind {
+	my $pg_msg = shift;
+}
+
+## handle command E (execute)
+# @param $pg_msg hash with pg message properties
+sub process_execute {
+	my $pg_msg = shift;
+}
+
+## handle command C (close)
+# @param $pg_msg hash with pg message properties
+sub process_close {
+	my $pg_msg = shift;
+}
+
+## handle command Q (query)
+# @param $pg_msg hash with pg message properties
+sub process_query {
+	my $pg_msg = shift;
+}
+
+## handle command X (terminate)
+# @param $pg_msg hash with pg message properties
+sub process_disconnect {
+	my $pg_msg = shift;
+}
+
+
+END {
+#	debug(1, "XXX: output something usefull here ?\n");
+}
+
+1;
