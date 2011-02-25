@@ -163,9 +163,6 @@ sub process_execute {
 
 ## handle command C (close)
 # @param $pg_msg hash with pg message properties
-#
-# Here, we can saftly ignore nb_rows as there's no way to use 
-# portals in SQL but with the simple query protocol 
 sub process_close {
 	my $self = shift;
 	my $pg_msg = shift;
