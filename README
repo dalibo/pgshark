@@ -2,7 +2,11 @@ pgshark.pl
     pgshark.pl - Mess with PostgreSQL client's traffic
 
 SYNOPSIS
-    pgshark.pl [--debug] {--plugin plugin_name} pgshark.pl --help
+    * pgshark.pl --help
+
+    * pgshark.pl [--debug] {--plugin plugin_name}
+
+      Where plugin_name could be *sql* or *normalize*.
 
 DESCRIPTION
     This program study PostgreSQL traffic captured in tcpdump format and is
@@ -21,16 +25,14 @@ DESCRIPTION
     * -d, --debug
 
       Print some debug messages to the standart error. The more you repeat
-      this option, the more pgshark will be verbose.
+      this option, the more pgshark will be verbose. (well, presently, only
+      one level of debug from core only...)
 
     * -p, --plugin
 
       Select the traffic processing plugin. See section "PLUGINS".
 
 PLUGINS
-    There's only one plugin available presently. A lot more should come
-    though (proxy, normalizedSQL, report, ...).
-
     * sql
 
       The sql plugin write captured queries on stdout. Because of limitation
@@ -38,6 +40,13 @@ PLUGINS
       actually name them.
 
       Presently, this plugin doesn't support cursors.
+
+    * normalize
+
+      The normalize will try to normalize queries and prepared queries and
+      output them to stdoud. It aims to give you a list of unique queries,
+      however the number of time they has been send by clients and whatever
+      their parameters were.
 
 EXAMPLES
     cat some_capture.pcap | pgshark.pl --plugin SQL
