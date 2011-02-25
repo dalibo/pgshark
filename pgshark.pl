@@ -94,11 +94,13 @@ my $pcap;
 my $num_queries = 0;
 
 sub usage {
-  pod2usage(-exitval => 1);
+	my $msg = shift;
+	print "$msg\n" if defined $msg and $msg ne '';
+	pod2usage(-exitval => 1);
 }
 
 sub longusage {
-  pod2usage(-verbose => 2, -exitval => 1);
+	pod2usage(-verbose => 2, -exitval => 1);
 }
 
 # get options
@@ -115,9 +117,15 @@ GetOptions(\%args, qw{
 }) or usage();
 
 longusage() if ($args{help});
-usage() if ($args{plugin} eq '' );
+usage("Argument --plugin is mandatory.\n") if ($args{plugin} eq '' );
+
+$args{plugin} = ucfirst lc $args{plugin};
+
 # check if given plugin name exist (avoid loading potential dangerous external unknown files)
-usage() if (not ($args{plugin} eq 'sql' or $args{plugin} eq 'normalize'));
+usage("This plugin does not exist.\n") if ( not (
+	($args{plugin} eq 'Sql')
+	or ($args{plugin} eq 'Normalize')
+));
 
 # set debug level given in options
 set_debug($args{debug});
@@ -126,7 +134,8 @@ debug (1, "Options:\n%s\n", Dumper(\%args));
 
 # load the plugin
 require "./pgShark/$args{plugin}.pm";
-$args{plugin}->import();
+
+my $processor = $args{plugin}->new(\%args);
 
 # opening the pcap file 
 # TODO support input file ?
@@ -211,7 +220,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								) = unpack('Z*Z*nN*', $pg_msg->{data});
 								$pg_msg->{params_types} = [@params_types];
 								
-								process_parse($pg_msg);
+								$processor->process_parse($pg_msg);
 								last SWITCH;
 							}
 							
@@ -261,7 +270,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								
 								$pg_msg->{params} = [@params];
 
-								process_bind($pg_msg);
+								$processor->process_bind($pg_msg);
 								last SWITCH;
 							}
 							
@@ -271,7 +280,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							if ( $pg_msg->{type} eq 'E') {
 								($pg_msg->{name}, $pg_msg->{nb_rows}) = unpack('Z*N', $pg_msg->{data});
 								
-								process_execute($pg_msg);
+								$processor->process_execute($pg_msg);
 								last SWITCH;
 							}
 							
@@ -282,7 +291,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								
 								($pg_msg->{type}, $pg_msg->{name}) = unpack('AZ*', $pg_msg->{data});
 	
-								process_close($pg_msg);
+								$processor->process_close($pg_msg);
 								last SWITCH;
 							}
 							
@@ -294,13 +303,13 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								# query are null terminated in pgsql proto and pg_len includes it
 								$pg_msg->{query} = substr($pg_msg->{data}, 0, -1);
 								
-								process_query($pg_msg);
+								$processor->process_query($pg_msg);
 								last SWITCH;
 							}
 							
 							# message: X
 							if ( $pg_msg->{type} eq 'X') {
-								process_disconnect($pg_msg);
+								$processor->process_disconnect($pg_msg);
 								last SWITCH;
 							}
 							

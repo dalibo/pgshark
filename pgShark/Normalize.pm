@@ -1,3 +1,5 @@
+package Normalize;
+
 use strict;
 use warnings;
 use Digest::MD5 qw(md5_base64);
@@ -9,27 +11,28 @@ use pgShark::Utils;
 #   * add some query samples if asked by option (commented ?)
 #   * support $str$strings here$str$ notation
 
-use Exporter;
-our $VERSION = 0.1;
-our @ISA = ('Exporter');
-our @EXPORT = qw/process_parse process_bind process_execute process_close process_query process_disconnect/;
-
-BEGIN {
-	debug(1, "normalize: Plugin loaded.\n");
+sub new {
+	my $class = shift;
+	my $self = {
+		## hash handling normalized queries
+		# $normalized = {
+		# 	query md5 hash => {
+		#		query => normalized query,
+		#		count => # of occurrences
+		# }
+		'normalized' => {}
+	};
+	
+	debug(1, "Normalize: Plugin loaded.\n");
+	
+	return bless($self, $class);
 }
-
-## hash handling normalized queries
-# $normalized = {
-# 	query md5 hash => {
-#		query => normalized query,
-#		count => # of occurrences
-# }
-my $normalized = {};
 
 ## 
 # normalize query and record them in the $normalized hash
 # @return the hash of the query
 sub normalize {
+	my $self = shift;
 	my $query = shift;
 	
 	chomp $query;
@@ -56,14 +59,14 @@ sub normalize {
 	
 	my $query_hash = md5_base64($query);
 
-	if (not defined $normalized->{$query_hash}) {
-		$normalized->{$query_hash} = {
+	if (not defined $self->{'normalized'}->{$query_hash}) {
+		$self->{'normalized'}->{$query_hash} = {
 			'query' => $query,
 			'count' => 1
 		};
 	}
 	else {
-		$normalized->{$query_hash}->{count}++;
+		$self->{'normalized'}->{$query_hash}->{count}++;
 	}
 	
 	return $query_hash;
@@ -72,64 +75,73 @@ sub normalize {
 # handle C command (close)
 # @param $pg_msg hash with pg message properties
 sub deallocate {
+	# my $self = shift;
 	# Nothing to do...yet
 }
 
 ## handle P command (parse)
 # @param $pg_msg hash with pg message properties
 sub process_parse {
+	my $self = shift;
 	# maybe we should do something fancier ?
 	my $pg_msg = shift;
 
-	my $query_hash = normalize($pg_msg->{query});
+	my $query_hash = $self->normalize($pg_msg->{query});
 	
-	if ($normalized->{$query_hash}->{count} == 1) {
-		print "PREPARE xxx(...) AS $normalized->{$query_hash}->{query}\n\n";
+	if ($self->{'normalized'}->{$query_hash}->{count} == 1) {
+		print "PREPARE xxx(...) AS $self->{'normalized'}->{$query_hash}->{query}\n\n";
 	}
 }
 
 ## handle command B (bind)
 # @param $pg_msg hash with pg message properties
 sub process_bind {
+	# my $self = shift;
 	# Nothing to do...yet
 }
 
 ## handle command E (execute)
 # @param $pg_msg hash with pg message properties
 sub process_execute {
+	# my $self = shift;
 	# Nothing to do...yet
 }
 
 ## handle command C (close)
 # @param $pg_msg hash with pg message properties
 sub process_close {
+	# my $self = shift;
 	# Nothing to do...yet
 }
 
 ## handle command Q (query)
 # @param $pg_msg hash with pg message properties
 sub process_query {
+	my $self = shift;
 	my $pg_msg = shift;
 
-	my $query_hash = normalize($pg_msg->{query});
+	my $query_hash = $self->normalize($pg_msg->{query});
 	
-	if ($normalized->{$query_hash}->{count} == 1) {
-		print "$normalized->{$query_hash}->{query}\n\n";
+	if ($self->{'normalized'}->{$query_hash}->{count} == 1) {
+		print "$self->{'normalized'}->{$query_hash}->{query}\n\n";
 	}
 }
 
 ## handle command X (terminate)
 # @param $pg_msg hash with pg message properties
 sub process_disconnect {
+	# my $self = shift;
 	# Nothing to do...yet
 }
 
-END {
+sub DESTROY {
+	my $self = shift;
+
 # we could do something funnier like this trivial report...
 # 	print "$normalized->{$_}->{count} :\n$normalized->{$_}->{query}\n\n"
 # 		foreach (keys %{ $normalized });
 
-	debug(1, "-- normalize: Number of normalized queries found: ". scalar(keys %{ $normalized }) ."\n");
+	debug(1, "-- normalize: Number of normalized queries found: ". scalar(keys %{ $self->{'normalized'} }) ."\n");
 }
 
 1;

@@ -1,6 +1,9 @@
+package Sql;
+
 use strict;
 use warnings;
 use pgShark::Utils;
+use Data::Dumper;
 
 ## TODO
 #  * Portal support (cursors)
@@ -11,19 +14,24 @@ our $VERSION = 0.1;
 our @ISA = ('Exporter');
 our @EXPORT = qw/process_parse process_bind process_execute process_close process_query process_disconnect/;
 
-BEGIN {
-	debug(1, "sql: Plugin loaded.\n");
+sub new {
+	my $class = shift;
+	my $self = {
+		## hash handling prepd stmt for all sessions
+		# $prepd = {
+		# 	session hash => {
+		# 		prepd stmt name => query,
+		# 		prepd stmt name => query,
+		# 		...
+		# 	}
+		# }
+		'prepd' => {}
+	};
+	
+	debug(1, "SQL: Plugin loaded.\n");
+	
+	return bless($self, $class);
 }
-
-## hash handling prepd stmt for all sessions
-# $prepd = {
-# 	session hash => {
-# 		prepd stmt name => query,
-# 		prepd stmt name => query,
-# 		...
-# 	}
-# }
-my $prepd = {};
 
 # handle C command (close) 
 sub deallocate {
@@ -42,19 +50,20 @@ sub prep_name {
 ## handle P command (parse)
 # @param $pg_msg hash with pg message properties
 sub process_parse {
+	my $self = shift;
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
 	
 	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
 	
 	# we can only have one anonymous prepd stmt per session, deallocate previous anonym xact
-	if (($pg_msg->{name} eq '') and (defined $prepd->{$sess_hash}->{$prepname})) {
-		deallocate($prepname) if $prepd->{$sess_hash}->{$prepname}->{is_parsed};
-		undef $prepd->{$sess_hash};
+	if (($pg_msg->{name} eq '') and (defined $self->{'prepd'}->{$sess_hash}->{$prepname})) {
+		deallocate($prepname) if $self->{'prepd'}->{$sess_hash}->{$prepname}->{is_parsed};
+		undef $self->{'prepd'}->{$sess_hash};
 	}
 
 	# save the prepd stmt for this session
-	$prepd->{$sess_hash}->{$prepname} = {
+	$self->{'prepd'}->{$sess_hash}->{$prepname} = {
 		query => $pg_msg->{query},
 		# we don't know exactly how many params we'll have when parsing
 		# so we delay the PREPARE query to the first BIND
@@ -66,16 +75,17 @@ sub process_parse {
 ## handle command B (bind)
 # @param $pg_msg hash with pg message properties
 sub process_bind {
+	my $self = shift;
 	my $pg_msg = shift;
 	my @params;
 	my $sess_hash = $pg_msg->{sess_hash};
 
 	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
 	
-	if (defined($prepd->{$sess_hash}->{$prepname})) {
+	if (defined($self->{'prepd'}->{$sess_hash}->{$prepname})) {
 
 		# execute the PREPARE stmt if it wasn't prepd yet
-		if (not $prepd->{$sess_hash}->{$prepname}->{is_parsed}) {
+		if (not $self->{'prepd'}->{$sess_hash}->{$prepname}->{is_parsed}) {
 
 			printf "PREPARE %s ", $prepname;
 
@@ -85,8 +95,8 @@ sub process_bind {
 				printf '(%s) ', substr('unknown,'x$pg_msg->{num_params},0,-1);
 			}
 			
-			printf "AS %s;\n", $prepd->{$sess_hash}->{$prepname}->{query};
-			$prepd->{$sess_hash}->{$prepname}->{is_parsed} = 1;
+			printf "AS %s;\n", $self->{'prepd'}->{$sess_hash}->{$prepname}->{query};
+			$self->{'prepd'}->{$sess_hash}->{$prepname}->{is_parsed} = 1;
 		}
 	}
 	else {
@@ -122,7 +132,7 @@ sub process_bind {
 			push @params, 'NULL';
 		}
 	}
-	$prepd->{$sess_hash}->{$prepname}->{params} = [ @params ] ;
+	$self->{'prepd'}->{$sess_hash}->{$prepname}->{params} = [ @params ] ;
 
 }
 
@@ -132,15 +142,16 @@ sub process_bind {
 # Here, we can saftly ignore nb_rows as there's no way to use 
 # portals in SQL but with the simple query protocol
 sub process_execute {
+	my $self = shift;
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
 	
 	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
 	
-	if (defined ($prepd->{$sess_hash}->{$prepname})) {		
+	if (defined ($self->{'prepd'}->{$sess_hash}->{$prepname})) {		
 		printf "EXECUTE %s", $prepname;
-		printf "(%s)", join (',', @{ $prepd->{$sess_hash}->{$prepname}->{params} })
-			if (scalar(@{ $prepd->{$sess_hash}->{$prepname}->{params} }));
+		printf "(%s)", join (',', @{ $self->{'prepd'}->{$sess_hash}->{$prepname}->{params} })
+			if (scalar(@{ $self->{'prepd'}->{$sess_hash}->{$prepname}->{params} }));
 		printf ";\n";
 	}
 	else {
@@ -156,6 +167,7 @@ sub process_execute {
 # Here, we can saftly ignore nb_rows as there's no way to use 
 # portals in SQL but with the simple query protocol 
 sub process_close {
+	my $self = shift;
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
 	
@@ -169,6 +181,7 @@ sub process_close {
 ## handle command Q (query)
 # @param $pg_msg hash with pg message properties
 sub process_query {
+	my $self = shift;
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
 	
@@ -178,12 +191,13 @@ sub process_query {
 ## handle command X (terminate)
 # @param $pg_msg hash with pg message properties
 sub process_disconnect {
+	my $self = shift;
 	# release all prepd stmt
 	
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
 	
-	delete $prepd->{$sess_hash};
+	delete $self->{'prepd'}->{$sess_hash};
 }
 
 1;
