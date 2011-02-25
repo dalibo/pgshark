@@ -102,31 +102,31 @@ sub longusage {
 }
 
 # get options
-my %o = (
+my %args = (
 	debug => 0,
 	help => 0,
 	plugin => ''
 );
 
-GetOptions(\%o, qw{
+GetOptions(\%args, qw{
 	help
 	debug+
 	plugin=s
 }) or usage();
 
-longusage() if ($o{help});
-usage() if ($o{plugin} eq '' );
+longusage() if ($args{help});
+usage() if ($args{plugin} eq '' );
 # check if given plugin name exist (avoid loading potential dangerous external unknown files)
-usage() if (not ($o{plugin} eq 'sql' or $o{plugin} eq 'normalize'));
+usage() if (not ($args{plugin} eq 'sql' or $args{plugin} eq 'normalize'));
 
 # set debug level given in options
-set_debug($o{debug});
+set_debug($args{debug});
 
-debug (1, "Options:\n%s\n", Dumper(\%o));
+debug (1, "Options:\n%s\n", Dumper(\%args));
 
 # load the plugin
-require "./pgShark/$o{plugin}.pm";
-$o{plugin}->import();
+require "./pgShark/$args{plugin}.pm";
+$args{plugin}->import();
 
 # opening the pcap file 
 # TODO support input file ?
