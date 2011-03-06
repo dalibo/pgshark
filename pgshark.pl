@@ -138,12 +138,13 @@ sub longusage {
 
 # get options
 my %args = (
-	debug => 0,
-	help => 0,
-	interface => '',
-	output => '',
-	port => 5432,
-	read => '',
+	'debug' => 0,
+	'help' => 0,
+	'interface' => '',
+	'output' => '',
+	'host' => '127.0.0.1',
+	'port' => 5432,
+	'read' => '',
 );
 
 Getopt::Long::Configure('bundling');
@@ -152,6 +153,7 @@ GetOptions(\%args, qw{
 	help
 	interface|i=s
 	output|o=s
+	host|p=s
 	port|p=s
 	read|r=s
 }) or usage();
@@ -170,6 +172,7 @@ $args{'output'} = ucfirst lc $args{'output'};
 usage("This output plugin does not exist.\n") if ( not (
 	   ($args{'output'} eq 'Sql')
 	or ($args{'output'} eq 'Normalize')
+	or ($args{'output'} eq 'Debug')
 ));
 
 # set debug level given in options
@@ -229,10 +232,15 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 		if ($ip->{'proto'} == IP_PROTO_TCP) {
 			# decode the TCP payload
 			$tcp = NetPacket::TCP->decode($ip->{'data'});
-			# we could add "$ip->{dest_ip}$tcp->{dest_port}" to this hash,
+			# we could add server ip and port to this hash,
 			# but we are suppose to work with only one server
-			$sess_hash = $ip->{'src_ip'} . $tcp->{'src_port'};
-			$sess_hash =~ s/\.//g; # useless but for better debug messages
+			if ($ip->{'src_ip'} eq $args{'host'} and $tcp->{'src_port'} == $args{'port'}) {
+				$sess_hash = $ip->{'dest_ip'} . $tcp->{'dest_port'};
+			}
+			else {
+				$sess_hash = $ip->{'src_ip'} . $tcp->{'src_port'};
+			}
+			$sess_hash =~ s/\.//g; # FIXME perf ? useless but for better debug messages
 		}
 
 		# check if we have data
@@ -284,7 +292,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							#   query=String
 							#   num_params=int16
 							#   params_types[]=int32[nb_formats]
-							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'P') {
+							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'P') {
 								my @params_types;
 								($pg_msg->{'name'}, $pg_msg->{'query'},
 									$pg_msg->{'num_params'}, @params_types
@@ -302,7 +310,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							#   formats[]=int16[nb_formats]
 							#   num_params=int16
 							#   params[]=(len=int32,value=char[len])[nb_params]
-							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'B') {
+							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'B') {
 								my @params_formats;
 								my @params;
 								my $msg = $pg_msg->{'data'};
@@ -348,7 +356,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							# message: F(E)
 							#   name=String
 							#   nb_rows=int32
-							if ( $pg_msg->{'type'} eq 'E') {
+							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'E') {
 								($pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('Z*N', $pg_msg->{'data'});
 
 								$processor->process_execute($pg_msg);
@@ -358,7 +366,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							# message: B(C)
 							#   type=char
 							#   name=String
-							if ($tcp->{'src_port'} = $args{'port'} and $pg_msg->{'type'} eq 'C') {
+							if ($tcp->{'src_port'} == $args{'port'} and $pg_msg->{'type'} eq 'C') {
 
 								$pg_msg->{'command'} = substr($pg_msg->{'data'}, 0, -1);;
 
@@ -369,7 +377,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							# message: F(C)
 							#   type=char
 							#   name=String
-							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'C') {
+							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'C') {
 
 								($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
 
@@ -379,7 +387,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 
 							# message: F(Q)
 							#    query=String
-							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'Q') {
+							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'Q') {
 
 								# we remove the last char:
 								# query are null terminated in pgsql proto and pg_len includes it
@@ -390,7 +398,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							}
 
 							# message: F(X)
-							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'X') {
+							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'X') {
 								$processor->process_disconnect($pg_msg);
 								last SWITCH;
 							}
