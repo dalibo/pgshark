@@ -360,7 +360,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							#   name=String
 							if ($tcp->{'src_port'} = $args{'port'} and $pg_msg->{'type'} eq 'C') {
 
-								($pg_msg->{'command'}) = substr($pg_msg->{'data'}, 0, -1);;
+								$pg_msg->{'command'} = substr($pg_msg->{'data'}, 0, -1);;
 
 								$processor->process_command_complete($pg_msg);
 								last SWITCH;
