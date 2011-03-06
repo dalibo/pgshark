@@ -3,6 +3,7 @@ package Xxx;
 use strict;
 use warnings;
 use pgShark::Utils;
+use Net::Pcap qw(:functions);
 
 ## TODO
 #  * ...
@@ -15,6 +16,15 @@ sub new {
 
 	my $self = {
 	};
+
+	# set the pcap filter to remove unneeded backend answer
+	my $filter = undef;
+
+	# the following filter reject TCP-only stuff and capture only frontend messages
+	pcap_compile($pcap, \$filter,
+		"((((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)", 0, 0
+	);
+	pcap_setfilter($pcap, $filter);
 
 	debug(1, "Xxx: Plugin loaded.\n");
 
