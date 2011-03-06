@@ -157,65 +157,58 @@ GetOptions(\%args, qw{
 }) or usage();
 
 
-longusage() if ($args{help});
+longusage() if ($args{'help'});
 
-usage("Argument --output is mandatory.\n") if $args{output} eq '';
+usage("Argument --output is mandatory.\n") if $args{'output'} eq '';
 
 usage("Arguments --interface and --read are incompatible.\nEither listen from the networkor open a pcap file.\n")
-	if $args{interface} ne '' and $args{read} ne '';
+	if $args{'interface'} ne '' and $args{'read'} ne '';
 
-$args{output} = ucfirst lc $args{output};
+$args{'output'} = ucfirst lc $args{'output'};
 
 # check if given plugin name exist (avoid loading potential dangerous external unknown files)
 usage("This output plugin does not exist.\n") if ( not (
-	($args{output} eq 'Sql')
-	or ($args{output} eq 'Normalize')
+	   ($args{'output'} eq 'Sql')
+	or ($args{'output'} eq 'Normalize')
 ));
 
 # set debug level given in options
-set_debug($args{debug});
+set_debug($args{'debug'});
 
 debug (1, "Options:\n%s\n", Dumper(\%args));
 
 # load the plugin
-require "./pgShark/$args{output}.pm";
+require "./pgShark/$args{'output'}.pm";
 
-my $processor = $args{output}->new(\%args);
+my $processor = $args{'output'}->new(\%args);
 
 ## opening the pcap handler
 # open a live capture on given interface
-if ($args{interface} ne '') {
+if ($args{'interface'} ne '') {
 
-	unless ($pcap = pcap_open_live($args{interface}, 65535, 0, 0, \$err) ) {
-		debug (0, "Can not open interface '%s':\n", $args{interface});
+	unless ($pcap = pcap_open_live($args{'interface'}, 65535, 0, 0, \$err) ) {
+		debug (0, "Can not open interface '%s':\n", $args{'interface'});
 		die ($err);
 	}
-	my $filter = undef;
 
-	# the following filter reject TCP-only stuff and capture only frontend messages
-	pcap_compile($pcap, \$filter,
-		"tcp and dst port $args{port} and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)", 0, 0
-	);
-	pcap_setfilter($pcap, $filter);
-
-	debug(1, "Listening from network on interace '%s'.\n", $args{interface});
+	debug(1, "Listening from network on interace '%s'.\n", $args{'interface'});
 }
 # we have no interface to listen on,
 # either open given pcap file to read from or start reading from stdin
 else {
 	# read from stdin if no pcap file given
-	$args{read} = '-' if $args{read} eq '';
+	$args{'read'} = '-' if $args{'read'} eq '';
 
-	unless ($pcap = pcap_open_offline($args{read}, \$err)) {
-		debug (0, "Can not read from file '%s':\n", $args{read});
+	unless ($pcap = pcap_open_offline($args{'read'}, \$err)) {
+		debug (0, "Can not read from file '%s':\n", $args{'read'});
 		die ($err);
 	}
 
-	if ($args{read} eq '-') {
+	if ($args{'read'} eq '-') {
 		debug(1, "Reading Pcap data from stdin.\n");
 	}
 	else {
-		debug(1, "Reading from Pcap file '%s'.\n", $args{read});
+		debug(1, "Reading from Pcap file '%s'.\n", $args{'read'});
 	}
 }
 
@@ -227,31 +220,31 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 
 	$eth = NetPacket::Ethernet->decode($pckt);
 
-	if (defined($eth->{data})
-	and defined($eth->{type})
-	and ($eth->{type} == ETH_TYPE_IP)) {
+	if (defined($eth->{'data'})
+	and defined($eth->{'type'})
+	and ($eth->{'type'} == ETH_TYPE_IP)) {
 		# decode the IP payload
-		$ip = NetPacket::IP->decode($eth->{data});
+		$ip = NetPacket::IP->decode($eth->{'data'});
 
-		if ($ip->{proto} == IP_PROTO_TCP) {
+		if ($ip->{'proto'} == IP_PROTO_TCP) {
 			# decode the TCP payload
-			$tcp = NetPacket::TCP->decode($ip->{data});
+			$tcp = NetPacket::TCP->decode($ip->{'data'});
 			# we could add "$ip->{dest_ip}$tcp->{dest_port}" to this hash,
 			# but we are suppose to work with only one server
-			$sess_hash = $ip->{src_ip} . $tcp->{src_port};
+			$sess_hash = $ip->{'src_ip'} . $tcp->{'src_port'};
 			$sess_hash =~ s/\.//g; # useless but for better debug messages
 		}
 
 		# check if we have data
-		if (length $tcp->{data}) {
+		if (length $tcp->{'data'}) {
 
-			debug(2, "packet: #=%d len=%s, caplen=%s\n", $pckt_num, map { $pckt_hdr{$_} } qw(len caplen));
-			debug(2, "IP:TCP %s:%d -> %s:%d\n", $ip->{src_ip}, $tcp->{src_port}, $ip->{dest_ip}, $tcp->{dest_port});
+			debug(3, "packet: #=%d len=%s, caplen=%s\n", $pckt_num, map { $pckt_hdr{$_} } qw(len caplen));
+			debug(3, "IP:TCP %s:%d -> %s:%d\n", $ip->{'src_ip'}, $tcp->{'src_port'}, $ip->{'dest_ip'}, $tcp->{'dest_port'});
 
 			if (! defined($sessions->{$sess_hash}) ) {
 				# we are opening a new pg session, wait for a valid message type from frontend
-				if (pack('A', $tcp->{data}) =~ /[BCdcfDEHFPpQSX]/) {
-					debug(2, "PGSQL: creating a new session %s\n", $sess_hash);
+				if (pack('A', $tcp->{'data'}) =~ /[BCdcfDEHFPpQSX]/) {
+					debug(3, "PGSQL: creating a new session %s\n", $sess_hash);
 					$sessions->{$sess_hash} = {
 						data => '',
 						pg_len => 0,
@@ -262,27 +255,27 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 			# if we have a session with data
 			if (defined($sessions->{$sess_hash}) ) {
 				# the session is already authenticated we should get type'd messages
-				$sessions->{$sess_hash}->{data} .= $tcp->{data};
-				my $data_len = length $sessions->{$sess_hash}->{data};
+				$sessions->{$sess_hash}->{'data'} .= $tcp->{'data'};
+				my $data_len = length $sessions->{$sess_hash}->{'data'};
 
 				# if we have at least 5 byte, we can analyze the begin of message
 				while ($data_len >= 5) {
 
 					# hash about message informations
 					my $pg_msg = {
-						sess_hash => $sess_hash
+						'sess_hash' => $sess_hash
 					};
-					($pg_msg->{type}, $pg_msg->{len}) = unpack('AN', $sessions->{$sess_hash}->{data});
+					($pg_msg->{'type'}, $pg_msg->{'len'}) = unpack('AN', $sessions->{$sess_hash}->{'data'});
 
 					# pg_len is the size of the message length field + data. it doesn't include the message type char
 					# so a full pgsql message is pg_len + 1
-					if ($data_len >= $pg_msg->{len} + 1) {
+					if ($data_len >= $pg_msg->{'len'} + 1) {
 						# we have enough data for a message
 
-						debug(2, "    PGSQL: pckt=%d session=%s type=%s, len=%d, data_len=%d\n", $pckt_num, $sess_hash,
-							$pg_msg->{type}, $pg_msg->{len}, $data_len
+						debug(3, "    PGSQL: pckt=%d, session=%s type=%s, len=%d, data_len=%d \n",
+							$pckt_num, $sess_hash, $pg_msg->{'type'}, $pg_msg->{'len'}, $data_len
 						);
-						$pg_msg->{data} = substr($sessions->{$sess_hash}->{data}, 5, $pg_msg->{len} - 4);
+						$pg_msg->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 5, $pg_msg->{'len'} - 4);
 
 						SWITCH: {
 							# message: P
@@ -290,12 +283,12 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							#   query=String
 							#   nun_params=int16
 							#   params_types[]=int32[nb_formats]
-							if ( $pg_msg->{type} eq 'P') {
+							if ( $pg_msg->{'type'} eq 'P') {
 								my @params_types;
-								($pg_msg->{name}, $pg_msg->{query},
-									$pg_msg->{num_params}, @params_types
-								) = unpack('Z*Z*nN*', $pg_msg->{data});
-								$pg_msg->{params_types} = [@params_types];
+								($pg_msg->{'name'}, $pg_msg->{'query'},
+									$pg_msg->{'num_params'}, @params_types
+								) = unpack('Z*Z*nN*', $pg_msg->{'data'});
+								$pg_msg->{'params_types'} = [@params_types];
 
 								$processor->process_parse($pg_msg);
 								last SWITCH;
@@ -308,24 +301,24 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							#   formats[]=int16[nb_formats]
 							#   nun_params=int16
 							#   params[]=(len=int32,value=char[len])[nb_params]
-							if ( $pg_msg->{type} eq 'B') {
+							if ( $pg_msg->{'type'} eq 'B') {
 								my @params_formats;
 								my @params;
-								my $msg = $pg_msg->{data};
+								my $msg = $pg_msg->{'data'};
 
-								($pg_msg->{portal}, $pg_msg->{name}, $pg_msg->{num_formats}) = unpack('Z* Z* n', $msg);
+								($pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}) = unpack('Z* Z* n', $msg);
 								# we add 1 bytes for both portal and name that are null-terminated
 								# + 2 bytes of int16 for $num_formats
-								$msg = substr($msg, length($pg_msg->{portal})+1 + length($pg_msg->{name})+1 +2);
+								$msg = substr($msg, length($pg_msg->{'portal'})+1 + length($pg_msg->{'name'})+1 +2);
 
 								# catch formats and the $num_params as well
-								@params_formats = unpack("n$pg_msg->{num_formats} n", $msg);
-								$pg_msg->{num_params} = pop @params_formats;
-								$pg_msg->{params_types} = [@params_formats];
+								@params_formats = unpack("n$pg_msg->{'num_formats'} n", $msg);
+								$pg_msg->{'num_params'} = pop @params_formats;
+								$pg_msg->{'params_types'} = [@params_formats];
 
-								$msg = substr($msg, ($pg_msg->{num_formats}+1) * 2);
+								$msg = substr($msg, ($pg_msg->{'num_formats'}+1) * 2);
 
-								for (my $i=0; $i < $pg_msg->{num_params}; $i++) {
+								for (my $i=0; $i < $pg_msg->{'num_params'}; $i++) {
 									# unpack hasn't 32bit signed network template, so we use l>
 									my ($len) = unpack('l>', $msg);
 
@@ -345,7 +338,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 
 								}
 
-								$pg_msg->{params} = [@params];
+								$pg_msg->{'params'} = [@params];
 
 								$processor->process_bind($pg_msg);
 								last SWITCH;
@@ -354,8 +347,8 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							# message: E
 							#   name=String
 							#   nb_rows=int32
-							if ( $pg_msg->{type} eq 'E') {
-								($pg_msg->{name}, $pg_msg->{nb_rows}) = unpack('Z*N', $pg_msg->{data});
+							if ( $pg_msg->{'type'} eq 'E') {
+								($pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('Z*N', $pg_msg->{'data'});
 
 								$processor->process_execute($pg_msg);
 								last SWITCH;
@@ -364,9 +357,9 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							# message: C
 							#   type=char
 							#   name=String
-							if ( $pg_msg->{type} eq 'C') {
+							if ( $pg_msg->{'type'} eq 'C') {
 
-								($pg_msg->{type}, $pg_msg->{name}) = unpack('AZ*', $pg_msg->{data});
+								($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
 
 								$processor->process_close($pg_msg);
 								last SWITCH;
@@ -374,28 +367,28 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 
 							# message: Q
 							#    query=String
-							if ( $pg_msg->{type} eq 'Q') {
+							if ( $pg_msg->{'type'} eq 'Q') {
 
 								# we remove the last char:
 								# query are null terminated in pgsql proto and pg_len includes it
-								$pg_msg->{query} = substr($pg_msg->{data}, 0, -1);
+								$pg_msg->{'query'} = substr($pg_msg->{'data'}, 0, -1);
 
 								$processor->process_query($pg_msg);
 								last SWITCH;
 							}
 
 							# message: X
-							if ( $pg_msg->{type} eq 'X') {
+							if ( $pg_msg->{'type'} eq 'X') {
 								$processor->process_disconnect($pg_msg);
 								last SWITCH;
 							}
 
-							debug(2,"ignoring message type: %s\n", $pg_msg->{type});
+							debug(3,"ignoring message type: %s\n", $pg_msg->{'type'});
 						}
 
 						### end of processing, remove processed data
-						$sessions->{$sess_hash}->{data} = substr($sessions->{$sess_hash}->{data}, 1 + $pg_msg->{len});
-						$data_len = length $sessions->{$sess_hash}->{data};
+						$sessions->{$sess_hash}->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 1 + $pg_msg->{'len'});
+						$data_len = length $sessions->{$sess_hash}->{'data'};
 
 						$num_queries++;
 					}
@@ -410,8 +403,8 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 				# simple while tracking data splitted between many frame.
 				# we can do way much better by tracking the session disconnection.
 				if ($data_len == 0) {
-					debug(2, "PGSQL: data in session empty, destroying\n");
-					undef $sessions->{$sess_hash};
+					debug(3, "PGSQL: data in session empty, destroying\n");
+					delete $sessions->{$sess_hash};
 				}
 			}
 		}
