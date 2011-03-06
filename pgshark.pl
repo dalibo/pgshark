@@ -172,7 +172,6 @@ $args{'output'} = ucfirst lc $args{'output'};
 usage("This output plugin does not exist.\n") if ( not (
 	   ($args{'output'} eq 'Sql')
 	or ($args{'output'} eq 'Normalize')
-	or ($args{'output'} eq 'Debug')
 ));
 
 # set debug level given in options
