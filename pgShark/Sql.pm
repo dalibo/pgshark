@@ -27,19 +27,19 @@ sub new {
 		# }
 		'prepd' => {}
 	};
-	
+
 	debug(1, "SQL: Plugin loaded.\n");
-	
+
 	return bless($self, $class);
 }
 
-# handle C command (close) 
+# handle C command (close)
 sub deallocate {
 	printf "DEALLOCATE %s;\n", shift;
 }
 
 # We cannot use unnamed prepd stmt in SQL.
-# As we cannot have more than one unnamed prepd stmt 
+# As we cannot have more than one unnamed prepd stmt
 # per session, we create a name for them based
 # on their session properties
 sub prep_name {
@@ -53,9 +53,11 @@ sub process_parse {
 	my $self = shift;
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
-	
+
+	debug(2, "SQL: call process_parse (name, query) = ('$pg_msg->{name}', $pg_msg->{query})\n");
+
 	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
-	
+
 	# we can only have one anonymous prepd stmt per session, deallocate previous anonym xact
 	if (($pg_msg->{name} eq '') and (defined $self->{'prepd'}->{$sess_hash}->{$prepname})) {
 		deallocate($prepname) if $self->{'prepd'}->{$sess_hash}->{$prepname}->{is_parsed};
@@ -80,8 +82,10 @@ sub process_bind {
 	my @params;
 	my $sess_hash = $pg_msg->{sess_hash};
 
+	debug(2, "SQL: call process_bind\n");
+
 	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
-	
+
 	if (defined($self->{'prepd'}->{$sess_hash}->{$prepname})) {
 
 		# execute the PREPARE stmt if it wasn't prepd yet
@@ -89,12 +93,12 @@ sub process_bind {
 
 			printf "PREPARE %s ", $prepname;
 
-			# print parameters: we use unknown as we can not know 
+			# print parameters: we use unknown as we can not know
 			# args types in SQL mode.
 			if ($pg_msg->{num_params}) {
 				printf '(%s) ', substr('unknown,'x$pg_msg->{num_params},0,-1);
 			}
-			
+
 			printf "AS %s;\n", $self->{'prepd'}->{$sess_hash}->{$prepname}->{query};
 			$self->{'prepd'}->{$sess_hash}->{$prepname}->{is_parsed} = 1;
 		}
@@ -107,22 +111,22 @@ sub process_bind {
 
 	## TODO
 	# mess with text/binary format !
-	# cf. @params_formats and http://www.postgresql.org/docs/9.0/interactive/protocol-message-formats.html 
+	# cf. @params_formats and http://www.postgresql.org/docs/9.0/interactive/protocol-message-formats.html
 	# @ Bind (F) :
 	# [...]
 	# Int16
-	# 
-	# The number of parameter format codes that follow (denoted C below). This can be zero to indicate that there are 
-	# no parameters or that the parameters all use the default format (text); or one, in which case the 
+	#
+	# The number of parameter format codes that follow (denoted C below). This can be zero to indicate that there are
+	# no parameters or that the parameters all use the default format (text); or one, in which case the
 	# specified format code is applied to all parameters; or it can equal the actual number of parameters.
-	# 
+	#
 	# Int16[C]
-	# 
+	#
 	# The parameter format codes. Each must presently be zero (text) or one (binary).
-	
+
 	## escape params
 	# copy the params array instead of direct using the reference
-	
+
 	foreach my $param (@{$pg_msg->{params}}) {
 		if (defined $param) {
 			$param =~ s/'/''/g;
@@ -139,16 +143,18 @@ sub process_bind {
 ## handle command E (execute)
 # @param $pg_msg hash with pg message properties
 #
-# Here, we can saftly ignore nb_rows as there's no way to use 
+# Here, we can saftly ignore nb_rows as there's no way to use
 # portals in SQL but with the simple query protocol
 sub process_execute {
 	my $self = shift;
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
-	
+
+	debug(2, "SQL: call process_execute\n");
+
 	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
-	
-	if (defined ($self->{'prepd'}->{$sess_hash}->{$prepname})) {		
+
+	if (defined ($self->{'prepd'}->{$sess_hash}->{$prepname})) {
 		printf "EXECUTE %s", $prepname;
 		printf "(%s)", join (',', @{ $self->{'prepd'}->{$sess_hash}->{$prepname}->{params} })
 			if (scalar(@{ $self->{'prepd'}->{$sess_hash}->{$prepname}->{params} }));
@@ -167,7 +173,9 @@ sub process_close {
 	my $self = shift;
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
-	
+
+	debug(2, "SQL: call process_close\n");
+
 	my $prepname = prep_name($pg_msg->{name}, $sess_hash);
 
 	if ($pg_msg->{type} eq 'S') {
@@ -181,7 +189,9 @@ sub process_query {
 	my $self = shift;
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
-	
+
+	debug(2, "SQL: call process_query\n");
+
 	printf "%s;\n", $pg_msg->{query};
 }
 
@@ -190,10 +200,12 @@ sub process_query {
 sub process_disconnect {
 	my $self = shift;
 	# release all prepd stmt
-	
+
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{sess_hash};
-	
+
+	debug(2, "SQL: call process_disconnect\n");
+
 	delete $self->{'prepd'}->{$sess_hash};
 }
 
