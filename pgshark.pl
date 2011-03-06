@@ -263,7 +263,8 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 
 					# hash about message informations
 					my $pg_msg = {
-						'sess_hash' => $sess_hash
+						'sess_hash' => $sess_hash,
+						'timestamp' => "$pckt_hdr{'tv_sec'}.$pckt_hdr{'tv_usec'}"
 					};
 					($pg_msg->{'type'}, $pg_msg->{'len'}) = unpack('AN', $sessions->{$sess_hash}->{'data'});
 
@@ -272,8 +273,8 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 					if ($data_len >= $pg_msg->{'len'} + 1) {
 						# we have enough data for a message
 
-						debug(3, "    PGSQL: pckt=%d, session=%s type=%s, len=%d, data_len=%d \n",
-							$pckt_num, $sess_hash, $pg_msg->{'type'}, $pg_msg->{'len'}, $data_len
+						debug(3, "    PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, len=%d, data_len=%d \n",
+							$pckt_num, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $pg_msg->{'len'}, $data_len
 						);
 						$pg_msg->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 5, $pg_msg->{'len'} - 4);
 
