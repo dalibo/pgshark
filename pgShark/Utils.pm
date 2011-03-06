@@ -19,7 +19,7 @@ sub set_debug {
 sub debug {
 	my $lvl = shift;
 	my $format = shift;
-	printf(STDERR $format, @_) if $debug_lvl >= $lvl;
+	printf(STDERR "debug(%d): $format", $lvl, @_) if $debug_lvl >= $lvl;
 }
 
 1
