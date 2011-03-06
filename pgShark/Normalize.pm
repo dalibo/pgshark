@@ -3,7 +3,9 @@ package Normalize;
 use strict;
 use warnings;
 use Digest::MD5 qw(md5_base64);
+use Net::Pcap qw(:functions);
 use pgShark::Utils;
+use Data::Dumper;
 
 ## TODO
 #  add some option to control what we want to catch:
@@ -13,6 +15,10 @@ use pgShark::Utils;
 
 sub new {
 	my $class = shift;
+	my $args = shift;
+	my $pcap = shift;
+	$pcap = $$pcap;
+
 	my $self = {
 		## hash handling normalized queries
 		# $normalized = {
@@ -22,9 +28,20 @@ sub new {
 		# }
 		'normalized' => {}
 	};
-	
+
+	# set the pcap filter to remove unneeded backend answer
+	my $filter = undef;
+	print Dumper($pcap);
+	print "blah\n";
+
+	# the following filter reject TCP-only stuff and capture only frontend messages
+	pcap_compile($pcap, \$filter,
+		"(tcp and dst port $args->{'port'}) and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)", 0, 0
+	);
+	pcap_setfilter($pcap, $filter);
+
 	debug(1, "Normalize: Plugin loaded.\n");
-	
+
 	return bless($self, $class);
 }
 
@@ -34,9 +51,9 @@ sub new {
 sub normalize {
 	my $self = shift;
 	my $query = shift;
-	
+
 	chomp $query;
-	
+
 	# remove bad escaped quotes in text so they are not in our way
 	# for other cleaning stuffs. We'll take care of others '' later
 	$query =~ s/\\'//g;
@@ -44,7 +61,7 @@ sub normalize {
 	$query =~ s/\s+/ /g;
 	# empty text
 	$query =~ s/'[^']*'/''/g;
-	# remove all remaining '' (that were escaping ') 
+	# remove all remaining '' (that were escaping ')
 	# left behind the previous substitution
 	$query =~ s/''('')+/''/g;
 	# remove numbers
@@ -56,7 +73,7 @@ sub normalize {
 	#rewrite params, some of them might have been drop in a IN parameter
 	my $pi=1;
 	$query =~ s/\$[0-9]+/'$'.$pi++/gie;
-	
+
 	my $query_hash = md5_base64($query);
 
 	if (not defined $self->{'normalized'}->{$query_hash}) {
@@ -68,7 +85,7 @@ sub normalize {
 	else {
 		$self->{'normalized'}->{$query_hash}->{count}++;
 	}
-	
+
 	return $query_hash;
 }
 
@@ -87,7 +104,7 @@ sub process_parse {
 	my $pg_msg = shift;
 
 	my $query_hash = $self->normalize($pg_msg->{query});
-	
+
 	if ($self->{'normalized'}->{$query_hash}->{count} == 1) {
 		print "PREPARE xxx(...) AS $self->{'normalized'}->{$query_hash}->{query}\n\n";
 	}
@@ -121,7 +138,7 @@ sub process_query {
 	my $pg_msg = shift;
 
 	my $query_hash = $self->normalize($pg_msg->{query});
-	
+
 	if ($self->{'normalized'}->{$query_hash}->{count} == 1) {
 		print "$self->{'normalized'}->{$query_hash}->{query}\n\n";
 	}

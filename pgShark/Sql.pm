@@ -3,6 +3,7 @@ package Sql;
 use strict;
 use warnings;
 use pgShark::Utils;
+use Net::Pcap qw(:functions);
 use Data::Dumper;
 
 ## TODO
@@ -16,6 +17,10 @@ our @EXPORT = qw/process_parse process_bind process_execute process_close proces
 
 sub new {
 	my $class = shift;
+	my $args = shift;
+	my $pcap = shift;
+	$pcap = $$pcap;
+
 	my $self = {
 		## hash handling prepd stmt for all sessions
 		# $prepd = {
@@ -27,6 +32,15 @@ sub new {
 		# }
 		'prepd' => {}
 	};
+
+	# set the pcap filter to remove unneeded backend answer
+	my $filter = undef;
+
+	# the following filter reject TCP-only stuff and capture only frontend messages
+	pcap_compile($pcap, \$filter,
+		"(tcp and dst port $args->{'port'}) and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)", 0, 0
+	);
+	pcap_setfilter($pcap, $filter);
 
 	debug(1, "SQL: Plugin loaded.\n");
 

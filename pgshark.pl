@@ -177,11 +177,6 @@ set_debug($args{'debug'});
 
 debug (1, "Options:\n%s\n", Dumper(\%args));
 
-# load the plugin
-require "./pgShark/$args{'output'}.pm";
-
-my $processor = $args{'output'}->new(\%args);
-
 ## opening the pcap handler
 # open a live capture on given interface
 if ($args{'interface'} ne '') {
@@ -211,6 +206,11 @@ else {
 		debug(1, "Reading from Pcap file '%s'.\n", $args{'read'});
 	}
 }
+
+# load the plugin
+require "./pgShark/$args{'output'}.pm";
+
+my $processor = $args{'output'}->new(\%args, \$pcap);
 
 while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 
