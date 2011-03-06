@@ -279,12 +279,12 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 						$pg_msg->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 5, $pg_msg->{'len'} - 4);
 
 						SWITCH: {
-							# message: P
+							# message: F(P)
 							#   name=String
 							#   query=String
-							#   nun_params=int16
+							#   num_params=int16
 							#   params_types[]=int32[nb_formats]
-							if ( $pg_msg->{'type'} eq 'P') {
+							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'P') {
 								my @params_types;
 								($pg_msg->{'name'}, $pg_msg->{'query'},
 									$pg_msg->{'num_params'}, @params_types
@@ -295,14 +295,14 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								last SWITCH;
 							}
 
-							# message: B
+							# message: F(B)
 							#   portal=String
 							#   name=String
-							#   nun_formats=int16
+							#   num_formats=int16
 							#   formats[]=int16[nb_formats]
-							#   nun_params=int16
+							#   num_params=int16
 							#   params[]=(len=int32,value=char[len])[nb_params]
-							if ( $pg_msg->{'type'} eq 'B') {
+							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'B') {
 								my @params_formats;
 								my @params;
 								my $msg = $pg_msg->{'data'};
@@ -345,7 +345,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								last SWITCH;
 							}
 
-							# message: E
+							# message: F(E)
 							#   name=String
 							#   nb_rows=int32
 							if ( $pg_msg->{'type'} eq 'E') {
@@ -355,10 +355,21 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								last SWITCH;
 							}
 
-							# message: C
+							# message: B(C)
 							#   type=char
 							#   name=String
-							if ( $pg_msg->{'type'} eq 'C') {
+							if ($tcp->{'src_port'} = $args{'port'} and $pg_msg->{'type'} eq 'C') {
+
+								($pg_msg->{'command'}) = $pg_msg->{'query'} = substr($pg_msg->{'data'}, 0, -1);;
+
+								$processor->process_command_complete($pg_msg);
+								last SWITCH;
+							}
+
+							# message: F(C)
+							#   type=char
+							#   name=String
+							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'C') {
 
 								($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
 
@@ -366,9 +377,9 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								last SWITCH;
 							}
 
-							# message: Q
+							# message: F(Q)
 							#    query=String
-							if ( $pg_msg->{'type'} eq 'Q') {
+							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'Q') {
 
 								# we remove the last char:
 								# query are null terminated in pgsql proto and pg_len includes it
@@ -378,8 +389,8 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								last SWITCH;
 							}
 
-							# message: X
-							if ( $pg_msg->{'type'} eq 'X') {
+							# message: F(X)
+							if ($tcp->{'dest_port'} = $args{'port'} and $pg_msg->{'type'} eq 'X') {
 								$processor->process_disconnect($pg_msg);
 								last SWITCH;
 							}

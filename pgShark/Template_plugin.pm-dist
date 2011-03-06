@@ -31,55 +31,61 @@ sub new {
 	return bless($self, $class);
 }
 
-# handle C command (close)
+# handle F(C) command (close)
 # @param $pg_msg hash with pg message properties
 sub deallocate {
 	my $self = shift;
 	my $pg_msg = shift;
 }
 
-## handle P command (parse)
+## handle F(P) command (parse)
 # @param $pg_msg hash with pg message properties
 sub process_parse {
 	my $self = shift;
 	my $pg_msg = shift;
 }
 
-## handle command B (bind)
+## handle command F(B) (bind)
 # @param $pg_msg hash with pg message properties
 sub process_bind {
 	my $self = shift;
 	my $pg_msg = shift;
 }
 
-## handle command E (execute)
+## handle command F(E) (execute)
 # @param $pg_msg hash with pg message properties
 sub process_execute {
 	my $self = shift;
 	my $pg_msg = shift;
 }
 
-## handle command C (close)
+## handle command F(C) (close)
 # @param $pg_msg hash with pg message properties
 sub process_close {
 	my $self = shift;
 	my $pg_msg = shift;
 }
 
-## handle command Q (query)
+## handle command F(Q) (query)
 # @param $pg_msg hash with pg message properties
 sub process_query {
 	my $self = shift;
 	my $pg_msg = shift;
 }
 
-## handle command X (terminate)
+## handle command F(X) (terminate)
 # @param $pg_msg hash with pg message properties
 sub process_disconnect {
 	my $self = shift;
 	my $pg_msg = shift;
 }
 
+## handle command B(X) (command complete)
+# @param $pg_msg hash with pg message properties
+sub process_command_complete {
+	my $self = shift;
+	my $pg_msg = shift;
+}
 
 sub DESTROY {
 	my $self = shift;
