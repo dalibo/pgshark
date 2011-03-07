@@ -218,7 +218,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 
 	$pckt_num++;
 	my ($eth, $ip, $tcp);
-	my ($sess_hash);
+	my ($sess_hash, $is_srv);
 
 	$eth = NetPacket::Ethernet->decode($pckt);
 
@@ -234,9 +234,11 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 			# we could add server ip and port to this hash,
 			# but we are suppose to work with only one server
 			if ($ip->{'src_ip'} eq $args{'host'} and $tcp->{'src_port'} == $args{'port'}) {
+				$is_srv = 1;
 				$sess_hash = $ip->{'dest_ip'} . $tcp->{'dest_port'};
 			}
 			else {
+				$is_srv = 0;
 				$sess_hash = $ip->{'src_ip'} . $tcp->{'src_port'};
 			}
 			$sess_hash =~ s/\.//g; # FIXME perf ? useless but for better debug messages
@@ -286,21 +288,6 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 						$pg_msg->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 5, $pg_msg->{'len'} - 4);
 
 						SWITCH: {
-							# message: F(P)
-							#   name=String
-							#   query=String
-							#   num_params=int16
-							#   params_types[]=int32[nb_formats]
-							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'P') {
-								my @params_types;
-								($pg_msg->{'name'}, $pg_msg->{'query'},
-									$pg_msg->{'num_params'}, @params_types
-								) = unpack('Z*Z*nN*', $pg_msg->{'data'});
-								$pg_msg->{'params_types'} = [@params_types];
-
-								$processor->process_parse($pg_msg);
-								last SWITCH;
-							}
 
 							# message: F(B)
 							#   portal=String
@@ -309,7 +296,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							#   formats[]=int16[nb_formats]
 							#   num_params=int16
 							#   params[]=(len=int32,value=char[len])[nb_params]
-							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'B') {
+							if (not $is_srv and $pg_msg->{'type'} eq 'B') {
 								my @params_formats;
 								my @params;
 								my $msg = $pg_msg->{'data'};
@@ -352,20 +339,10 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								last SWITCH;
 							}
 
-							# message: F(E)
-							#   name=String
-							#   nb_rows=int32
-							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'E') {
-								($pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('Z*N', $pg_msg->{'data'});
-
-								$processor->process_execute($pg_msg);
-								last SWITCH;
-							}
-
 							# message: B(C)
 							#   type=char
 							#   name=String
-							if ($tcp->{'src_port'} == $args{'port'} and $pg_msg->{'type'} eq 'C') {
+							if ($is_srv and $pg_msg->{'type'} eq 'C') {
 
 								$pg_msg->{'command'} = substr($pg_msg->{'data'}, 0, -1);;
 
@@ -376,7 +353,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							# message: F(C)
 							#   type=char
 							#   name=String
-							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'C') {
+							if (not $is_srv and $pg_msg->{'type'} eq 'C') {
 
 								($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
 
@@ -384,9 +361,35 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								last SWITCH;
 							}
 
+							# message: F(E)
+							#   name=String
+							#   nb_rows=int32
+							if (not $is_srv and $pg_msg->{'type'} eq 'E') {
+								($pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('Z*N', $pg_msg->{'data'});
+
+								$processor->process_execute($pg_msg);
+								last SWITCH;
+							}
+
+							# message: F(P)
+							#   name=String
+							#   query=String
+							#   num_params=int16
+							#   params_types[]=int32[nb_formats]
+							if (not $is_srv and $pg_msg->{'type'} eq 'P') {
+								my @params_types;
+								($pg_msg->{'name'}, $pg_msg->{'query'},
+									$pg_msg->{'num_params'}, @params_types
+								) = unpack('Z*Z*nN*', $pg_msg->{'data'});
+								$pg_msg->{'params_types'} = [@params_types];
+
+								$processor->process_parse($pg_msg);
+								last SWITCH;
+							}
+
 							# message: F(Q)
 							#    query=String
-							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'Q') {
+							if (not $is_srv and $pg_msg->{'type'} eq 'Q') {
 
 								# we remove the last char:
 								# query are null terminated in pgsql proto and pg_len includes it
@@ -397,14 +400,14 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 							}
 
 							# message: F(X)
-							if ($tcp->{'dest_port'} == $args{'port'} and $pg_msg->{'type'} eq 'X') {
+							if (not $is_srv and $pg_msg->{'type'} eq 'X') {
 								$processor->process_disconnect($pg_msg);
 								last SWITCH;
 							}
 
 							# message: B(Z)
 							#   status=Char
-							if ($tcp->{'src_port'} == $args{'port'} and $pg_msg->{'type'} eq 'Z') {
+							if ($is_srv and $pg_msg->{'type'} eq 'Z') {
 								$pg_msg->{'status'} = $pg_msg->{'data'};
 
 								$processor->process_ready($pg_msg);
