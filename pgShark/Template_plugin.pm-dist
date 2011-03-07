@@ -31,13 +31,6 @@ sub new {
 	return bless($self, $class);
 }
 
-# handle F(C) command (close)
-# @param $pg_msg hash with pg message properties
-sub deallocate {
-	my $self = shift;
-	my $pg_msg = shift;
-}
-
 ## handle F(P) command (parse)
 # @param $pg_msg hash with pg message properties
 sub process_parse {
@@ -80,7 +73,7 @@ sub process_disconnect {
 	my $pg_msg = shift;
 }
 
-## handle command B(X) (command complete)
+## handle command B(C) (command complete)
 # @param $pg_msg hash with pg message properties
 sub process_command_complete {
 	my $self = shift;
@@ -93,8 +86,6 @@ sub process_ready {
 	my $self = shift;
 	my $pg_msg = shift;
 }
-
-# message: B(Z)
 
 sub DESTROY {
 	my $self = shift;
