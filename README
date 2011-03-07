@@ -2,54 +2,77 @@ pgshark.pl
     pgshark.pl - Mess with PostgreSQL client's traffic
 
 SYNOPSIS
-    * pgshark.pl --help
-
-    * pgshark.pl [--debug] {--plugin plugin_name}
-
-      Where plugin_name could be *sql* or *normalize*.
+    pgshark.pl --help
+    pgshark.pl [--debug] [--read file] {--output plugin_name}
+      Where plugin_name could be *sql* or *normalize* or *debug*.
 
 DESCRIPTION
     This program study PostgreSQL traffic captured in tcpdump format and is
     able to make various things with extracted client's activities.
 
-    pgshark comes with various plugins to do various things with client's
-    traffic.
+    pgshark comes with various output plugins to do various things with
+    PostgreSQL client's traffic.
 
     Presently, pgshark is only able to read tcpdump files from its standart
     input.
 
-    * -h, --help
-
-      Show this help message and exit.
-
-    * -d, --debug
-
+    -d, --debug
       Print some debug messages to the standart error. The more you repeat
       this option, the more pgshark will be verbose. (well, presently, only
       one level of debug from core only...)
 
-    * -p, --plugin
+    --help
+      Show this help message and exit.
 
-      Select the traffic processing plugin. See section "PLUGINS".
+    --i, --interface <interface name>
+      Capture PostgreSQL traffic directly from the given network interface.
+      Conflict with --read. By default, pgshark will read from stdin if
+      neither --read or --interface are given.
+
+    -o, --output <plugin name>
+      Select the traffic processing output plugin. This parameter value is
+      case-insensitive (eg. SQL, Sql and sql wil all select the SQL plugin
+      output). See section "PLUGINS".
+
+    -p, --port <port>
+      Give the port the PostgreSQL backend is listening on.
+
+    -r, --read <path to file>
+      Read PostgreSQL traffic from given pcap file. Conflict with
+      --interface. By default, pgshark will read from stdin if neither
+      --read or --interface are given.
 
 PLUGINS
-    * sql
-
+    sql
       The sql plugin write captured queries on stdout. Because of limitation
       of SQL language it doesn't support unnamed prepared statement, so it
       actually name them.
 
       Presently, this plugin doesn't support cursors.
 
-    * normalize
+    normalize
+      The normalize plugin will try to normalize queries and prepared
+      queries and output them to stdoud. It aims to give you a list of
+      unique queries, however the number of time they has been send by
+      clients and whatever their parameters were.
 
-      The normalize will try to normalize queries and prepared queries and
-      output them to stdoud. It aims to give you a list of unique queries,
-      however the number of time they has been send by clients and whatever
-      their parameters were.
+    debug
+      The debug plugin will output the PostgreSQL messages in human readable
+      format. Usefull to analyze what is in a network dump before using
+      pgshark on some other duties.
 
 EXAMPLES
-    cat some_capture.pcap | pgshark.pl --plugin SQL
+    "cat some_capture.pcap* | pgshark.pl --output SQL"
+      Output all queries found in files "some_capture.pcap*" in SQL to the
+      standart output.
+
+    "pgshark.pl --output SQL -r some_capture.pcap001"
+      Output all queries found in file "some_capture.pcap001" in SQL to the
+      standart output.
+
+    "pgshark.pl --output normalize -i eth0"
+      Capture PostgreSQL traffic from interface eth0 and output normalized
+      queries to the standart output.
 
 Author
     Dalibo's team. http://www.dalibo.org
