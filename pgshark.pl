@@ -402,6 +402,15 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								last SWITCH;
 							}
 
+							# message: B(Z)
+							#   status=Char
+							if ($tcp->{'src_port'} == $args{'port'} and $pg_msg->{'type'} eq 'Z') {
+								$pg_msg->{'status'} = $pg_msg->{'data'};
+
+								$processor->process_ready($pg_msg);
+								last SWITCH;
+							}
+
 							debug(3,"ignoring message type: %s\n", $pg_msg->{'type'});
 						}
 

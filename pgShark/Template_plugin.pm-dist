@@ -87,6 +87,15 @@ sub process_command_complete {
 	my $pg_msg = shift;
 }
 
+## handle command B(Z) (ready for query)
+# @param $pg_msg hash with pg message properties
+sub process_ready {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+# message: B(Z)
+
 sub DESTROY {
 	my $self = shift;
 #	debug(1, "Xxx: output something usefull here ?\n");
