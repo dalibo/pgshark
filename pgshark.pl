@@ -29,7 +29,7 @@ pgshark.pl - Mess with PostgreSQL client's traffic
 
 =item pgshark.pl [--debug] [--read file] {--output plugin_name}
 
-Where B<plugin_name> could be I<sql> or I<normalize>.
+Where B<plugin_name> could be I<sql> or I<normalize> or I<debug>.
 
 =back
 
@@ -88,8 +88,13 @@ Presently, this plugin doesn't support cursors.
 
 =item B<normalize>
 
-The B<normalize> will try to normalize queries and prepared queries and output them to stdoud. It aims to give you a list
+The B<normalize> plugin will try to normalize queries and prepared queries and output them to stdoud. It aims to give you a list
 of unique queries, however the number of time they has been send by clients and whatever their parameters were.
+
+=item B<debug>
+
+The B<debug> plugin will output the PostgreSQL messages in human readable format. Usefull to analyze what is in a network
+dump before using pgshark on some other duties.
 
 =back
 
@@ -172,6 +177,7 @@ $args{'output'} = ucfirst lc $args{'output'};
 usage("This output plugin does not exist.\n") if ( not (
 	   ($args{'output'} eq 'Sql')
 	or ($args{'output'} eq 'Normalize')
+	or ($args{'output'} eq 'Debug')
 ));
 
 # set debug level given in options
