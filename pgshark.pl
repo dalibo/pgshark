@@ -399,6 +399,12 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 								last SWITCH;
 							}
 
+							# message: F(S)
+							if (not $is_srv and $pg_msg->{'type'} eq 'S') {
+								$processor->process_sync($pg_msg);
+								last SWITCH;
+							}
+
 							# message: F(X)
 							if (not $is_srv and $pg_msg->{'type'} eq 'X') {
 								$processor->process_disconnect($pg_msg);

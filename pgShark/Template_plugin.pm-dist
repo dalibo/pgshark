@@ -66,6 +66,13 @@ sub process_query {
 	my $pg_msg = shift;
 }
 
+## handle command F(S) (sync)
+# @param $pg_msg hash with pg message properties
+sub process_sync {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command F(X) (terminate)
 # @param $pg_msg hash with pg message properties
 sub process_disconnect {
