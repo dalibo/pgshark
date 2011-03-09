@@ -261,9 +261,14 @@ sub process_packet {
 				}
 				$sess_hash =~ s/\.//g; # FIXME perf ? useless but for better debug messages
 
-				if (! defined($sessions->{$sess_hash}) ) {
-					# we are opening a new pg session, wait for a valid message type from frontend
-					if (pack('A', $tcp->{'data'}) =~ /[BCdcfDEHFPpQSX]/) {
+				# A new authentication has succeed
+				if ($is_srv
+					and not defined($sessions->{$sess_hash})
+					and $tcp->{'data'} =~ /^R/
+				) {
+					my ($size, $code) = unpack('xNN', $tcp->{'data'});
+
+					if ($size == 8 and $code == 0) {
 						debug(3, "PGSQL: creating a new session %s\n", $sess_hash);
 						$sessions->{$sess_hash} = {
 							data => '',
@@ -416,7 +421,7 @@ sub process_packet {
 									last SWITCH;
 								}
 
-								# message: F(X)
+								# message: F(X) "disconnect"
 								if (not $is_srv and $pg_msg->{'type'} eq 'X') {
 									$processor->process_disconnect($pg_msg);
 									last SWITCH;
@@ -439,6 +444,11 @@ sub process_packet {
 							$sessions->{$sess_hash}->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 1 + $pg_msg->{'len'});
 							$data_len = length $sessions->{$sess_hash}->{'data'};
 
+							if ($pg_msg->{'type'} eq 'X') {
+								debug(3, "PGSQL: destroying session %s (remaining buffer was %d byte long).\n", $sess_hash, $data_len);
+								delete $sessions->{$sess_hash};
+							}
+
 							$num_queries++;
 						}
 						else {
@@ -446,14 +456,6 @@ sub process_packet {
 							# stop the loop we'll wait for some more
 							last;
 						}
-					}
-
-					# remove the session if we have no trailing data. It helps keeping the code
-					# simple while tracking data splitted between many frame.
-					# we can do way much better by tracking the session disconnection.
-					if ($data_len == 0) {
-						debug(3, "PGSQL: data in session empty, destroying\n");
-						delete $sessions->{$sess_hash};
 					}
 				}
 			}
