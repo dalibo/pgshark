@@ -241,219 +241,228 @@ sub process_packet {
 		if ($ip->{'proto'} == IP_PROTO_TCP) {
 			# decode the TCP payload
 			$tcp = NetPacket::TCP->decode($ip->{'data'});
-			# we could add server ip and port to this hash,
-			# but we are suppose to work with only one server
-			if ($ip->{'src_ip'} eq $args{'host'} and $tcp->{'src_port'} == $args{'port'}) {
-				$is_srv = 1;
-				$sess_hash = $ip->{'dest_ip'} . $tcp->{'dest_port'};
-			}
-			else {
-				$is_srv = 0;
-				$sess_hash = $ip->{'src_ip'} . $tcp->{'src_port'};
-			}
-			$sess_hash =~ s/\.//g; # FIXME perf ? useless but for better debug messages
-		}
 
-		# check if we have data
-		if (length $tcp->{'data'}) {
+			debug(2, "packet: #=%d len=%s, caplen=%s\n", $pckt_num, map { $pckt_hdr->{$_} } qw(len caplen));
 
-			debug(3, "packet: #=%d len=%s, caplen=%s\n", $pckt_num, map { $pckt_hdr->{$_} } qw(len caplen));
-			debug(3, "IP:TCP %s:%d -> %s:%d\n", $ip->{'src_ip'}, $tcp->{'src_port'}, $ip->{'dest_ip'}, $tcp->{'dest_port'});
+			# check if we have data
+			if (length $tcp->{'data'}) {
 
-			if (! defined($sessions->{$sess_hash}) ) {
-				# we are opening a new pg session, wait for a valid message type from frontend
-				if (pack('A', $tcp->{'data'}) =~ /[BCdcfDEHFPpQSX]/) {
-					debug(3, "PGSQL: creating a new session %s\n", $sess_hash);
-					$sessions->{$sess_hash} = {
-						data => '',
-						pg_len => 0,
-					};
+				debug(2, "IP:TCP %s:%d -> %s:%d\n", $ip->{'src_ip'}, $tcp->{'src_port'}, $ip->{'dest_ip'}, $tcp->{'dest_port'});
+
+				# we could add server ip and port to this hash,
+				# but we are suppose to work with only one server
+				if ($ip->{'src_ip'} eq $args{'host'} and $tcp->{'src_port'} == $args{'port'}) {
+					$is_srv = 1;
+					$sess_hash = $ip->{'dest_ip'} . $tcp->{'dest_port'};
 				}
-			}
+				else {
+					$is_srv = 0;
+					$sess_hash = $ip->{'src_ip'} . $tcp->{'src_port'};
+				}
+				$sess_hash =~ s/\.//g; # FIXME perf ? useless but for better debug messages
 
-			# if we have a session with data
-			if (defined($sessions->{$sess_hash}) ) {
-				# the session is already authenticated we should get type'd messages
-				$sessions->{$sess_hash}->{'data'} .= $tcp->{'data'};
-				my $data_len = length $sessions->{$sess_hash}->{'data'};
+				if (! defined($sessions->{$sess_hash}) ) {
+					# we are opening a new pg session, wait for a valid message type from frontend
+					if (pack('A', $tcp->{'data'}) =~ /[BCdcfDEHFPpQSX]/) {
+						debug(3, "PGSQL: creating a new session %s\n", $sess_hash);
+						$sessions->{$sess_hash} = {
+							data => '',
+							pg_len => 0,
+						};
+					}
+				}
 
-				# if we have at least 5 byte, we can analyze the begin of message
-				while ($data_len >= 5) {
+				# if we have a session with data
+				if (defined($sessions->{$sess_hash}) ) {
+					# the session is already authenticated we should get type'd messages
+					$sessions->{$sess_hash}->{'data'} .= $tcp->{'data'};
+					my $data_len = length $sessions->{$sess_hash}->{'data'};
 
-					# hash about message informations
-					my $pg_msg = {
-						'sess_hash' => $sess_hash,
-						'timestamp' => "$pckt_hdr->{'tv_sec'}.$pckt_hdr->{'tv_usec'}"
-					};
-					($pg_msg->{'type'}, $pg_msg->{'len'}) = unpack('AN', $sessions->{$sess_hash}->{'data'});
+					# if we have at least 5 byte, we can analyze the begin of message
+					while ($data_len >= 5) {
 
-					# pg_len is the size of the message length field + data. it doesn't include the message type char
-					# so a full pgsql message is pg_len + 1
-					if ($data_len >= $pg_msg->{'len'} + 1) {
-						# we have enough data for a message
+						# hash about message informations
+						my $pg_msg = {
+							'sess_hash' => $sess_hash,
+							'timestamp' => "$pckt_hdr->{'tv_sec'}.$pckt_hdr->{'tv_usec'}"
+						};
+						($pg_msg->{'type'}, $pg_msg->{'len'}) = unpack('AN', $sessions->{$sess_hash}->{'data'});
 
-						debug(3, "    PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, len=%d, data_len=%d \n",
-							$pckt_num, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $pg_msg->{'len'}, $data_len
-						);
-						$pg_msg->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 5, $pg_msg->{'len'} - 4);
+						# pg_len is the size of the message length field + data. it doesn't include the message type char
+						# so a full pgsql message is pg_len + 1
+						if ($data_len >= $pg_msg->{'len'} + 1) {
+							# we have enough data for a message
 
-						SWITCH: {
+							debug(3, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, len=%d, data_len=%d \n",
+								$pckt_num, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $pg_msg->{'len'}, $data_len
+							);
+							$pg_msg->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 5, $pg_msg->{'len'} - 4);
 
-							# message: F(B)
-							#   portal=String
-							#   name=String
-							#   num_formats=int16
-							#   formats[]=int16[nb_formats]
-							#   num_params=int16
-							#   params[]=(len=int32,value=char[len])[nb_params]
-							if (not $is_srv and $pg_msg->{'type'} eq 'B') {
-								my @params_formats;
-								my @params;
-								my $msg = $pg_msg->{'data'};
+							SWITCH: {
 
-								($pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}) = unpack('Z* Z* n', $msg);
-								# we add 1 bytes for both portal and name that are null-terminated
-								# + 2 bytes of int16 for $num_formats
-								$msg = substr($msg, length($pg_msg->{'portal'})+1 + length($pg_msg->{'name'})+1 +2);
+								# message: F(B)
+								#   portal=String
+								#   name=String
+								#   num_formats=int16
+								#   formats[]=int16[nb_formats]
+								#   num_params=int16
+								#   params[]=(len=int32,value=char[len])[nb_params]
+								if (not $is_srv and $pg_msg->{'type'} eq 'B') {
+									my @params_formats;
+									my @params;
+									my $msg = $pg_msg->{'data'};
 
-								# catch formats and the $num_params as well
-								@params_formats = unpack("n$pg_msg->{'num_formats'} n", $msg);
-								$pg_msg->{'num_params'} = pop @params_formats;
-								$pg_msg->{'params_types'} = [@params_formats];
+									($pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}) = unpack('Z* Z* n', $msg);
+									# we add 1 bytes for both portal and name that are null-terminated
+									# + 2 bytes of int16 for $num_formats
+									$msg = substr($msg, length($pg_msg->{'portal'})+1 + length($pg_msg->{'name'})+1 +2);
 
-								$msg = substr($msg, ($pg_msg->{'num_formats'}+1) * 2);
+									# catch formats and the $num_params as well
+									@params_formats = unpack("n$pg_msg->{'num_formats'} n", $msg);
+									$pg_msg->{'num_params'} = pop @params_formats;
+									$pg_msg->{'params_types'} = [@params_formats];
 
-								for (my $i=0; $i < $pg_msg->{'num_params'}; $i++) {
-									# unpack hasn't 32bit signed network template, so we use l>
-									my ($len) = unpack('l>', $msg);
+									$msg = substr($msg, ($pg_msg->{'num_formats'}+1) * 2);
 
-									# if len < 0; the value is NULL
-									if ($len > 0) {
-										push @params, unpack("x4 a$len", $msg);
-										$msg = substr($msg, 4 + $len);
+									for (my $i=0; $i < $pg_msg->{'num_params'}; $i++) {
+										# unpack hasn't 32bit signed network template, so we use l>
+										my ($len) = unpack('l>', $msg);
+
+										# if len < 0; the value is NULL
+										if ($len > 0) {
+											push @params, unpack("x4 a$len", $msg);
+											$msg = substr($msg, 4 + $len);
+										}
+										elsif ($len == 0) {
+											push @params, '';
+											$msg = substr($msg, 4);
+										}
+										else { # value is NULL
+											push @params, undef;
+											$msg = substr($msg, 4);
+										}
+
 									}
-									elsif ($len == 0) {
-										push @params, '';
-										$msg = substr($msg, 4);
-									}
-									else { # value is NULL
-										push @params, undef;
-										$msg = substr($msg, 4);
-									}
 
+									$pg_msg->{'params'} = [@params];
+
+									$processor->process_bind($pg_msg);
+									last SWITCH;
 								}
 
-								$pg_msg->{'params'} = [@params];
+								# message: B(C)
+								#   type=char
+								#   name=String
+								if ($is_srv and $pg_msg->{'type'} eq 'C') {
 
-								$processor->process_bind($pg_msg);
-								last SWITCH;
+									$pg_msg->{'command'} = substr($pg_msg->{'data'}, 0, -1);;
+
+									$processor->process_command_complete($pg_msg);
+									last SWITCH;
+								}
+
+								# message: F(C)
+								#   type=char
+								#   name=String
+								if (not $is_srv and $pg_msg->{'type'} eq 'C') {
+
+									($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
+
+									$processor->process_close($pg_msg);
+									last SWITCH;
+								}
+
+								# message: F(E)
+								#   name=String
+								#   nb_rows=int32
+								if (not $is_srv and $pg_msg->{'type'} eq 'E') {
+									($pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('Z*N', $pg_msg->{'data'});
+
+									$processor->process_execute($pg_msg);
+									last SWITCH;
+								}
+
+								# message: F(P)
+								#   name=String
+								#   query=String
+								#   num_params=int16
+								#   params_types[]=int32[nb_formats]
+								if (not $is_srv and $pg_msg->{'type'} eq 'P') {
+									my @params_types;
+									($pg_msg->{'name'}, $pg_msg->{'query'},
+										$pg_msg->{'num_params'}, @params_types
+									) = unpack('Z*Z*nN*', $pg_msg->{'data'});
+									$pg_msg->{'params_types'} = [@params_types];
+
+									$processor->process_parse($pg_msg);
+									last SWITCH;
+								}
+
+								# message: F(Q)
+								#    query=String
+								if (not $is_srv and $pg_msg->{'type'} eq 'Q') {
+
+									# we remove the last char:
+									# query are null terminated in pgsql proto and pg_len includes it
+									$pg_msg->{'query'} = substr($pg_msg->{'data'}, 0, -1);
+
+									$processor->process_query($pg_msg);
+									last SWITCH;
+								}
+
+								# message: F(S)
+								if (not $is_srv and $pg_msg->{'type'} eq 'S') {
+									$processor->process_sync($pg_msg);
+									last SWITCH;
+								}
+
+								# message: F(X)
+								if (not $is_srv and $pg_msg->{'type'} eq 'X') {
+									$processor->process_disconnect($pg_msg);
+									last SWITCH;
+								}
+
+								# message: B(Z)
+								#   status=Char
+								if ($is_srv and $pg_msg->{'type'} eq 'Z') {
+									$pg_msg->{'status'} = $pg_msg->{'data'};
+
+									$processor->process_ready($pg_msg);
+									last SWITCH;
+								}
+
+								# Default
+								debug(3, "PGSQL: not implemented message type: %s(%s)\n", ($is_srv?'B':'F'), $pg_msg->{'type'});
 							}
 
-							# message: B(C)
-							#   type=char
-							#   name=String
-							if ($is_srv and $pg_msg->{'type'} eq 'C') {
+							### end of processing, remove processed data
+							$sessions->{$sess_hash}->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 1 + $pg_msg->{'len'});
+							$data_len = length $sessions->{$sess_hash}->{'data'};
 
-								$pg_msg->{'command'} = substr($pg_msg->{'data'}, 0, -1);;
-
-								$processor->process_command_complete($pg_msg);
-								last SWITCH;
-							}
-
-							# message: F(C)
-							#   type=char
-							#   name=String
-							if (not $is_srv and $pg_msg->{'type'} eq 'C') {
-
-								($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
-
-								$processor->process_close($pg_msg);
-								last SWITCH;
-							}
-
-							# message: F(E)
-							#   name=String
-							#   nb_rows=int32
-							if (not $is_srv and $pg_msg->{'type'} eq 'E') {
-								($pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('Z*N', $pg_msg->{'data'});
-
-								$processor->process_execute($pg_msg);
-								last SWITCH;
-							}
-
-							# message: F(P)
-							#   name=String
-							#   query=String
-							#   num_params=int16
-							#   params_types[]=int32[nb_formats]
-							if (not $is_srv and $pg_msg->{'type'} eq 'P') {
-								my @params_types;
-								($pg_msg->{'name'}, $pg_msg->{'query'},
-									$pg_msg->{'num_params'}, @params_types
-								) = unpack('Z*Z*nN*', $pg_msg->{'data'});
-								$pg_msg->{'params_types'} = [@params_types];
-
-								$processor->process_parse($pg_msg);
-								last SWITCH;
-							}
-
-							# message: F(Q)
-							#    query=String
-							if (not $is_srv and $pg_msg->{'type'} eq 'Q') {
-
-								# we remove the last char:
-								# query are null terminated in pgsql proto and pg_len includes it
-								$pg_msg->{'query'} = substr($pg_msg->{'data'}, 0, -1);
-
-								$processor->process_query($pg_msg);
-								last SWITCH;
-							}
-
-							# message: F(S)
-							if (not $is_srv and $pg_msg->{'type'} eq 'S') {
-								$processor->process_sync($pg_msg);
-								last SWITCH;
-							}
-
-							# message: F(X)
-							if (not $is_srv and $pg_msg->{'type'} eq 'X') {
-								$processor->process_disconnect($pg_msg);
-								last SWITCH;
-							}
-
-							# message: B(Z)
-							#   status=Char
-							if ($is_srv and $pg_msg->{'type'} eq 'Z') {
-								$pg_msg->{'status'} = $pg_msg->{'data'};
-
-								$processor->process_ready($pg_msg);
-								last SWITCH;
-							}
-
-							debug(3,"ignoring message type: %s\n", $pg_msg->{'type'});
+							$num_queries++;
 						}
-
-						### end of processing, remove processed data
-						$sessions->{$sess_hash}->{'data'} = substr($sessions->{$sess_hash}->{'data'}, 1 + $pg_msg->{'len'});
-						$data_len = length $sessions->{$sess_hash}->{'data'};
-
-						$num_queries++;
+						else {
+							# we don't have the full message in available data.
+							# stop the loop we'll wait for some more
+							last;
+						}
 					}
-					else {
-						# we don't have the full message in available data.
-						# stop the loop we'll wait for some more
-						last;
-					}
-				}
 
-				# remove the session if we have no trailing data. It helps keeping the code
-				# simple while tracking data splitted between many frame.
-				# we can do way much better by tracking the session disconnection.
-				if ($data_len == 0) {
-					debug(3, "PGSQL: data in session empty, destroying\n");
-					delete $sessions->{$sess_hash};
+					# remove the session if we have no trailing data. It helps keeping the code
+					# simple while tracking data splitted between many frame.
+					# we can do way much better by tracking the session disconnection.
+					if ($data_len == 0) {
+						debug(3, "PGSQL: data in session empty, destroying\n");
+						delete $sessions->{$sess_hash};
+					}
 				}
 			}
+			else {
+				debug(2, "TCP: no data\n");
+			}
+		}
+		else {
+			debug(2, "IP: not TCP\n");
 		}
 	}
 }
@@ -462,7 +471,7 @@ pcap_close($pcap);
 
 END {
 	if ($? == 0) {
-		debug(1, "-- core: Total number of queries processed: $num_queries\n");
+		debug(1, "-- core: Total number of messages: $num_queries\n");
 		debug(1, "-- bye.\n");
 	}
 }
