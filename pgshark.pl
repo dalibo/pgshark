@@ -5,6 +5,7 @@ use warnings;
 
 #use Net::TcpDumpLog;
 use Net::Pcap qw(:functions);
+use Net::Pcap::Reassemble;
 use NetPacket::Ethernet qw(:types);
 use NetPacket::IP qw(:protos);
 use NetPacket::TCP;
@@ -123,7 +124,6 @@ Dalibo's team. http://www.dalibo.org
 =cut
 
 my $err = '';
-my %pckt_hdr;
 my $pckt = {};
 my $pckt_num = 0;
 my $sessions = {};
@@ -220,7 +220,10 @@ require "./pgShark/$args{'output'}.pm";
 
 my $processor = $args{'output'}->new(\%args, \$pcap);
 
-while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
+Net::Pcap::Reassemble::loop($pcap, -1, \&process_packet, '');
+
+sub process_packet {
+	my($user_data, $pckt_hdr, $pckt) = @_;
 
 	$pckt_num++;
 	my ($eth, $ip, $tcp);
@@ -229,8 +232,9 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 	$eth = NetPacket::Ethernet->decode($pckt);
 
 	if (defined($eth->{'data'})
-	and defined($eth->{'type'})
-	and ($eth->{'type'} == ETH_TYPE_IP)) {
+			and defined($eth->{'type'})
+			and ($eth->{'type'} == ETH_TYPE_IP)
+	) {
 		# decode the IP payload
 		$ip = NetPacket::IP->decode($eth->{'data'});
 
@@ -253,7 +257,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 		# check if we have data
 		if (length $tcp->{'data'}) {
 
-			debug(3, "packet: #=%d len=%s, caplen=%s\n", $pckt_num, map { $pckt_hdr{$_} } qw(len caplen));
+			debug(3, "packet: #=%d len=%s, caplen=%s\n", $pckt_num, map { $pckt_hdr->{$_} } qw(len caplen));
 			debug(3, "IP:TCP %s:%d -> %s:%d\n", $ip->{'src_ip'}, $tcp->{'src_port'}, $ip->{'dest_ip'}, $tcp->{'dest_port'});
 
 			if (! defined($sessions->{$sess_hash}) ) {
@@ -279,7 +283,7 @@ while (defined($pckt = pcap_next($pcap, \%pckt_hdr))) {
 					# hash about message informations
 					my $pg_msg = {
 						'sess_hash' => $sess_hash,
-						'timestamp' => "$pckt_hdr{'tv_sec'}.$pckt_hdr{'tv_usec'}"
+						'timestamp' => "$pckt_hdr->{'tv_sec'}.$pckt_hdr->{'tv_usec'}"
 					};
 					($pg_msg->{'type'}, $pg_msg->{'len'}) = unpack('AN', $sessions->{$sess_hash}->{'data'});
 
