@@ -218,7 +218,7 @@ else {
 # load the plugin
 require "./pgShark/$args{'output'}.pm";
 
-my $processor = $args{'output'}->new(\%args, \$pcap);
+my $processor = $args{'output'}->new(\%args, $pcap);
 
 Net::Pcap::Reassemble::loop($pcap, -1, \&process_packet, '');
 

@@ -17,7 +17,6 @@ sub new {
 	my $class = shift;
 	my $args = shift;
 	my $pcap = shift;
-	$pcap = $$pcap;
 
 	my $self = {
 		## hash handling normalized queries
@@ -31,8 +30,6 @@ sub new {
 
 	# set the pcap filter to remove unneeded backend answer
 	my $filter = undef;
-	print Dumper($pcap);
-	print "blah\n";
 
 	# the following filter reject TCP-only stuff and capture only frontend messages
 	pcap_compile($pcap, \$filter,

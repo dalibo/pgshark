@@ -19,7 +19,6 @@ sub new {
 	my $class = shift;
 	my $args = shift;
 	my $pcap = shift;
-	$pcap = $$pcap;
 
 	my $self = {
 		## hash handling prepd stmt for all sessions

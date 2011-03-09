@@ -12,7 +12,6 @@ sub new {
 	my $class = shift;
 	my $args = shift;
 	my $pcap = shift;
-	$pcap = $$pcap;
 
 	my $self = {
 	};
