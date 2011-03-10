@@ -15,114 +15,6 @@ use Getopt::Long;
 use Pod::Usage;
 use pgShark::Utils;
 
-## TODO
-# * Does not support authentication dissection
-
-=head1 pgshark.pl
-
-pgshark.pl - Mess with PostgreSQL client's traffic
-
-=head1 SYNOPSIS
-
-=over 2
-
-=item pgshark.pl --help
-
-=item pgshark.pl [--debug] [--read file] {--output plugin_name}
-
-Where B<plugin_name> could be I<sql> or I<normalize> or I<debug>.
-
-=back
-
-=head1 DESCRIPTION
-
-This program study PostgreSQL traffic captured in tcpdump format and is able to make various things with extracted client's
-activities.
-
-B<pgshark> comes with various output plugins to do various things with PostgreSQL client's traffic.
-
-Presently, B<pgshark> is only able to read tcpdump files from its standart input.
-
-=over 2
-
-=item B<-d>, B<--debug>
-
-Print some debug messages to the standart error. The more you repeat this option, the more B<pgshark> will be verbose.
-(well, presently, only one level of debug from core only...)
-
-=item B<--help>
-
-Show this help message and exit.
-
-=item B<--i>, B<--interface> <interface name>
-
-Capture PostgreSQL traffic directly from the given network interface. Conflict with B<--read>.
-By default, B<pgshark> will read from stdin if neither B<--read> or B<--interface> are given.
-
-=item B<-o>, B<--output> <plugin name>
-
-Select the traffic processing output plugin. This parameter value is case-insensitive
-(eg. SQL, Sql and sql wil all select the SQL plugin output).
-See section L</PLUGINS>.
-
-=item B<-p>, B<--port> <port>
-
-Give the port the PostgreSQL backend is listening on.
-
-=item B<-r>, B<--read> <path to file>
-
-Read PostgreSQL traffic from given pcap file. Conflict with B<--interface>.
-By default, B<pgshark> will read from stdin if neither B<--read> or B<--interface> are given.
-
-=back
-
-=head1 PLUGINS
-
-=over 2
-
-=item B<sql>
-
-The B<sql> plugin write captured queries on stdout. Because of limitation of SQL language it doesn't support unnamed
-prepared statement, so it actually name them.
-
-Presently, this plugin doesn't support cursors.
-
-=item B<normalize>
-
-The B<normalize> plugin will try to normalize queries and prepared queries and output them to stdoud. It aims to give you a list
-of unique queries, however the number of time they has been send by clients and whatever their parameters were.
-
-=item B<debug>
-
-The B<debug> plugin will output the PostgreSQL messages in human readable format. Usefull to analyze what is in a network
-dump before using pgshark on some other duties.
-
-=back
-
-=head1 EXAMPLES
-
-=over 2
-
-=item C<cat some_capture.pcap* | pgshark.pl --output SQL>
-
-Output all queries found in files C<some_capture.pcap*> in SQL to the standart output.
-
-=item C<pgshark.pl --output SQL -r some_capture.pcap001>
-
-Output all queries found in file C<some_capture.pcap001> in SQL to the standart output.
-
-=item C<pgshark.pl --output normalize -i eth0>
-
-Capture PostgreSQL traffic from interface eth0 and output normalized queries to the standart output.
-
-=back
-
-=head1 Author
-
-Dalibo's team. http://www.dalibo.org
-
-=cut
-
 my $err = '';
 my $pckt = {};
 my $pckt_num = 0;
@@ -477,3 +369,108 @@ END {
 		debug(1, "-- bye.\n");
 	}
 }
+
+=head1 pgshark.pl
+
+pgshark.pl - Mess with PostgreSQL client's traffic
+
+=head1 SYNOPSIS
+
+=over 2
+
+=item pgshark.pl --help
+
+=item pgshark.pl [--debug] [--read file] {--output plugin_name}
+
+Where B<plugin_name> could be I<sql> or I<normalize> or I<debug>.
+
+=back
+
+=head1 DESCRIPTION
+
+This program study PostgreSQL traffic captured in tcpdump format and is able to make various things with extracted client's
+activities.
+
+B<pgshark> comes with various output plugins to do various things with PostgreSQL client's traffic.
+
+Presently, B<pgshark> is only able to read tcpdump files from its standart input.
+
+=over 2
+
+=item B<-d>, B<--debug>
+
+Print some debug messages to the standart error. The more you repeat this option, the more B<pgshark> will be verbose.
+(well, presently, only one level of debug from core only...)
+
+=item B<--help>
+
+Show this help message and exit.
+
+=item B<--i>, B<--interface> <interface name>
+
+Capture PostgreSQL traffic directly from the given network interface. Conflict with B<--read>.
+By default, B<pgshark> will read from stdin if neither B<--read> or B<--interface> are given.
+
+=item B<-o>, B<--output> <plugin name>
+
+Select the traffic processing output plugin. This parameter value is case-insensitive
+(eg. SQL, Sql and sql wil all select the SQL plugin output).
+See section L</PLUGINS>.
+
+=item B<-p>, B<--port> <port>
+
+Give the port the PostgreSQL backend is listening on.
+
+=item B<-r>, B<--read> <path to file>
+
+Read PostgreSQL traffic from given pcap file. Conflict with B<--interface>.
+By default, B<pgshark> will read from stdin if neither B<--read> or B<--interface> are given.
+
+=back
+
+=head1 PLUGINS
+
+=over 2
+
+=item B<sql>
+
+The B<sql> plugin write captured queries on stdout. Because of limitation of SQL language it doesn't support unnamed
+prepared statement, so it actually name them.
+
+Presently, this plugin doesn't support cursors.
+
+=item B<normalize>
+
+The B<normalize> plugin will try to normalize queries and prepared queries and output them to stdoud. It aims to give you a list
+of unique queries, however the number of time they has been send by clients and whatever their parameters were.
+
+=item B<debug>
+
+The B<debug> plugin will output the PostgreSQL messages in human readable format. Usefull to analyze what is in a network
+dump before using pgshark on some other duties.
+
+=back
+
+=head1 EXAMPLES
+
+=over 2
+
+=item C<cat some_capture.pcap* | pgshark.pl --output SQL>
+
+Output all queries found in files C<some_capture.pcap*> in SQL to the standart output.
+
+=item C<pgshark.pl --output SQL -r some_capture.pcap001>
+
+Output all queries found in file C<some_capture.pcap001> in SQL to the standart output.
+
+=item C<pgshark.pl --output normalize -i eth0>
+
+Capture PostgreSQL traffic from interface eth0 and output normalized queries to the standart output.
+
+=back
+
+=head1 Author
+
+Dalibo's team. http://www.dalibo.org
+
+=cut
