@@ -31,16 +31,23 @@ sub new {
 	return bless($self, $class);
 }
 
-## handle F(P) command (parse)
+## handle command F(B) (bind)
 # @param $pg_msg hash with pg message properties
-sub process_parse {
+sub process_bind {
 	my $self = shift;
 	my $pg_msg = shift;
 }
 
-## handle command F(B) (bind)
+## handle command B(C) (command complete)
 # @param $pg_msg hash with pg message properties
-sub process_bind {
+sub process_command_complete {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command F(C) (close)
+# @param $pg_msg hash with pg message properties
+sub process_close {
 	my $self = shift;
 	my $pg_msg = shift;
 }
@@ -52,9 +59,9 @@ sub process_execute {
 	my $pg_msg = shift;
 }
 
-## handle command F(C) (close)
+## handle F(P) command (parse)
 # @param $pg_msg hash with pg message properties
-sub process_close {
+sub process_parse {
 	my $self = shift;
 	my $pg_msg = shift;
 }
@@ -76,13 +83,6 @@ sub process_sync {
 ## handle command F(X) (terminate)
 # @param $pg_msg hash with pg message properties
 sub process_disconnect {
-	my $self = shift;
-	my $pg_msg = shift;
-}
-
-## handle command B(C) (command complete)
-# @param $pg_msg hash with pg message properties
-sub process_command_complete {
 	my $self = shift;
 	my $pg_msg = shift;
 }
