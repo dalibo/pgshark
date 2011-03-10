@@ -348,6 +348,17 @@ sub process_packet {
 									last SWITCH;
 								}
 
+								# message: B(t) "parameter description"
+								#   num_params=int16
+								#   params_types[]=int32[nb_formats]
+								if ($is_srv and $pg_msg->{'type'} eq 't') {
+									my @params_types;
+									($pg_msg->{'num_params'}, @params_types) = unpack('nN*', $pg_msg->{'data'});
+									$pg_msg->{'params_types'} = [@params_types];
+									$processor->process_param_desc($pg_msg);
+									last SWITCH;
+								}
+
 								# message: F(X) "disconnect"
 								if (not $is_srv and $pg_msg->{'type'} eq 'X') {
 									$processor->process_disconnect($pg_msg);

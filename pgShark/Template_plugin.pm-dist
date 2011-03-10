@@ -108,6 +108,14 @@ sub process_portal_suspended {
 	my $pg_msg = shift;
 }
 
+
+## handle command B(t) (parameter description)
+# @param $pg_msg hash with pg message properties
+sub process_param_desc {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command F(S) (sync)
 # @param $pg_msg hash with pg message properties
 sub process_sync {
