@@ -197,6 +197,12 @@ sub process_packet {
 
 							SWITCH: {
 
+								# message: B(1) "parse complete"
+								if ($is_srv and $pg_msg->{'type'} eq '1') {
+									$processor->process_parse_complete($pg_msg);
+									last SWITCH;
+								}
+
 								# message: F(B)
 								#   portal=String
 								#   name=String
@@ -279,6 +285,19 @@ sub process_packet {
 									last SWITCH;
 								}
 
+								# message: B(I) "Empty Query Response"
+								if ($is_srv and $pg_msg->{'type'} eq 'I') {
+
+									$processor->process_empty_query($pg_msg);
+									last SWITCH;
+								}
+
+								# message: B(n) "no data"
+								if ($is_srv and $pg_msg->{'type'} eq 'n') {
+									$processor->process_no_data($pg_msg);
+									last SWITCH;
+								}
+
 								# message: F(P)
 								#   name=String
 								#   query=String
@@ -304,6 +323,12 @@ sub process_packet {
 									$pg_msg->{'query'} = substr($pg_msg->{'data'}, 0, -1);
 
 									$processor->process_query($pg_msg);
+									last SWITCH;
+								}
+
+								# message: B(s) "portal suspended"
+								if ($is_srv and $pg_msg->{'type'} eq 's') {
+									$processor->process_portal_suspended($pg_msg);
 									last SWITCH;
 								}
 

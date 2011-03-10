@@ -31,6 +31,13 @@ sub new {
 	return bless($self, $class);
 }
 
+## handle command B(1) (Parse Complete)
+# @param $pg_msg hash with pg message properties
+sub process_parse_complete {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command F(B) (bind)
 # @param $pg_msg hash with pg message properties
 sub process_bind {
@@ -59,6 +66,20 @@ sub process_execute {
 	my $pg_msg = shift;
 }
 
+## handle command B(I) (empty query response)
+# @param $pg_msg hash with pg message properties
+sub process_empty_query {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command B(n) (no data)
+# @param $pg_msg hash with pg message properties
+sub process_no_data {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle F(P) command (parse)
 # @param $pg_msg hash with pg message properties
 sub process_parse {
@@ -69,6 +90,13 @@ sub process_parse {
 ## handle command F(Q) (query)
 # @param $pg_msg hash with pg message properties
 sub process_query {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command B(s) (portal suspended)
+# @param $pg_msg hash with pg message properties
+sub process_portal_suspended {
 	my $self = shift;
 	my $pg_msg = shift;
 }
