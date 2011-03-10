@@ -16,39 +16,102 @@ sub new {
 	my $self = {
 	};
 
+	my $filter = undef;
+
+	pcap_compile($pcap, \$filter,
+		"(tcp and port $args->{'port'})", 0, 0
+	);
+	pcap_setfilter($pcap, $filter);
+
 	debug(1, "Debug: Plugin loaded.\n");
 
 	return bless($self, $class);
 }
 
 # prints formated trace with mandatored fields
-sub output {
+sub header {
 	my $self = shift;
 	my $pg_msg = shift;
-	my $format = shift;
-	printf("Packet: t=%s, session=%s\n", $pg_msg->{'timestamp'}, $pg_msg->{'sess_hash'});
-	printf("PGSQL: type=%s, len=%d\n", $pg_msg->{'type'}, $pg_msg->{'len'});
-	printf("$format", @_);
+	my $is_srv = shift;
+	printf "Packet: t=%s, session=%s\n", $pg_msg->{'timestamp'}, $pg_msg->{'sess_hash'};
+	printf "PGSQL: type=%s, len=%d, ", $pg_msg->{'type'}, $pg_msg->{'len'};
+	if ($is_srv) {
+		printf "B -> F\n";
+	}
+	else {
+		printf "F -> B\n";
+	}
 }
 
-# handle F(C) command (close)
-# @param $pg_msg hash with pg message properties
-sub deallocate {
+sub code_response {
 	my $self = shift;
 	my $pg_msg = shift;
 
-	$self->output($pg_msg, "DEALLOCATE type=%s, name=%s\n\n", $pg_msg->{'type'}, $pg_msg->{'name'});
+	while (@{ $pg_msg->{'fields'} } > 0) {
+		my ($code, $value) = splice(@{ $pg_msg->{'fields'} });
+		SWITCH: {
+			#S C M D H P p q W F L R
+			if ($code eq 'S') {
+				printf "Severity: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'C') {
+				printf "Code: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'M') {
+				printf "Message: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'D') {
+				printf "Detail: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'H') {
+				printf "Hint: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'P') {
+				printf "Position: '%s'n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'p') {
+				printf "Internal position: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'q') {
+				printf "Internal query: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'W') {
+				printf "Where: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'F') {
+				printf "File: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'L') {
+				printf "Line: '%s'\n", $value;
+				last SWITCH;
+			}
+			if ($code eq 'R') {
+				printf "Routine: '%s'\n", $value;
+				last SWITCH;
+			}
+		}
+	}
 }
 
-## handle P command (parse)
+## handle F(P) command (parse)
 # @param $pg_msg hash with pg message properties
 sub process_parse {
 	my $self = shift;
 	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
 
-	$self->output($pg_msg, "PARSE name=%s, query=%s, num_params=%d, params_type=%s\n\n",
-		$pg_msg->{'name'}, $pg_msg->{'query'}, $pg_msg->{'num_params'}, join(',', $pg_msg->{'params_types'})
-	);
+	printf "PARSE name='%s', num_params=%d, params_type=%s, query=%s\n\n",
+		$pg_msg->{'name'}, $pg_msg->{'num_params'}, join(',', @{ $pg_msg->{'params_types'} }), $pg_msg->{'query'};
 }
 
 ## handle command F(B) (bind)
@@ -56,11 +119,11 @@ sub process_parse {
 sub process_bind {
 	my $self = shift;
 	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
 
-	$self->output($pg_msg, "BIND portal=%s, name=%s, num_formats=%d, formats=%s, num_params=%d, params=%s\n\n",
-		$pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}, join(',', $pg_msg->{'params_types'}),
-		$pg_msg->{'num_params'}, join(',', $pg_msg->{'params'})
-	);
+	printf "BIND portal='%s', name='%s', num_formats=%d, formats=%s, num_params=%d, params=%s\n\n",
+		$pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}, join(',', @{ $pg_msg->{'params_types'} }),
+		$pg_msg->{'num_params'}, join(',', @{ $pg_msg->{'params'} });
 }
 
 ## handle command F(E) (execute)
@@ -68,8 +131,9 @@ sub process_bind {
 sub process_execute {
 	my $self = shift;
 	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
 
-	$self->output($pg_msg, "EXECUTE name=%s, nb_rows=%d\n\n", $pg_msg->{'name'}, $pg_msg->{'nb_rows'});
+	printf "EXECUTE name='%s', nb_rows=%d\n\n", $pg_msg->{'name'}, $pg_msg->{'nb_rows'};
 }
 
 ## handle command F(C) (close)
@@ -77,8 +141,9 @@ sub process_execute {
 sub process_close {
 	my $self = shift;
 	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
 
-	$self->output($pg_msg, "CLOSE type=%s, name=%s\n\n", $pg_msg->{'type'}, $pg_msg->{'name'});
+	printf "CLOSE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
 }
 
 ## handle command F(Q) (query)
@@ -86,8 +151,9 @@ sub process_close {
 sub process_query {
 	my $self = shift;
 	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
 
-	$self->output($pg_msg, "QUERY query=%s\n\n", $pg_msg->{'query'});
+	printf "QUERY query=%s\n\n", $pg_msg->{'query'};
 }
 
 ## handle command F(X) (terminate)
@@ -95,8 +161,9 @@ sub process_query {
 sub process_disconnect {
 	my $self = shift;
 	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
 
-	$self->output($pg_msg, "DISCONNECT\n\n");
+	printf "DISCONNECT\n\n";
 }
 
 ## handle command F(S) (sync)
@@ -104,17 +171,188 @@ sub process_disconnect {
 sub process_sync {
 	my $self = shift;
 	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
 
-	$self->output($pg_msg, "SYNC\n\n");
+	printf "SYNC\n\n";
 }
 
-## handle command B(X) (command complete)
+## handle command B(1) (Parse Complete)
+# @param $pg_msg hash with pg message properties
+sub process_parse_complete {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "PARSE COMPLETE\n\n";
+}
+
+## handle command B(A) (Notification Response)
+# @param $pg_msg hash with pg message properties
+sub process_notif_response {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "NOTIFICATION RESPONSE pid=%d, channel='%s', payload='%s'\n\n",
+		$pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'},;
+}
+
+## handle command B(C) (command complete)
 # @param $pg_msg hash with pg message properties
 sub process_command_complete {
 	my $self = shift;
 	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
 
-	$self->output($pg_msg, "COMMAND COMPLETE command=%s\n\n", $pg_msg->{'command'});
+	printf "COMMAND COMPLETE command='%s'\n\n", $pg_msg->{'command'};
+}
+
+## handle command B(D) (data row)
+# @param $pg_msg hash with pg message properties
+sub process_data_row {
+	my $self = shift;
+	my $pg_msg = shift;
+	my $i = 0;
+	$self->header($pg_msg, 1);
+
+	printf "DATA ROW num_values=%d\n", $pg_msg->{'num_values'};
+
+	for my $value ( @{ $pg_msg->{'values'} } ) {
+		$i++;
+		$value->[1] =~ tr/\x00-\x1F\x80-\xFF/./;
+		printf "---[Value %02d]---\nlength=%d\nvalue='%s'\n", $i, @{ $value } ;
+	}
+	print "\n";
+}
+
+## handle command B(E) (error response)
+# @param $pg_msg hash with pg message properties
+sub process_error_response {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "ERROR RESPONSE\n\n";
+	$self->code_response($pg_msg);
+
+	print "\n";
+}
+
+## handle command B(I) (empty query response)
+# @param $pg_msg hash with pg message properties
+sub process_empty_query {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "EMPTY QUERY RESPONSE\n\n";
+}
+
+## handle command B(n) (no data)
+# @param $pg_msg hash with pg message properties
+sub process_no_data {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "NO DATA\n\n";
+}
+
+## handle command B(N) (notice response)
+# @param $pg_msg hash with pg message properties
+sub process_notice_response {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "NOTICE RESPONSE\n\n";
+	$self->code_response($pg_msg);
+
+	print "\n";
+}
+
+## handle command B(R) (authentification request)
+# @param $pg_msg hash with pg message properties
+sub process_auth_request {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "AUTHENTIFICATION REQUEST code=%d ", $pg_msg->{'code'};
+
+	SWITCH: {
+		if ($pg_msg->{'code'} == 0) {
+			printf "(SUCCESS)\n\n";
+			last SWITCH;
+		}
+		if ($pg_msg->{'code'} == 2) {
+			printf "(Kerberos V5)\n\n";
+			last SWITCH;
+		}
+		if ($pg_msg->{'code'} == 3) {
+			printf "(clear-text password)\n\n";
+			last SWITCH;
+		}
+		if ($pg_msg->{'code'} == 5) {
+			printf "(MD5 salt='%s')\n\n", $pg_msg->{'data'};
+			last SWITCH;
+		}
+		if ($pg_msg->{'code'} == 6) {
+			printf "(SCM)\n\n";
+			last SWITCH;
+		}
+		if ($pg_msg->{'code'} == 7) {
+			printf "(GSSAPI)\n\n";
+			last SWITCH;
+		}
+		if ($pg_msg->{'code'} == 9) {
+			printf "(SSPI)\n\n";
+			last SWITCH;
+		}
+		if ($pg_msg->{'code'} == 8) {
+			printf "(contains GSSAPI or SSPI data)\n\n";
+			last SWITCH;
+		}
+	}
+}
+
+## handle command B(s) (portal suspended)
+# @param $pg_msg hash with pg message properties
+sub process_portal_suspended {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "PORTAL SUSPENDED\n\n";
+}
+
+## handle command B(T) (row description)
+# @param $pg_msg hash with pg message properties
+sub process_row_desc {
+	my $self = shift;
+	my $pg_msg = shift;
+	my $i=0;
+	$self->header($pg_msg, 1);
+
+	printf "ROW DESCRIPTION: num_fields=%d\n",
+		$pg_msg->{'num_fields'};
+
+	for my $field ( @{ $pg_msg->{'fields'} } ) {
+		$i++;
+		printf "---[Field %02d]---\nname='%s'\nrelid=%d\nattnum=%d\ntype=%d\ntype_len=%d\ntype_mod=%d\nformat=%d\n", $i, @{ $field };
+	}
+	print "\n";
+}
+
+## handle command B(t) (parameter description)
+# @param $pg_msg hash with pg message properties
+sub process_param_desc {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "PARAMETER DESCRIPTION: num_param=%d, params_oids=%s\n\n",
+		$pg_msg->{'num_params'}, join(',', @{ $pg_msg->{'params_types'} });
 }
 
 ## handle command B(Z) (ready for query)
@@ -122,15 +360,16 @@ sub process_command_complete {
 sub process_ready {
 	my $self = shift;
 	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
 
 	if ($pg_msg->{'status'} eq 'I') {
-		$self->output($pg_msg, "READY FOR QUERY type=<IDLE>\n\n");
+		printf "READY FOR QUERY type=<IDLE>\n\n";
 	}
 	elsif ($pg_msg->{'status'} eq 'T') {
-		$self->output($pg_msg, "READY FOR QUERY type=<IDLE> in transaction\n\n");
+		printf "READY FOR QUERY type=<IDLE> in transaction\n\n";
 	}
 	elsif ($pg_msg->{'status'} eq 'E') {
-		$self->output($pg_msg, "READY FOR QUERY type=<IDLE> in transaction (aborted)\n\n");
+		printf "READY FOR QUERY type=<IDLE> in transaction (aborted)\n\n";
 	}
 }
 
