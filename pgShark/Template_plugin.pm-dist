@@ -66,6 +66,13 @@ sub process_close {
 	my $pg_msg = shift;
 }
 
+## handle command B(E) (error response)
+# @param $pg_msg hash with pg message properties
+sub process_error_response {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command F(E) (execute)
 # @param $pg_msg hash with pg message properties
 sub process_execute {
@@ -76,6 +83,13 @@ sub process_execute {
 ## handle command B(I) (empty query response)
 # @param $pg_msg hash with pg message properties
 sub process_empty_query {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command B(N) (notice response)
+# @param $pg_msg hash with pg message properties
+sub process_notice_response {
 	my $self = shift;
 	my $pg_msg = shift;
 }

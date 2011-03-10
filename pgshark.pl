@@ -285,6 +285,26 @@ sub process_packet {
 									last SWITCH;
 								}
 
+								# message: B(E) "error response"
+								#   (code=char
+								#   value=String){1,}\x00
+								if ($is_srv and $pg_msg->{'type'} eq 'E') {
+									my @fields;
+									my $msg = $pg_msg->{'data'};
+
+									FIELDS: while ($msg ne '') {
+										my ($code, $value) = unpack('AZ*', $msg);
+										last FIELDS if ($code eq '');
+										push @fields, ($code, $value);
+										$msg = substr($msg, 2 + length($value));
+									}
+
+									$pg_msg->{'fields'} = [@fields];
+
+									$processor->process_error_response($pg_msg);
+									last SWITCH;
+								}
+
 								# message: F(E)
 								#   name=String
 								#   nb_rows=int32
@@ -299,6 +319,26 @@ sub process_packet {
 								if ($is_srv and $pg_msg->{'type'} eq 'I') {
 
 									$processor->process_empty_query($pg_msg);
+									last SWITCH;
+								}
+
+								# message: B(N) "notice response"
+								#   (code=char
+								#   value=String){1,}\x00
+								if ($is_srv and $pg_msg->{'type'} eq 'N') {
+									my @fields;
+									my $msg = $pg_msg->{'data'};
+
+									FIELDS: while ($msg ne '') {
+										my ($code, $value) = unpack('AZ*', $msg);
+										last FIELDS if ($code eq '');
+										push @fields, ($code, $value);
+										$msg = substr($msg, 2 + length($value));
+									}
+
+									$pg_msg->{'fields'} = [@fields];
+
+									$processor->process_notice_response($pg_msg);
 									last SWITCH;
 								}
 
