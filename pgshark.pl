@@ -285,6 +285,40 @@ sub process_packet {
 									last SWITCH;
 								}
 
+								# message: B(D) "data row"
+								#   num_values=int16
+								#   (
+								#   value_len=int32
+								#   value=Byte[value_len] (TODO give the format given in previous message B(T) ?)
+								#   )[num_values]
+								if ($is_srv and $pg_msg->{'type'} eq 'D') {
+									my @values;
+									my $msg = substr($pg_msg->{'data'}, 2);
+									my $i = 0;
+
+									$pg_msg->{'num_values'} = unpack('n', $pg_msg->{'data'});
+
+									while ($i < $pg_msg->{'num_values'}) {
+										my $val_len = unpack('N', $msg);
+										my $val = undef;
+										if ($val_len != -1) {
+											$val = substr($msg, 5, $val_len);
+										}
+										else {
+											$val = undef;
+										}
+
+										push @values, [ $val_len, $val];
+										$msg = substr($msg, 4 + $val_len);
+										$i++;
+									}
+
+									$pg_msg->{'values'} = [ @values ];
+
+									$processor->process_data_row($pg_msg);
+									last SWITCH;
+								}
+
 								# message: B(E) "error response"
 								#   (code=char
 								#   value=String){1,}\x00
@@ -403,6 +437,37 @@ sub process_packet {
 								# message: F(S)
 								if (not $is_srv and $pg_msg->{'type'} eq 'S') {
 									$processor->process_sync($pg_msg);
+									last SWITCH;
+								}
+
+								# message: B(T) "row description"
+								#   num_fields=int16
+								#   (
+								#     field=String
+								#     relid=int32 (0 if not associated to a table)
+								#     attnum=int16 (0 if not associated to a table)
+								#     type=int32
+								#     type_len=int16 (-1 if variable, see pg_type.typlen)
+								#     type_mod=int32 (see pg_attribute.atttypmod)
+								#     format=int16 (0:text or 1:binary)
+								#   )[num_fields]
+								if ($is_srv and $pg_msg->{'type'} eq 'T') {
+									my @fields;
+									my $i=0;
+									my $msg = $pg_msg->{'data'};
+
+									$pg_msg->{'num_fields'} = unpack('n', $msg);
+
+									ROWS: while ($i < $pg_msg->{'num_fields'}) {
+										my @field = unpack('Z*NnNnNn', $msg);
+										push @fields, [ @field ];
+										$msg = substr($msg, 19 + length($field[0]));
+
+										$i++;
+									}
+
+									$pg_msg->{'fields'} = [ @fields ];
+									$processor->process_row_desc($pg_msg);
 									last SWITCH;
 								}
 

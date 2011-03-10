@@ -66,6 +66,13 @@ sub process_close {
 	my $pg_msg = shift;
 }
 
+## handle command B(D) (data row)
+# @param $pg_msg hash with pg message properties
+sub process_data_row {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command B(E) (error response)
 # @param $pg_msg hash with pg message properties
 sub process_error_response {
@@ -133,6 +140,13 @@ sub process_portal_suspended {
 ## handle command B(t) (parameter description)
 # @param $pg_msg hash with pg message properties
 sub process_param_desc {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command B(T) (row description)
+# @param $pg_msg hash with pg message properties
+sub process_row_desc {
 	my $self = shift;
 	my $pg_msg = shift;
 }
