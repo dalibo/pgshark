@@ -213,7 +213,7 @@ sub process_packet {
 									last SWITCH;
 								}
 
-								# message: F(B)
+								# message: F(B) "bind"
 								#   portal=String
 								#   name=String
 								#   num_formats=int16
@@ -237,6 +237,7 @@ sub process_packet {
 
 									$msg = substr($msg, ($pg_msg->{'num_formats'}+1) * 2);
 
+									# TODO add some safety tests about available data in $msg ?
 									for (my $i=0; $i < $pg_msg->{'num_params'}; $i++) {
 										# unpack hasn't 32bit signed network template, so we use l>
 										my ($len) = unpack('l>', $msg);
@@ -263,7 +264,7 @@ sub process_packet {
 									last SWITCH;
 								}
 
-								# message: B(C)
+								# message: B(C) "command complete"
 								#   type=char
 								#   name=String
 								if ($is_srv and $pg_msg->{'type'} eq 'C') {
@@ -274,7 +275,7 @@ sub process_packet {
 									last SWITCH;
 								}
 
-								# message: F(C)
+								# message: F(C) "close"
 								#   type=char
 								#   name=String
 								if (not $is_srv and $pg_msg->{'type'} eq 'C') {
@@ -339,7 +340,7 @@ sub process_packet {
 									last SWITCH;
 								}
 
-								# message: F(E)
+								# message: F(E) "execute"
 								#   name=String
 								#   nb_rows=int32
 								if (not $is_srv and $pg_msg->{'type'} eq 'E') {
@@ -382,7 +383,7 @@ sub process_packet {
 									last SWITCH;
 								}
 
-								# message: F(P)
+								# message: F(P) "parse"
 								#   name=String
 								#   query=String
 								#   num_params=int16
@@ -398,7 +399,7 @@ sub process_packet {
 									last SWITCH;
 								}
 
-								# message: F(Q)
+								# message: F(Q) "query"
 								#    query=String
 								if (not $is_srv and $pg_msg->{'type'} eq 'Q') {
 
@@ -434,7 +435,7 @@ sub process_packet {
 									last SWITCH;
 								}
 
-								# message: F(S)
+								# message: F(S) "sync"
 								if (not $is_srv and $pg_msg->{'type'} eq 'S') {
 									$processor->process_sync($pg_msg);
 									last SWITCH;
@@ -488,7 +489,7 @@ sub process_packet {
 									last SWITCH;
 								}
 
-								# message: B(Z)
+								# message: B(Z) "ready for query"
 								#   status=Char
 								if ($is_srv and $pg_msg->{'type'} eq 'Z') {
 									$pg_msg->{'status'} = $pg_msg->{'data'};
