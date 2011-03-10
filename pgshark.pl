@@ -203,6 +203,16 @@ sub process_packet {
 									last SWITCH;
 								}
 
+								# message: B(A) "notification response"
+								#   pid=int32
+								#   channel=String
+								#   payload=String
+								if ($is_srv and $pg_msg->{'type'} eq 'A') {
+									($pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'}) = unpack('N Z* Z*', $pg_msg->{'data'});
+									$processor->process_notif_response($pg_msg);
+									last SWITCH;
+								}
+
 								# message: F(B)
 								#   portal=String
 								#   name=String

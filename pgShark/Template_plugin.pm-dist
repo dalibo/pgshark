@@ -37,6 +37,14 @@ sub process_parse_complete {
 	my $pg_msg = shift;
 }
 
+
+## handle command B(A) (notification response)
+# @param $pg_msg hash with pg message properties
+sub process_notif_response {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command F(B) (bind)
 # @param $pg_msg hash with pg message properties
 sub process_bind {
