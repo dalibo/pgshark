@@ -376,6 +376,24 @@ sub process_packet {
 									last SWITCH;
 								}
 
+								# message: B(R) "authentication request"
+								if ($is_srv and $pg_msg->{'type'} eq 'R') {
+									$pg_msg->{'code'} = unpack('N', $pg_msg->{'data'});
+									$pg_msg->{'data'} = undef;
+
+									# md5 salt
+									if ($pg_msg->{'code'} == 5) {
+											$pg_msg->{'data'} = unpack('xxxxZ*', $pg_msg->{'data'});
+									}
+									# GSSAPI or SSPI authentication data
+									elsif ($pg_msg->{'code'} == 8) {
+											$pg_msg->{'data'} = substr($pg_msg->{'data'}, 5);
+									}
+
+									$processor->process_auth_request($pg_msg);
+									last SWITCH;
+								}
+
 								# message: B(s) "portal suspended"
 								if ($is_srv and $pg_msg->{'type'} eq 's') {
 									$processor->process_portal_suspended($pg_msg);
@@ -409,7 +427,6 @@ sub process_packet {
 								#   status=Char
 								if ($is_srv and $pg_msg->{'type'} eq 'Z') {
 									$pg_msg->{'status'} = $pg_msg->{'data'};
-
 									$processor->process_ready($pg_msg);
 									last SWITCH;
 								}
