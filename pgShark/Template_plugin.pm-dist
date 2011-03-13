@@ -171,6 +171,36 @@ sub process_ready {
 	my $pg_msg = shift;
 }
 
+### specials messages without 1-byte type
+
+## handle command CancelRequest (F)
+# @param $pg_msg hash with pg message properties
+sub process_cancel_request {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command SSLRequest (F)
+# @param $pg_msg hash with pg message properties
+sub process_ssl_request {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command StartupMessage (F)
+# @param $pg_msg hash with pg message properties
+sub process_startup_message {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## this one doesn't exists as a backend answer
+# but pgshark call this method when backend answers to SSLRequest
+sub process_ssl_answer {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 sub DESTROY {
 	my $self = shift;
 #	debug(1, "Xxx: output something usefull here ?\n");
