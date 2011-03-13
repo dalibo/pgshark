@@ -19,7 +19,7 @@ sub new {
 	my $filter = undef;
 
 	pcap_compile($pcap, \$filter,
-		"(tcp and port $args->{'port'})", 0, 0
+		"(tcp and port $args->{'port'}) and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)", 0, 0
 	);
 	pcap_setfilter($pcap, $filter);
 
@@ -34,7 +34,7 @@ sub header {
 	my $pg_msg = shift;
 	my $is_srv = shift;
 	printf "Packet: t=%s, session=%s\n", $pg_msg->{'timestamp'}, $pg_msg->{'sess_hash'};
-	printf "PGSQL: type=%s, len=%d, ", $pg_msg->{'type'}, $pg_msg->{'len'};
+	printf "PGSQL: type=%s, ", $pg_msg->{'type'};
 	if ($is_srv) {
 		printf "B -> F\n";
 	}
@@ -120,6 +120,8 @@ sub process_bind {
 	my $self = shift;
 	my $pg_msg = shift;
 	$self->header($pg_msg, 0);
+
+	map {$_='NULL' if not defined} @{ $pg_msg->{'params'} };
 
 	printf "BIND portal='%s', name='%s', num_formats=%d, formats=%s, num_params=%d, params=%s\n\n",
 		$pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}, join(',', @{ $pg_msg->{'params_types'} }),
@@ -372,6 +374,48 @@ sub process_ready {
 		printf "READY FOR QUERY type=<IDLE> in transaction (aborted)\n\n";
 	}
 }
+
+## handle command CancelRequest (F)
+# @param $pg_msg hash with pg message properties
+sub process_cancel_request {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
+
+	printf "CANCEL REQUEST\n\n";
+}
+
+## handle command SSLRequest (F)
+# @param $pg_msg hash with pg message properties
+sub process_ssl_request {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
+
+	printf "SSL REQUEST\n\n";
+}
+
+## handle command StartupMessage (F)
+# @param $pg_msg hash with pg message properties
+sub process_startup_message {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
+
+	printf "STARTUP MESSAGE version: %s\n\n", $pg_msg->{'version'};
+}
+
+## this one doesn't exists as a backend answer
+# but pgshark call this method when backend answers to SSLRequest
+sub process_ssl_answer {
+	my $self = shift;
+	my $pg_msg = shift;
+
+	$self->header($pg_msg, 0);
+
+	printf "SSL BACKEND ANSWER: %s\n\n", $pg_msg->{'ssl_answer'};
+}
+
 
 sub DESTROY {
 	my $self = shift;
