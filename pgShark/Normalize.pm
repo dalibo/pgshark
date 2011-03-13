@@ -49,27 +49,7 @@ sub normalize {
 	my $self = shift;
 	my $query = shift;
 
-	chomp $query;
-
-	# remove bad escaped quotes in text so they are not in our way
-	# for other cleaning stuffs. We'll take care of others '' later
-	$query =~ s/\\'//g;
-	# remove multi spaces
-	$query =~ s/\s+/ /g;
-	# empty text
-	$query =~ s/'[^']*'/''/g;
-	# remove all remaining '' (that were escaping ')
-	# left behind the previous substitution
-	$query =~ s/''('')+/''/g;
-	# remove numbers
-	$query =~ s/([^a-zA-Z0-9_\$-])-?([0-9]+)/${1}0/g;
-	# remove hexa numbers
-	$query =~ s/([^a-z_\$-])0x[0-9a-f]{1,10}/${1}0x/gi;
-	# remove IN (values)
-	$query =~ s/(IN\s*)\([^\)]*\)/${1}0x/gi;
-	#rewrite params, some of them might have been drop in a IN parameter
-	my $pi=1;
-	$query =~ s/\$[0-9]+/'$'.$pi++/gie;
+	$query = normalize_query($query);
 
 	my $query_hash = md5_base64($query);
 
@@ -90,6 +70,7 @@ sub normalize {
 # @param $pg_msg hash with pg message properties
 sub deallocate {
 	# my $self = shift;
+	# my $pg_msg = shift;
 	# Nothing to do...yet
 }
 
@@ -111,6 +92,7 @@ sub process_parse {
 # @param $pg_msg hash with pg message properties
 sub process_bind {
 	# my $self = shift;
+	# my $pg_msg = shift;
 	# Nothing to do...yet
 }
 
@@ -118,6 +100,7 @@ sub process_bind {
 # @param $pg_msg hash with pg message properties
 sub process_execute {
 	# my $self = shift;
+	# my $pg_msg = shift;
 	# Nothing to do...yet
 }
 
@@ -125,6 +108,7 @@ sub process_execute {
 # @param $pg_msg hash with pg message properties
 sub process_close {
 	# my $self = shift;
+	# my $pg_msg = shift;
 	# Nothing to do...yet
 }
 
@@ -141,10 +125,43 @@ sub process_query {
 	}
 }
 
+## handle command F(S) (sync)
+# @param $pg_msg hash with pg message properties
+sub process_sync {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# Nothing to do...yet
+}
+
 ## handle command X (terminate)
 # @param $pg_msg hash with pg message properties
 sub process_disconnect {
 	# my $self = shift;
+	# my $pg_msg = shift;
+	# Nothing to do...yet
+}
+
+## handle command CancelRequest (F)
+# @param $pg_msg hash with pg message properties
+sub process_cancel_request {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# Nothing to do...yet
+}
+
+## handle command SSLRequest (F)
+# @param $pg_msg hash with pg message properties
+sub process_ssl_request {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# Nothing to do...yet
+}
+
+## handle command StartupMessage (F)
+# @param $pg_msg hash with pg message properties
+sub process_startup_message {
+	# my $self = shift;
+	# my $pg_msg = shift;
 	# Nothing to do...yet
 }
 
