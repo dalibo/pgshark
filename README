@@ -1,5 +1,5 @@
 pgshark.pl
-    pgshark.pl - Mess with PostgreSQL client's traffic
+    pgshark.pl - Messing with PostgreSQL network traffic
 
 SYNOPSIS
     pgshark.pl --help
@@ -7,22 +7,24 @@ SYNOPSIS
       Where plugin_name could be *sql* or *normalize* or *debug*.
 
 DESCRIPTION
-    This program study PostgreSQL traffic captured in tcpdump format and is
-    able to make various things with extracted client's activities.
+    This program study PostgreSQL traffic captured from the network and is
+    able to make various things with it. The network dump could be live or
+    from a pcap file (usingtcpdump as instance).
 
-    pgshark comes with various output plugins to do various things with
-    PostgreSQL client's traffic.
-
-    Presently, pgshark is only able to read tcpdump files from its standart
-    input.
+    pgshark comes with various output plugins able to do various things with
+    these network dumps.
 
     -d, --debug
-      Print some debug messages to the standart error. The more you repeat
-      this option, the more pgshark will be verbose. (well, presently, only
-      one level of debug from core only...)
+      Print debug informations to the standart error. The more you repeat
+      this option, the more pgshark will be verbose. There is 3 level of
+      debug presently.
 
     --help
       Show this help message and exit.
+
+    -h, --host <ip address>
+      Gives the IP address of the PostgreSQL server. By default, set to
+      127.0.0.1.
 
     --i, --interface <interface name>
       Capture PostgreSQL traffic directly from the given network interface.
@@ -30,12 +32,13 @@ DESCRIPTION
       neither --read or --interface are given.
 
     -o, --output <plugin name>
-      Select the traffic processing output plugin. This parameter value is
-      case-insensitive (eg. SQL, Sql and sql wil all select the SQL plugin
+      Select the dump processing output plugin. This parameter value is
+      case-insensitive (eg. SQL, Sql and sql will all select the SQL plugin
       output). See section "PLUGINS".
 
     -p, --port <port>
-      Give the port the PostgreSQL backend is listening on.
+      Gives the port the PostgreSQL backend is listening on. Be default, set
+      to 5432
 
     -r, --read <path to file>
       Read PostgreSQL traffic from given pcap file. Conflict with

@@ -624,7 +624,7 @@ END {
 
 =head1 pgshark.pl
 
-pgshark.pl - Mess with PostgreSQL client's traffic
+pgshark.pl - Messing with PostgreSQL network traffic
 
 =head1 SYNOPSIS
 
@@ -640,23 +640,25 @@ Where B<plugin_name> could be I<sql> or I<normalize> or I<debug>.
 
 =head1 DESCRIPTION
 
-This program study PostgreSQL traffic captured in tcpdump format and is able to make various things with extracted client's
-activities.
+This program study PostgreSQL traffic captured from the network and is able to make various things with it. The network
+dump could be live or from a pcap file (usingtcpdump as instance).
 
-B<pgshark> comes with various output plugins to do various things with PostgreSQL client's traffic.
-
-Presently, B<pgshark> is only able to read tcpdump files from its standart input.
+B<pgshark> comes with various output plugins able to do various things with these network dumps.
 
 =over 2
 
 =item B<-d>, B<--debug>
 
-Print some debug messages to the standart error. The more you repeat this option, the more B<pgshark> will be verbose.
-(well, presently, only one level of debug from core only...)
+Print debug informations to the standart error. The more you repeat this option, the more B<pgshark> will be verbose.
+There is 3 level of debug presently.
 
 =item B<--help>
 
 Show this help message and exit.
+
+=item B<-h>, B<--host> <ip address>
+
+Gives the IP address of the PostgreSQL server. By default, set to 127.0.0.1.
 
 =item B<--i>, B<--interface> <interface name>
 
@@ -665,13 +667,13 @@ By default, B<pgshark> will read from stdin if neither B<--read> or B<--interfac
 
 =item B<-o>, B<--output> <plugin name>
 
-Select the traffic processing output plugin. This parameter value is case-insensitive
-(eg. SQL, Sql and sql wil all select the SQL plugin output).
+Select the dump processing output plugin. This parameter value is case-insensitive
+(eg. SQL, Sql and sql will all select the SQL plugin output).
 See section L</PLUGINS>.
 
 =item B<-p>, B<--port> <port>
 
-Give the port the PostgreSQL backend is listening on.
+Gives the port the PostgreSQL backend is listening on. Be default, set to 5432
 
 =item B<-r>, B<--read> <path to file>
 
