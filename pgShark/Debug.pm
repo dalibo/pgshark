@@ -188,6 +188,16 @@ sub process_parse_complete {
 	printf "PARSE COMPLETE\n\n";
 }
 
+## handle command B(2) (Bind Complete)
+# @param $pg_msg hash with pg message properties
+sub process_bind_complete {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "BIND COMPLETE\n\n";
+}
+
 ## handle command B(A) (Notification Response)
 # @param $pg_msg hash with pg message properties
 sub process_notif_response {

@@ -255,6 +255,12 @@ sub process_packet {
 							last SWITCH;
 						}
 
+						# message: B(2) "bind complete"
+						if ($is_srv and $pg_msg->{'type'} eq '2') {
+							$processor->process_bind_complete($pg_msg);
+							last SWITCH;
+						}
+
 						# message: B(A) "notification response"
 						#   pid=int32
 						#   channel=String
