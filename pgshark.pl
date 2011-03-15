@@ -169,7 +169,7 @@ sub process_packet {
 					# hash about message informations
 					my $pg_msg = {
 						'sess_hash' => $sess_hash,
-						'timestamp' => "$pckt_hdr->{'tv_sec'}.$pckt_hdr->{'tv_usec'}",
+						'timestamp' => "$pckt_hdr->{'tv_sec'}.". sprintf('%06d', $pckt_hdr->{'tv_usec'}),
 						## the following entries will be feeded bellow
 						# 'type' => message type. Either one-char type or full message for special ones
 						# 'data' =>  the message data (without the type and int32 length)
