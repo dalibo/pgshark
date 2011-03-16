@@ -83,7 +83,7 @@ EXAMPLES
       Capture PostgreSQL traffic from interface eth0 and output normalized
       queries to the standart output.
 
-Author
+AUTHORS
     Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
 
     Dalibo's team.
@@ -92,4 +92,8 @@ Author
 
 SEE ALSO
     The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
+
+LICENSING
+    This program is open source, licensed under the simplified BSD license.
+    For license terms, see the LICENSE provided with the sources.
 
