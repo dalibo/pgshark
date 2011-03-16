@@ -1,5 +1,5 @@
 ##
-# This program is open source, licensed under the new BSD license.  For license terms, see the LICENSE file.
+# This program is open source, licensed under the simplified BSD license.  For license terms, see the LICENSE file.
 ##
 #!/usr/bin/perl
 
@@ -739,7 +739,7 @@ Capture PostgreSQL traffic from interface eth0 and output normalized queries to 
 
 =back
 
-=head1 Author
+=head1 AUTHORS
 
 Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
 
@@ -750,5 +750,10 @@ http://www.dalibo.org
 =head1 SEE ALSO
 
 The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
+
+=head1 LICENSING
+
+This program is open source, licensed under the simplified BSD license. For license terms, see the LICENSE provided
+with the sources.
 
 =cut

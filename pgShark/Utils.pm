@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 ##
-# This program is open source, licensed under the new BSD license.  For license terms, see the LICENSE file.
+# This program is open source, licensed under the simplified BSD license.  For license terms, see the LICENSE file.
 ##
 use Exporter;
 our $VERSION = 0.1;
