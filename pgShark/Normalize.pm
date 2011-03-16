@@ -66,14 +66,6 @@ sub normalize {
 	return $query_hash;
 }
 
-# handle C command (close)
-# @param $pg_msg hash with pg message properties
-sub deallocate {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# Nothing to do...yet
-}
-
 ## handle P command (parse)
 # @param $pg_msg hash with pg message properties
 sub process_parse {
