@@ -69,6 +69,7 @@ usage("This output plugin does not exist.\n") if ( not (
 	   ($args{'output'} eq 'Sql')
 	or ($args{'output'} eq 'Normalize')
 	or ($args{'output'} eq 'Debug')
+	or ($args{'output'} eq 'Fouine')
 ));
 
 # set debug level given in options
@@ -112,6 +113,7 @@ require "./pgShark/$args{'output'}.pm";
 my $processor = $args{'output'}->new(\%args, $pcap);
 
 Net::Pcap::Reassemble::loop($pcap, -1, \&process_packet, '');
+# pcap_loop($pcap, -1, \&process_packet, '');
 
 sub process_packet {
 	my($user_data, $pckt_hdr, $pckt) = @_;
@@ -640,7 +642,7 @@ pgshark.pl - Messing with PostgreSQL network traffic
 
 =item pgshark.pl [--debug] [--read file] {--output plugin_name}
 
-Where B<plugin_name> could be I<sql> or I<normalize> or I<debug>.
+Where B<plugin_name> could be I<sql> or I<normalize> or I<debug> or I<fouine>.
 
 =back
 
@@ -708,6 +710,11 @@ of unique queries, however the number of time they has been send by clients and 
 
 The B<debug> plugin will output the PostgreSQL messages in human readable format. Usefull to analyze what is in a network
 dump before using pgshark on some other duties.
+
+=item B<fouine>
+
+The B<fouine> plugin will output a report with most popular queries, slowest cumulatives ones, slowest queries ever,
+classification of queries by types, etc.
 
 =back
 
