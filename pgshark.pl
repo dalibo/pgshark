@@ -738,6 +738,14 @@ Capture PostgreSQL traffic from interface eth0 and output normalized queries to 
 
 =head1 Author
 
-Dalibo's team. http://www.dalibo.org
+Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
+
+Dalibo's team.
+
+http://www.dalibo.org
+
+=head1 SEE ALSO
+
+The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
 
 =cut

@@ -4,7 +4,8 @@ pgshark.pl
 SYNOPSIS
     pgshark.pl --help
     pgshark.pl [--debug] [--read file] {--output plugin_name}
-      Where plugin_name could be *sql* or *normalize* or *debug*.
+      Where plugin_name could be *sql* or *normalize* or *debug* or
+      *fouine*.
 
 DESCRIPTION
     This program study PostgreSQL traffic captured from the network and is
@@ -64,6 +65,11 @@ PLUGINS
       format. Usefull to analyze what is in a network dump before using
       pgshark on some other duties.
 
+    fouine
+      The fouine plugin will output a report with most popular queries,
+      slowest cumulatives ones, slowest queries ever, classification of
+      queries by types, etc.
+
 EXAMPLES
     "cat some_capture.pcap* | pgshark.pl --output SQL"
       Output all queries found in files "some_capture.pcap*" in SQL to the
@@ -78,5 +84,12 @@ EXAMPLES
       queries to the standart output.
 
 Author
-    Dalibo's team. http://www.dalibo.org
+    Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
+
+    Dalibo's team.
+
+    http://www.dalibo.org
+
+SEE ALSO
+    The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
 
