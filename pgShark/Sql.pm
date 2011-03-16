@@ -1,3 +1,6 @@
+##
+# This program is open source, licensed under the new BSD license.  For license terms, see the LICENSE file.
+##
 package Sql;
 
 use strict;

@@ -2,6 +2,9 @@ package pgShark::Utils;
 use strict;
 use warnings;
 
+##
+# This program is open source, licensed under the new BSD license.  For license terms, see the LICENSE file.
+##
 use Exporter;
 our $VERSION = 0.1;
 our @ISA = ('Exporter');
