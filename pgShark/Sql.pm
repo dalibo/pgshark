@@ -208,6 +208,38 @@ sub process_query {
 	printf "%s;\n", $pg_msg->{query};
 }
 
+## handle command F(S) (sync)
+# @param $pg_msg hash with pg message properties
+sub process_sync {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# Nothing to do...yet
+}
+
+## handle command CancelRequest (F)
+# @param $pg_msg hash with pg message properties
+sub process_cancel_request {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# Nothing to do...yet
+}
+
+## handle command SSLRequest (F)
+# @param $pg_msg hash with pg message properties
+sub process_ssl_request {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# Nothing to do...yet
+}
+
+## handle command StartupMessage (F)
+# @param $pg_msg hash with pg message properties
+sub process_startup_message {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# Nothing to do...yet
+}
+
 ## handle command X (terminate)
 # @param $pg_msg hash with pg message properties
 sub process_disconnect {
