@@ -348,6 +348,17 @@ sub process_packet {
 							last SWITCH;
 						}
 
+						# message: F(D) "Describe"
+						#   type=char
+						#   name=String
+						if (not $is_srv and $pg_msg->{'type'} eq 'D') {
+
+							($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
+
+							$processor->process_describe($pg_msg);
+							last SWITCH;
+						}
+
 						# message: B(D) "data row"
 						#   num_values=int16
 						#   (

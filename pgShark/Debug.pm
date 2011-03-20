@@ -131,6 +131,15 @@ sub process_bind {
 		$pg_msg->{'num_params'}, join(',', @{ $pg_msg->{'params'} });
 }
 
+## handle command F(D) (Describe)
+# @param $pg_msg hash with pg message properties
+sub process_describe {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
+
+	printf "DESCRIBE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
+}
 ## handle command F(E) (execute)
 # @param $pg_msg hash with pg message properties
 sub process_execute {

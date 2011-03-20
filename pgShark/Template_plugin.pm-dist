@@ -82,6 +82,13 @@ sub process_data_row {
 	my $pg_msg = shift;
 }
 
+## handle command F(D) (Describe)
+# @param $pg_msg hash with pg message properties
+sub process_describe {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command B(E) (error response)
 # @param $pg_msg hash with pg message properties
 sub process_error_response {
