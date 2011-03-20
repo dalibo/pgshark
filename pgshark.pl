@@ -1,7 +1,7 @@
+#!/usr/bin/perl
 ##
 # This program is open source, licensed under the simplified BSD license.  For license terms, see the LICENSE file.
 ##
-#!/usr/bin/perl
 
 use strict;
 use warnings;
