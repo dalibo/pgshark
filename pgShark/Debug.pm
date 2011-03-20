@@ -272,6 +272,16 @@ sub process_empty_query {
 	printf "EMPTY QUERY RESPONSE\n\n";
 }
 
+## handle command B(K) (BackendKeyData)
+# @param $pg_msg hash with pg message properties
+sub process_key_data {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "BACKEND KEY DATA pid=%d, key=%d\n\n", $pg_msg->{'pid'}, $pg_msg->{'key'};
+}
+
 ## handle command B(n) (no data)
 # @param $pg_msg hash with pg message properties
 sub process_no_data {

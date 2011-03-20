@@ -430,6 +430,14 @@ sub process_packet {
 							last SWITCH;
 						}
 
+						# message: B(K) "BackendKeyData"
+						if ($is_srv and $pg_msg->{'type'} eq 'K') {
+							($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('NN', $pg_msg->{'data'});
+
+							$processor->process_key_data($pg_msg);
+							last SWITCH;
+						}
+
 						# message: B(N) "notice response"
 						#   (code=char
 						#   value=String){1,}\x00
