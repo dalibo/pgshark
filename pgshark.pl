@@ -373,17 +373,19 @@ sub process_packet {
 							$pg_msg->{'num_values'} = unpack('n', $pg_msg->{'data'});
 
 							while ($i < $pg_msg->{'num_values'}) {
-								my $val_len = unpack('N', $msg);
+								my $val_len = unpack('l>', $msg);
 								my $val = undef;
 								if ($val_len != -1) {
-									$val = substr($msg, 5, $val_len);
+									$val = substr($msg, 4, $val_len);
+									$msg = substr($msg, 4 + $val_len);
 								}
 								else {
 									$val = undef;
+									$msg = substr($msg, 4);
 								}
 
 								push @values, [ $val_len, $val];
-								$msg = substr($msg, 4 + $val_len);
+
 								$i++;
 							}
 

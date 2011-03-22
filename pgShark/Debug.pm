@@ -243,8 +243,14 @@ sub process_data_row {
 
 	for my $value ( @{ $pg_msg->{'values'} } ) {
 		$i++;
-		$value->[1] =~ tr/\x00-\x1F\x80-\xFF/./;
-		printf "---[Value %02d]---\nlength=%d\nvalue='%s'\n", $i, @{ $value } ;
+		if (defined $value->[1]) {
+			$value->[1] =~ tr/\x00-\x1F\x80-\xFF/./;
+			$value->[1] = "'$value->[1]'";
+		}
+		else {
+			$value->[1] = 'NULL';
+		}
+		printf "---[Value %02d]---\nlength=%d\nvalue=%s\n", $i, @{ $value } ;
 	}
 	print "\n";
 }
