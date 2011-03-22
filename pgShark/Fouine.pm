@@ -1,6 +1,48 @@
 ##
 # This program is open source, licensed under the simplified BSD license.  For license terms, see the LICENSE file.
 ##
+
+##
+# TODOs
+#
+# == options ==
+#
+# * filter by session / IP / date
+#
+# == globals ==
+#
+# * top 10 errors (+ any other useful fields given with them, SQL code as instance)
+# * top 10 notices  (+ any other useful fields given with them, SQL code as instance)
+# * number of query canceled/kill
+# * top 10 roles
+# * top 10 appli / IP
+#
+# == prepd stmt ==
+#
+# * add prepare/bind/exec times to prepd stmt the top-10s tables
+#
+# == repli ==
+#
+# * stats repli ?
+#
+# == session stats ==
+#
+# * sessions times
+# * average number of query per session
+# * ratio activity/session time
+# * total exec time & total IDLE time
+#
+# == graph ==
+#
+# * error / notice
+# * commit/rollback
+# * cnx by appli / IP
+# * nb of rows OUT
+# * nb of bytes IN/OUT
+# * nb of queries IN
+# * cnx roles
+#
+##
 package Fouine;
 
 use strict;
