@@ -245,6 +245,13 @@ sub process_empty_query {
 	# my $pg_msg = shift;
 }
 
+## handle command B(K) (BackendKeyData)
+# @param $pg_msg hash with pg message properties
+sub process_key_data {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command B(N) (notice response)
 # @param $pg_msg hash with pg message properties
 sub process_notice_response {
