@@ -160,6 +160,14 @@ sub process_startup_message {
 	# Nothing to do...yet
 }
 
+
+## handle command F(D) (Describe)
+# @param $pg_msg hash with pg message properties
+sub process_describe {
+	# my $self = shift;
+	# my $pg_msg = shift;
+}
+
 sub DESTROY {
 	my $self = shift;
 
