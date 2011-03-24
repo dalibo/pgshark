@@ -219,6 +219,14 @@ sub process_sync {
 	# Nothing to do...yet
 }
 
+
+## handle command F(D) (Describe)
+# @param $pg_msg hash with pg message properties
+sub process_describe {
+	# my $self = shift;
+	# my $pg_msg = shift;
+}
+
 ## handle command CancelRequest (F)
 # @param $pg_msg hash with pg message properties
 sub process_cancel_request {
