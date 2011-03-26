@@ -421,6 +421,7 @@ sub process_parameter_status {
 
 	printf "PARAMETER STATUS name='%s', value='%s'\n\n", $pg_msg->{'name'}, $pg_msg->{'value'};
 }
+
 ## handle command B(s) (portal suspended)
 # @param $pg_msg hash with pg message properties
 sub process_portal_suspended {
