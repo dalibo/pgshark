@@ -64,9 +64,20 @@ sub new {
 			'prepd' => {},
 			'queries' => {},
 			'globals' => {
+				'total_notices' => 0,
+				'min_notices' => 9**9**9, # min notices seen per session
+				'max_notices' => 0, # max notices seen per session
+				'total_errors' => 0,
+				'min_errors' => 9**9**9, # min errors seen per session
+				'max_errors' => 0, # max errors seen per session
+				'queries_total' => 0,
 				'trace' => {
 					'start' => 0,
 					'end' => 0,
+				},
+				'notices' => {
+				},
+				'errors' => {
 				},
 				'sessions' => {
 					'total' => 0,
@@ -84,7 +95,6 @@ sub new {
 					'avg_queries' => 0,
 					'max_queries' => 0
 				},
-				'query_total' => 0,
 				'query_types' => {
 					'SELECT' => 0,
 					'INSERT' => 0,
@@ -130,7 +140,9 @@ sub get_session {
 			'stats' => {
 				'ts_start' => $pg_msg->{'timestamp'},
 				'busy_time' => 0,
-				'queries_count' => 0
+				'queries_count' => 0,
+				'notices_count' => 0,
+				'errors_count' => 0
 			}
 		};
 		$self->{'stats'}->{'globals'}->{'sessions'}->{'total'}++;
@@ -162,7 +174,13 @@ sub record_session_stats {
 	$sessions_stats->{'max_queries'} = $session->{'stats'}->{'queries_count'} if $sessions_stats->{'max_queries'} < $session->{'stats'}->{'queries_count'};
 	$sessions_stats->{'avg_queries'} = (($sessions_stats->{'avg_queries'} * ($sessions_stats->{'total'} - 1)) + $session->{'stats'}->{'queries_count'}) / $sessions_stats->{'total'};
 
-	$globals_stats->{'query_total'} += $session->{'stats'}->{'queries_count'};
+	$globals_stats->{'queries_total'} += $session->{'stats'}->{'queries_count'};
+	$globals_stats->{'total_notices'} += $session->{'stats'}->{'notices_count'};
+	$globals_stats->{'min_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} < $globals_stats->{'min_notices'};
+	$globals_stats->{'max_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} > $globals_stats->{'max_notices'};
+	$globals_stats->{'total_errors'} += $session->{'stats'}->{'errors_count'};
+	$globals_stats->{'min_errors'} = $session->{'stats'}->{'errors_count'} if $globals_stats->{'min_errors'} > $session->{'stats'}->{'errors_count'};
+	$globals_stats->{'max_errors'} = $session->{'stats'}->{'errors_count'} if $globals_stats->{'max_errors'} < $session->{'stats'}->{'errors_count'};
 }
 
 ## handle command B(1) (Parse Complete)
@@ -281,7 +299,7 @@ sub process_command_complete {
 	}
 	else {
 		# we complete smth that was executed earlier ??
-		$self->{'stats'}->{'globals'}->{'query_total'}++;
+		$self->{'stats'}->{'globals'}->{'queries_total'}++;
 	}
 }
 
@@ -329,9 +347,19 @@ sub process_copy_data {
 ## handle command B(E) (error response)
 # @param $pg_msg hash with pg message properties
 sub process_error_response {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
+	my $self = shift;
+	my $pg_msg = shift;
+	my $session = $self->get_session($pg_msg);
+	my $error_stats = $self->{'stats'}->{'globals'}->{'errors'};
+	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
+
+	if (not defined $error_stats->{$hash}) {
+		$error_stats->{$hash}->{'fields'} = $pg_msg->{'fields'};
+		$error_stats->{$hash}->{'count'} = 0;
+	}
+
+	$error_stats->{$hash}->{'count'}++;
+	$session->{'stats'}->{'errors_count'}++;
 }
 
 ## handle command F(E) (execute)
@@ -394,9 +422,19 @@ sub process_key_data {
 ## handle command B(N) (notice response)
 # @param $pg_msg hash with pg message properties
 sub process_notice_response {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
+	my $self = shift;
+	my $pg_msg = shift;
+	my $session = $self->get_session($pg_msg);
+	my $notice_stats = $self->{'stats'}->{'globals'}->{'notices'};
+	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
+
+	if (not defined $notice_stats->{$hash}) {
+		$notice_stats->{$hash}->{'fields'} = $pg_msg->{'fields'};
+		$notice_stats->{$hash}->{'count'} = 0;
+	}
+
+	$session->{'stats'}->{'notices_count'}++;
+	$notice_stats->{$hash}->{'count'}++;
 }
 
 ## handle command B(n) (no data)
@@ -632,14 +670,45 @@ sub DESTROY {
 		delete $self->{'sessions'}->{$hash};
 	}
 
-	print "==== Overall stats ====\n\n";
-
-	print "=== General ===\n\n";
+	print "===== Overall stats =====\n\n";
 
 	printf "First query: %s\n", scalar(localtime($trace_stats->{'start'}));
 	printf "Last query:  %s\n", scalar(localtime($trace_stats->{'end'}));
 
-	print "\n\n=== Sessions ===\n\n";
+	print "\n\n==== Notices & Errors ====\n\n";
+
+	printf "Total notices:                %d\n",  $globals_stats->{'total_notices'};
+	printf "Min/Max notices per sessions: %d/%d\n",  $globals_stats->{'min_notices'}, $globals_stats->{'max_notices'};
+	printf "Total errors:                 %d\n",  $globals_stats->{'total_errors'};
+	printf "Min/Max errors per sessions:  %d/%d\n",  $globals_stats->{'min_errors'}, $globals_stats->{'max_errors'};
+
+	print "\n\n=== Most frequent notices ===\n\n";
+
+	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $globals_stats->{'notices'} };
+
+	print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
+	for(my $i=0; $i < 10; $i++) {
+		if (defined $top_most_frequent[$i]) {
+			printf "%4d\t%12d\t%10s\t%10s\t%s\n",
+				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'fields'}->{'S'},
+				$top_most_frequent[$i]->{'fields'}->{'C'}, $top_most_frequent[$i]->{'fields'}->{'M'};
+		}
+	}
+
+	print "\n\n=== Most frequent errors ===\n\n";
+
+	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $globals_stats->{'errors'} };
+
+	print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
+	for(my $i=0; $i < 10; $i++) {
+		if (defined $top_most_frequent[$i]) {
+			printf "%4d\t%12d\t%10s\t%10s\t%s\n",
+				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'fields'}->{'S'},
+				$top_most_frequent[$i]->{'fields'}->{'C'}, $top_most_frequent[$i]->{'fields'}->{'M'};
+		}
+	}
+
+	print "\n\n==== Sessions ====\n\n";
 
 	printf "Total number of sessions:                   %d\n", $sessions_stats->{'total'};
 	printf "Number connections:                         %d\n", $sessions_stats->{'cnx'};
@@ -660,25 +729,26 @@ sub DESTROY {
 		$sessions_stats->{'avg_queries'},
 		$sessions_stats->{'max_queries'};
 
-	print "\n\n=== Queries by type ===\n\n";
+	print "\n\n==== Queries by type ====\n\n";
 
-	if ($globals_stats->{'query_total'}) {
+	if ($globals_stats->{'queries_total'}) {
 		@top_most_frequent = sort { $globals_stats->{'query_types'}->{$b} <=> $globals_stats->{'query_types'}->{$a} }
 			keys %{ $globals_stats->{'query_types'} };
 		print "Rank\t        Type\t     Count\tPercentage\n";
 		my $i = 1;
 		foreach (@top_most_frequent) {
 			printf "%4d\t%12s\t%10d\t%10.2f\n",
-				$i, $_, $globals_stats->{'query_types'}->{$_}, 100*($globals_stats->{'query_types'}->{$_} / $globals_stats->{'query_total'});
+				$i, $_, $globals_stats->{'query_types'}->{$_}, 100*($globals_stats->{'query_types'}->{$_} / $globals_stats->{'queries_total'});
 			$i++;
 		}
 
-		print "\n\nTotal queries: $globals_stats->{'query_total'}\n\n";
+		print "\n\nTotal queries: $globals_stats->{'queries_total'}\n\n";
 	}
 	else {
 		print "\n\nBackend answers were not found.\n\n";
 	}
 
+	print "\n===== Queries =====\n\n";
 	print "\n==== Prepared Statements ====\n\n";
 
 	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $self->{'stats'}->{'prepd'} };
