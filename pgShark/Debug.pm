@@ -51,7 +51,7 @@ sub code_response {
 	my $pg_msg = shift;
 
 	while (@{ $pg_msg->{'fields'} } > 0) {
-		my ($code, $value) = splice(@{ $pg_msg->{'fields'} });
+		my ($code, $value) = splice(@{ $pg_msg->{'fields'} }, 0, 2);
 		SWITCH: {
 			#S C M D H P p q W F L R
 			if ($code eq 'S') {
