@@ -11,8 +11,6 @@
 #
 # == globals ==
 #
-# * top 10 errors (+ any other useful fields given with them, SQL code as instance)
-# * top 10 notices  (+ any other useful fields given with them, SQL code as instance)
 # * number of query canceled/kill
 # * top 10 roles
 # * top 10 appli / IP
@@ -27,11 +25,6 @@
 # * stats repli ?
 #
 # == session stats ==
-#
-# * sessions times
-# * average number of query per session
-# * ratio activity/session time
-# * total exec time & total IDLE time
 #
 # == graph ==
 #
