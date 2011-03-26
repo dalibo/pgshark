@@ -293,6 +293,14 @@ sub process_close {
 	# my $session = $self->get_session($pg_msg);
 }
 
+## handle commande B & F (c) (CopyDone)
+sub process_copy_done {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# my $is_srv = shift;
+	# my $session = $self->get_session($pg_msg);
+}
+
 ## handle command B(D) (data row)
 # @param $pg_msg hash with pg message properties
 sub process_data_row {
@@ -307,6 +315,14 @@ sub process_data_row {
 sub process_describe {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
+}
+
+## handle commande B & F (d) (CopyData)
+sub process_copy_data {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# my $is_srv = shift;
 	# my $session = $self->get_session($pg_msg);
 }
 
@@ -333,6 +349,30 @@ sub process_execute {
 			'query_stat' => $self->{'stats'}->{'prepd'}->{$session->{'portals'}->{$pg_msg->{'name'}}}
 		};
 	}
+}
+
+## handle command F(f) (CopyFail)
+# @param $pg_msg hash with pg message properties
+sub process_copy_fail {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
+}
+
+## handle command B(G) (CopyInResponse)
+# @param $pg_msg hash with pg message properties
+sub process_copy_in_response {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
+}
+
+## handle command B(H) (CopyOutResponse)
+# @param $pg_msg hash with pg message properties
+sub process_copy_out_response {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command B(I) (empty query response)
@@ -466,6 +506,14 @@ sub process_auth_request {
 		$session_stat->{'auth_avg_time'} = (($session_stat->{'auth_avg_time'} * ($session_stat->{'cnx'} - 1)) + $interval) / $session_stat->{'cnx'};
 		$session_stat->{'auth_max_time'} = $interval if ($session_stat->{'auth_max_time'} < $interval);
 	}
+}
+
+## handle command B(S) (ParameterStatus)
+# @param $pg_msg hash with pg message properties
+sub process_parameter_status {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command B(s) (portal suspended)
