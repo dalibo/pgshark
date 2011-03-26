@@ -61,58 +61,56 @@ sub new {
 	my $self = {
 		'sessions' => {},
 		'stats' => {
-			'prepd' => {},
-			'queries' => {},
-			'globals' => {
-				'total_notices' => 0,
-				'min_notices' => 9**9**9, # min notices seen per session
-				'max_notices' => 0, # max notices seen per session
-				'total_errors' => 0,
-				'min_errors' => 9**9**9, # min errors seen per session
-				'max_errors' => 0, # max errors seen per session
-				'queries_total' => 0,
-				'trace' => {
-					'start' => 0,
-					'end' => 0,
-				},
-				'notices' => {
-				},
-				'errors' => {
-				},
-				'sessions' => {
-					'total' => 0,
-					'cnx' => 0,
-					'discnx' => 0,
-					'min_time' => 9**9**9,
-					'avg_time' => 0,
-					'max_time' => 0,
-					'total_time' => 0,
-					'total_busy_time' => 0,
-					'auth_min_time' => 9**9**9,
-					'auth_avg_time' => 0,
-					'auth_max_time' => 0,
-					'min_queries' => 9**9**9,
-					'avg_queries' => 0,
-					'max_queries' => 0
-				},
-				'query_types' => {
-					'SELECT' => 0,
-					'INSERT' => 0,
-					'UPDATE' => 0,
-					'DELETE' => 0,
-					'BEGIN' => 0,
-					'COMMIT' => 0,
-					'ROLLBACK' => 0,
-					'MOVE' => 0,
-					'FETCH' => 0,
-					'COPY' => 0,
-					'VACUUM' => 0,
-					'TRUNCATE' => 0,
-					'DECLARE' => 0,
-					'CLOSE' => 0,
-					'others' => 0
-				},
-			}
+			'first_message' => 0,
+			'last_message' => 0,
+			'total_notices' => 0,
+			'min_notices' => 9**9**9, # min notices seen per session
+			'max_notices' => 0, # max notices seen per session
+			'total_errors' => 0,
+			'min_errors' => 9**9**9, # min errors seen per session
+			'max_errors' => 0, # max errors seen per session
+			'queries_total' => 0,
+			'errors' => {
+			},
+			'notices' => {
+			},
+			'prepd' => {
+			},
+			'queries' => {
+			},
+			'query_types' => {
+				'SELECT' => 0,
+				'INSERT' => 0,
+				'UPDATE' => 0,
+				'DELETE' => 0,
+				'BEGIN' => 0,
+				'COMMIT' => 0,
+				'ROLLBACK' => 0,
+				'MOVE' => 0,
+				'FETCH' => 0,
+				'COPY' => 0,
+				'VACUUM' => 0,
+				'TRUNCATE' => 0,
+				'DECLARE' => 0,
+				'CLOSE' => 0,
+				'others' => 0
+			},
+			'sessions' => {
+				'total' => 0,
+				'cnx' => 0,
+				'discnx' => 0,
+				'min_time' => 9**9**9,
+				'avg_time' => 0,
+				'max_time' => 0,
+				'total_time' => 0,
+				'total_busy_time' => 0,
+				'auth_min_time' => 9**9**9,
+				'auth_avg_time' => 0,
+				'auth_max_time' => 0,
+				'min_queries' => 9**9**9,
+				'avg_queries' => 0,
+				'max_queries' => 0
+			},
 		}
 	};
 
@@ -145,13 +143,13 @@ sub get_session {
 				'errors_count' => 0
 			}
 		};
-		$self->{'stats'}->{'globals'}->{'sessions'}->{'total'}++;
+		$self->{'stats'}->{'sessions'}->{'total'}++;
 	}
 
-	$self->{'stats'}->{'globals'}->{'trace'}->{'start'} = $pg_msg->{'timestamp'}
-		unless $self->{'stats'}->{'globals'}->{'trace'}->{'start'};
+	$self->{'stats'}->{'first_message'} = $pg_msg->{'timestamp'}
+		unless $self->{'stats'}->{'first_message'};
 
-	$self->{'stats'}->{'globals'}->{'trace'}->{'end'} = $pg_msg->{'timestamp'};
+	$self->{'stats'}->{'last_message'} = $pg_msg->{'timestamp'};
 
 	return $self->{'sessions'}->{$hash};
 }
@@ -161,8 +159,8 @@ sub record_session_stats {
 	my $session = shift;
 
 	my $interval = $session->{'stats'}->{'ts_end'} - $session->{'stats'}->{'ts_start'};
-	my $globals_stats = $self->{'stats'}->{'globals'};
-	my $sessions_stats = $self->{'stats'}->{'globals'}->{'sessions'};
+	my $stats = $self->{'stats'};
+	my $sessions_stats = $self->{'stats'}->{'sessions'};
 
 	$sessions_stats->{'total_time'} += $interval;
 	$sessions_stats->{'min_time'}    = $interval if $sessions_stats->{'min_time'} > $interval;
@@ -174,13 +172,13 @@ sub record_session_stats {
 	$sessions_stats->{'max_queries'} = $session->{'stats'}->{'queries_count'} if $sessions_stats->{'max_queries'} < $session->{'stats'}->{'queries_count'};
 	$sessions_stats->{'avg_queries'} = (($sessions_stats->{'avg_queries'} * ($sessions_stats->{'total'} - 1)) + $session->{'stats'}->{'queries_count'}) / $sessions_stats->{'total'};
 
-	$globals_stats->{'queries_total'} += $session->{'stats'}->{'queries_count'};
-	$globals_stats->{'total_notices'} += $session->{'stats'}->{'notices_count'};
-	$globals_stats->{'min_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} < $globals_stats->{'min_notices'};
-	$globals_stats->{'max_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} > $globals_stats->{'max_notices'};
-	$globals_stats->{'total_errors'} += $session->{'stats'}->{'errors_count'};
-	$globals_stats->{'min_errors'} = $session->{'stats'}->{'errors_count'} if $globals_stats->{'min_errors'} > $session->{'stats'}->{'errors_count'};
-	$globals_stats->{'max_errors'} = $session->{'stats'}->{'errors_count'} if $globals_stats->{'max_errors'} < $session->{'stats'}->{'errors_count'};
+	$stats->{'queries_total'} += $session->{'stats'}->{'queries_count'};
+	$stats->{'total_notices'} += $session->{'stats'}->{'notices_count'};
+	$stats->{'min_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} < $stats->{'min_notices'};
+	$stats->{'max_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} > $stats->{'max_notices'};
+	$stats->{'total_errors'} += $session->{'stats'}->{'errors_count'};
+	$stats->{'min_errors'} = $session->{'stats'}->{'errors_count'} if $stats->{'min_errors'} > $session->{'stats'}->{'errors_count'};
+	$stats->{'max_errors'} = $session->{'stats'}->{'errors_count'} if $stats->{'max_errors'} < $session->{'stats'}->{'errors_count'};
 }
 
 ## handle command B(1) (Parse Complete)
@@ -272,12 +270,12 @@ sub process_command_complete {
 	my $session = $self->get_session($pg_msg);
 	my @command = split(' ', $pg_msg->{'command'});
 
-	if (defined $self->{'stats'}->{'globals'}->{'query_types'}->{$command[0]}) {
-		$self->{'stats'}->{'globals'}->{'query_types'}->{$command[0]}++;
+	if (defined $self->{'stats'}->{'query_types'}->{$command[0]}) {
+		$self->{'stats'}->{'query_types'}->{$command[0]}++;
 	}
 	else {
 		debug(1, "Unknown command complete answer: %s\n", $command[0]);
-		$self->{'stats'}->{'globals'}->{'query_types'}->{'others'}++;
+		$self->{'stats'}->{'query_types'}->{'others'}++;
 	}
 
 	if (defined $session->{'running'}->{'exec'}) {
@@ -299,7 +297,7 @@ sub process_command_complete {
 	}
 	else {
 		# we complete smth that was executed earlier ??
-		$self->{'stats'}->{'globals'}->{'queries_total'}++;
+		$self->{'stats'}->{'queries_total'}++;
 	}
 }
 
@@ -350,7 +348,7 @@ sub process_error_response {
 	my $self = shift;
 	my $pg_msg = shift;
 	my $session = $self->get_session($pg_msg);
-	my $error_stats = $self->{'stats'}->{'globals'}->{'errors'};
+	my $error_stats = $self->{'stats'}->{'errors'};
 	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
 
 	if (not defined $error_stats->{$hash}) {
@@ -425,7 +423,7 @@ sub process_notice_response {
 	my $self = shift;
 	my $pg_msg = shift;
 	my $session = $self->get_session($pg_msg);
-	my $notice_stats = $self->{'stats'}->{'globals'}->{'notices'};
+	my $notice_stats = $self->{'stats'}->{'notices'};
 	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
 
 	if (not defined $notice_stats->{$hash}) {
@@ -535,7 +533,7 @@ sub process_auth_request {
 
 	# Auth succeed
 	if ($pg_msg->{'code'} == 0) {
-		my $session_stat = $self->{'stats'}->{'globals'}->{'sessions'};
+		my $session_stat = $self->{'stats'}->{'sessions'};
 		my $interval = $pg_msg->{'timestamp'} - $session->{'stats'}->{'ts_start'};
 
 		$session_stat->{'cnx'}++;
@@ -594,7 +592,7 @@ sub process_disconnect {
 
 	my $session = $self->get_session($pg_msg);
 
-	$self->{'stats'}->{'globals'}->{'sessions'}->{'discnx'}++;
+	$self->{'stats'}->{'sessions'}->{'discnx'}++;
 
 	$session->{'stats'}->{'ts_end'} = $pg_msg->{'timestamp'};
 
@@ -654,16 +652,15 @@ sub DESTROY {
 	my @top_most_time;
 	my @top_most_frequent;
 
-	my $globals_stats  = $self->{'stats'}->{'globals'};
-	my $trace_stats    = $self->{'stats'}->{'globals'}->{'trace'};
-	my $sessions_stats = $self->{'stats'}->{'globals'}->{'sessions'};
+	my $stats = $self->{'stats'};
+	my $sessions_stats = $self->{'stats'}->{'sessions'};
 
 	# print Dumper($self->{'sessions'});
 
 	foreach my $hash (keys %{ $self->{'sessions'} }) {
 		my $session = $self->{'sessions'}->{$hash};
 
-		$session->{'stats'}->{'ts_end'} = $trace_stats->{'end'};
+		$session->{'stats'}->{'ts_end'} = $stats->{'last_message'};
 
 		$self->record_session_stats($session);
 
@@ -672,19 +669,19 @@ sub DESTROY {
 
 	print "===== Overall stats =====\n\n";
 
-	printf "First query: %s\n", scalar(localtime($trace_stats->{'start'}));
-	printf "Last query:  %s\n", scalar(localtime($trace_stats->{'end'}));
+	printf "First message: %s\n", scalar(localtime($stats->{'first_message'}));
+	printf "Last message:  %s\n", scalar(localtime($stats->{'last_message'}));
 
 	print "\n\n==== Notices & Errors ====\n\n";
 
-	printf "Total notices:                %d\n",  $globals_stats->{'total_notices'};
-	printf "Min/Max notices per sessions: %d/%d\n",  $globals_stats->{'min_notices'}, $globals_stats->{'max_notices'};
-	printf "Total errors:                 %d\n",  $globals_stats->{'total_errors'};
-	printf "Min/Max errors per sessions:  %d/%d\n",  $globals_stats->{'min_errors'}, $globals_stats->{'max_errors'};
+	printf "Total notices:                %d\n",  $stats->{'total_notices'};
+	printf "Min/Max notices per sessions: %d/%d\n",  $stats->{'min_notices'}, $stats->{'max_notices'};
+	printf "Total errors:                 %d\n",  $stats->{'total_errors'};
+	printf "Min/Max errors per sessions:  %d/%d\n",  $stats->{'min_errors'}, $stats->{'max_errors'};
 
 	print "\n\n=== Most frequent notices ===\n\n";
 
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $globals_stats->{'notices'} };
+	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $stats->{'notices'} };
 
 	print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
 	for(my $i=0; $i < 10; $i++) {
@@ -697,7 +694,7 @@ sub DESTROY {
 
 	print "\n\n=== Most frequent errors ===\n\n";
 
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $globals_stats->{'errors'} };
+	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $stats->{'errors'} };
 
 	print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
 	for(my $i=0; $i < 10; $i++) {
@@ -729,26 +726,27 @@ sub DESTROY {
 		$sessions_stats->{'avg_queries'},
 		$sessions_stats->{'max_queries'};
 
-	print "\n\n==== Queries by type ====\n\n";
+	print "\n===== Queries =====\n\n";
 
-	if ($globals_stats->{'queries_total'}) {
-		@top_most_frequent = sort { $globals_stats->{'query_types'}->{$b} <=> $globals_stats->{'query_types'}->{$a} }
-			keys %{ $globals_stats->{'query_types'} };
+	print "==== Queries by type ====\n\n";
+
+	if ($stats->{'queries_total'}) {
+		@top_most_frequent = sort { $stats->{'query_types'}->{$b} <=> $stats->{'query_types'}->{$a} }
+			keys %{ $stats->{'query_types'} };
 		print "Rank\t        Type\t     Count\tPercentage\n";
 		my $i = 1;
 		foreach (@top_most_frequent) {
 			printf "%4d\t%12s\t%10d\t%10.2f\n",
-				$i, $_, $globals_stats->{'query_types'}->{$_}, 100*($globals_stats->{'query_types'}->{$_} / $globals_stats->{'queries_total'});
+				$i, $_, $stats->{'query_types'}->{$_}, 100*($stats->{'query_types'}->{$_} / $stats->{'queries_total'});
 			$i++;
 		}
 
-		print "\n\nTotal queries: $globals_stats->{'queries_total'}\n\n";
+		print "\n\nTotal queries: $stats->{'queries_total'}\n\n";
 	}
 	else {
 		print "\n\nBackend answers were not found.\n\n";
 	}
 
-	print "\n===== Queries =====\n\n";
 	print "\n==== Prepared Statements ====\n\n";
 
 	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $self->{'stats'}->{'prepd'} };
@@ -819,7 +817,7 @@ sub DESTROY {
 		}
 	}
 
-	# print Dumper($self->{'stats'}->{'globals'}->{'query_types'});
+	# print Dumper($self->{'stats'}->{'query_types'});
 }
 
 1;
