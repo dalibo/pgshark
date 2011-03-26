@@ -412,6 +412,15 @@ sub process_auth_request {
 	}
 }
 
+## handle command B(S) (ParameterStatus)
+# @param $pg_msg hash with pg message properties
+sub process_parameter_status {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "PARAMETER STATUS name='%s', value='%s'\n\n", $pg_msg->{'name'}, $pg_msg->{'value'};
+}
 ## handle command B(s) (portal suspended)
 # @param $pg_msg hash with pg message properties
 sub process_portal_suspended {

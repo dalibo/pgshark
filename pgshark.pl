@@ -570,6 +570,15 @@ sub process_packet {
 							last SWITCH;
 						}
 
+						# message: B(S) "ParameterStatus"
+						#   name=String
+						#   value=String
+						if ($is_srv and $pg_msg->{'type'} eq 'S') {
+							($pg_msg->{'name'}, $pg_msg->{'value'}) = unpack('Z*Z*', $pg_msg->{'data'});
+							$processor->process_parameter_status($pg_msg);
+							last SWITCH;
+						}
+
 						# message: B(s) "portal suspended"
 						if ($is_srv and $pg_msg->{'type'} eq 's') {
 							$processor->process_portal_suspended($pg_msg);
