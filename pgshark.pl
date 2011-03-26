@@ -348,6 +348,16 @@ sub process_packet {
 							last SWITCH;
 						}
 
+
+						# message: B(c) or F(c) "CopyDone"
+						#   data=Byte[n]
+						if ($pg_msg->{'type'} eq 'c') {
+							my @fields;
+
+							$processor->process_copy_done($pg_msg, $is_srv);
+							last SWITCH;
+						}
+
 						# message: F(D) "Describe"
 						#   type=char
 						#   name=String
@@ -395,6 +405,15 @@ sub process_packet {
 							last SWITCH;
 						}
 
+						# message: B(d) or F(d) "CopyData"
+						#   data=Byte[n]
+						if ($pg_msg->{'type'} eq 'd') {
+							my @fields;
+
+							$processor->process_copy_data($pg_msg, $is_srv);
+							last SWITCH;
+						}
+
 						# message: B(E) "error response"
 						#   (code=char
 						#   value=String){1,}\x00
@@ -422,6 +441,45 @@ sub process_packet {
 							($pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('Z*N', $pg_msg->{'data'});
 
 							$processor->process_execute($pg_msg);
+							last SWITCH;
+						}
+
+						# message: F(f) "CopyFail"
+						#   error=String
+						if (not $is_srv and $pg_msg->{'type'} eq 'f') {
+							($pg_msg->{'error'}) = unpack('Z*', $pg_msg->{'data'});
+
+							$processor->process_copy_fail($pg_msg);
+							last SWITCH;
+						}
+
+						# message: B(G) "CopyInResponse"
+						#   copy_format=int8
+						#   num_fields=int16
+						#   fields_formats[]=int16[num_fields]
+						if ($is_srv and $pg_msg->{'type'} eq 'G') {
+							my @fields_formats;
+
+							($pg_msg->{'copy_format'}, $pg_msg->{'num_fields'}, @fields_formats)
+								= unpack('Cnn*', $pg_msg->{'data'});
+							$pg_msg->{'fields_formats'} = [@fields_formats];
+
+							$processor->process_copy_in_response($pg_msg);
+							last SWITCH;
+						}
+
+						# message: B(H) "CopyOutResponse"
+						#   copy_format=int8
+						#   num_fields=int16
+						#   fields_formats[]=int16[num_fields]
+						if ($is_srv and $pg_msg->{'type'} eq 'H') {
+							my @fields_formats;
+
+							($pg_msg->{'copy_format'}, $pg_msg->{'num_fields'}, @fields_formats)
+								= unpack('Cnn*', $pg_msg->{'data'});
+							$pg_msg->{'fields_formats'} = [@fields_formats];
+
+							$processor->process_copy_out_response($pg_msg);
 							last SWITCH;
 						}
 

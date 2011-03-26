@@ -75,6 +75,12 @@ sub process_close {
 	my $pg_msg = shift;
 }
 
+## handle commande B & F (c) (CopyDone)
+sub process_copy_done {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command B(D) (data row)
 # @param $pg_msg hash with pg message properties
 sub process_data_row {
@@ -89,6 +95,12 @@ sub process_describe {
 	my $pg_msg = shift;
 }
 
+## handle commande B & F (d) (CopyData)
+sub process_copy_data {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
 ## handle command B(E) (error response)
 # @param $pg_msg hash with pg message properties
 sub process_error_response {
@@ -99,6 +111,27 @@ sub process_error_response {
 ## handle command F(E) (execute)
 # @param $pg_msg hash with pg message properties
 sub process_execute {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command F(f) (CopyFail)
+# @param $pg_msg hash with pg message properties
+sub process_copy_fail {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command B(G) (CopyInResponse)
+# @param $pg_msg hash with pg message properties
+sub process_copy_in_response {
+	my $self = shift;
+	my $pg_msg = shift;
+}
+
+## handle command B(H) (CopyOutResponse)
+# @param $pg_msg hash with pg message properties
+sub process_copy_out_response {
 	my $self = shift;
 	my $pg_msg = shift;
 }

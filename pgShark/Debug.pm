@@ -114,7 +114,7 @@ sub process_parse {
 	$self->header($pg_msg, 0);
 
 	printf "PARSE name='%s', num_params=%d, params_type=%s, query=%s\n\n",
-		$pg_msg->{'name'}, $pg_msg->{'num_params'}, join(',', @{ $pg_msg->{'params_types'} }), $pg_msg->{'query'};
+		$pg_msg->{'name'}, $pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params_types'} }), $pg_msg->{'query'};
 }
 
 ## handle command F(B) (bind)
@@ -127,8 +127,20 @@ sub process_bind {
 	map {$_='NULL' if not defined} @{ $pg_msg->{'params'} };
 
 	printf "BIND portal='%s', name='%s', num_formats=%d, formats=%s, num_params=%d, params=%s\n\n",
-		$pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}, join(',', @{ $pg_msg->{'params_types'} }),
-		$pg_msg->{'num_params'}, join(',', @{ $pg_msg->{'params'} });
+		$pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}, join(', ', @{ $pg_msg->{'params_types'} }),
+		$pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params'} });
+}
+
+
+## handle commande B & F (c) (CopyDone)
+sub process_copy_done {
+	my $self = shift;
+	my $pg_msg = shift;
+	my $is_srv = shift;
+
+	$self->header($pg_msg, $is_srv);
+
+	printf "COPY DONE\n\n";
 }
 
 ## handle command F(D) (Describe)
@@ -140,6 +152,28 @@ sub process_describe {
 
 	printf "DESCRIBE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
 }
+
+## handle command F(f) (CopyFail)
+# @param $pg_msg hash with pg message properties
+sub process_copy_fail {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 0);
+
+	printf "COPY FAIL error='%s'\n\n", $pg_msg->{'error'};
+}
+
+## handle commande B & F (d) (CopyData)
+sub process_copy_data {
+	my $self = shift;
+	my $pg_msg = shift;
+	my $is_srv = shift;
+
+	$self->header($pg_msg, $is_srv);
+
+	printf "COPY DATA len=%d\n\n", length($pg_msg->{'data'});
+}
+
 ## handle command F(E) (execute)
 # @param $pg_msg hash with pg message properties
 sub process_execute {
@@ -268,6 +302,28 @@ sub process_error_response {
 	print "\n";
 }
 
+## handle command B(G) (CopyInResponse)
+# @param $pg_msg hash with pg message properties
+sub process_copy_in_response {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "COPY IN RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n", $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
+		join(', ', @{ $pg_msg->{'fields_formats'} });
+}
+
+## handle command B(H) (CopyOutResponse)
+# @param $pg_msg hash with pg message properties
+sub process_copy_out_response {
+	my $self = shift;
+	my $pg_msg = shift;
+	$self->header($pg_msg, 1);
+
+	printf "COPY OUT RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n", $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
+		join(', ', @{ $pg_msg->{'fields_formats'} });
+}
+
 ## handle command B(I) (empty query response)
 # @param $pg_msg hash with pg message properties
 sub process_empty_query {
@@ -392,7 +448,7 @@ sub process_param_desc {
 	$self->header($pg_msg, 1);
 
 	printf "PARAMETER DESCRIPTION: num_param=%d, params_oids=%s\n\n",
-		$pg_msg->{'num_params'}, join(',', @{ $pg_msg->{'params_types'} });
+		$pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params_types'} });
 }
 
 ## handle command B(Z) (ready for query)
