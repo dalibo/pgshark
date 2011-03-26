@@ -418,17 +418,17 @@ sub process_packet {
 						#   (code=char
 						#   value=String){1,}\x00
 						if ($is_srv and $pg_msg->{'type'} eq 'E') {
-							my @fields;
+							my $fields = {};
 							my $msg = $pg_msg->{'data'};
 
 							FIELDS: while ($msg ne '') {
 								my ($code, $value) = unpack('AZ*', $msg);
 								last FIELDS if ($code eq '');
-								push @fields, ($code, $value);
+								$fields->{$code} = $value;
 								$msg = substr($msg, 2 + length($value));
 							}
 
-							$pg_msg->{'fields'} = [@fields];
+							$pg_msg->{'fields'} = $fields;
 
 							$processor->process_error_response($pg_msg);
 							last SWITCH;
@@ -502,17 +502,17 @@ sub process_packet {
 						#   (code=char
 						#   value=String){1,}\x00
 						if ($is_srv and $pg_msg->{'type'} eq 'N') {
-							my @fields;
+							my $fields = {};
 							my $msg = $pg_msg->{'data'};
 
 							FIELDS: while ($msg ne '') {
 								my ($code, $value) = unpack('AZ*', $msg);
 								last FIELDS if ($code eq '');
-								push @fields, ($code, $value);
+								$fields->{$code} = $value;
 								$msg = substr($msg, 2 + length($value));
 							}
 
-							$pg_msg->{'fields'} = [@fields];
+							$pg_msg->{'fields'} = $fields;
 
 							$processor->process_notice_response($pg_msg);
 							last SWITCH;

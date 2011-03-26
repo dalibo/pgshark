@@ -7,6 +7,7 @@ use strict;
 use warnings;
 use pgShark::Utils;
 use Net::Pcap qw(:functions);
+use Data::Dumper;
 
 ## TODO
 #  * ...
@@ -50,8 +51,8 @@ sub code_response {
 	my $self = shift;
 	my $pg_msg = shift;
 
-	while (@{ $pg_msg->{'fields'} } > 0) {
-		my ($code, $value) = splice(@{ $pg_msg->{'fields'} }, 0, 2);
+	foreach my $code (keys %{ $pg_msg->{'fields'} }) {
+		my $value = $pg_msg->{'fields'}->{$code};
 		SWITCH: {
 			#S C M D H P p q W F L R
 			if ($code eq 'S') {
