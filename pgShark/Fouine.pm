@@ -596,11 +596,11 @@ sub DESTROY {
 	printf "Total number of sessions:                   %d\n", $sessions_stats->{'total'};
 	printf "Number connections:                         %d\n", $sessions_stats->{'cnx'};
 	printf "Number of disconnections:                   %d\n", $sessions_stats->{'discnx'};
-	printf "Min/Avg/Max authentication time (ms):       %.6f / %.6f / %.6f\n",
+	printf "Min/Avg/Max authentication time (s):        %.6f / %.6f / %.6f\n",
 		$sessions_stats->{'auth_min_time'},
 		$sessions_stats->{'auth_avg_time'},
 		$sessions_stats->{'auth_max_time'};
-	printf "Min/Avg/Max sessions time (ms):             %.6f / %.6f / %.6f\n",
+	printf "Min/Avg/Max sessions time (s):              %.6f / %.6f / %.6f\n",
 		$sessions_stats->{'min_time'},
 		$sessions_stats->{'avg_time'},
 		$sessions_stats->{'max_time'};
@@ -638,7 +638,7 @@ sub DESTROY {
 	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $self->{'stats'}->{'prepd'} };
 
 	print "=== Top slowest queries ===\n\n";
-	print "Rank\tDuration(ms)\tQuery\n";
+	print "Rank\tDuration(s)\tQuery\n";
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_slowest[$i]) {
 			printf "%4d\t%12.5f\t%s\n",
@@ -647,7 +647,7 @@ sub DESTROY {
 	}
 
 	print "\n\n=== Queries that took up the most time ===\n\n";
-	print "Rank\ttotal Duration(ms)\ttimes executed\tAv. duration (ms)\tQuery\n";
+	print "Rank\ttotal Duration(s)\ttimes executed\tAv. duration (s)\tQuery\n";
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_most_time[$i]) {
 			printf "%4d\t%18.5f\t%14d\t%17.5f\t%s\n",
@@ -657,7 +657,7 @@ sub DESTROY {
 	}
 
 	print "\n\n=== Most frequent queries ===\n\n";
-	print "Rank\ttimes executed\ttotal Duration(ms)\tAv. duration (ms)\tQuery\n";
+	print "Rank\ttimes executed\ttotal Duration(s)\tAv. duration (s)\tQuery\n";
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_most_frequent[$i]) {
 			printf "%4d\t%14d\t%18.5f\t%17.5f\t%s\n",
@@ -673,7 +673,7 @@ sub DESTROY {
 	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $self->{'stats'}->{'queries'} };
 
 	print "=== Top slowest queries ===\n\n";
-	print "Rank\tDuration(ms)\tQuery\n";
+	print "Rank\tDuration(s)\tQuery\n";
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_slowest[$i]) {
 			printf "%4d\t%12.5f\t%s\n",
@@ -682,7 +682,7 @@ sub DESTROY {
 	}
 
 	print "\n\n=== Queries that took up the most time ===\n\n";
-	print "Rank\ttotal Duration(ms)\ttimes executed\tAv. duration (ms)\tQuery\n";
+	print "Rank\ttotal Duration(s)\ttimes executed\tAv. duration (s)\tQuery\n";
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_most_time[$i]) {
 			printf "%4d\t%18.5f\t%14d\t%17.5f\t%s\n",
@@ -692,7 +692,7 @@ sub DESTROY {
 	}
 
 	print "\n\n=== Most frequent queries ===\n\n";
-	print "Rank\ttimes executed\ttotal Duration(ms)\tAv. duration (ms)\tQuery\n";
+	print "Rank\ttimes executed\ttotal Duration(s)\tAv. duration (s)\tQuery\n";
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_most_frequent[$i]) {
 			printf "%4d\t%14d\t%18.5f\t%17.5f\t%s\n",
