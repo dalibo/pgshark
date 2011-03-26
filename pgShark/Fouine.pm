@@ -16,6 +16,7 @@
 # * number of query canceled/kill
 # * top 10 roles
 # * top 10 appli / IP
+# * average number of cols per query
 #
 # == prepd stmt ==
 #
@@ -63,9 +64,28 @@ sub new {
 			'prepd' => {},
 			'queries' => {},
 			'globals' => {
-				'sessions' => 0,
-				'total' => 0,
-				'types' => {
+				'trace' => {
+					'start' => 0,
+					'end' => 0,
+				},
+				'sessions' => {
+					'total' => 0,
+					'cnx' => 0,
+					'discnx' => 0,
+					'min_time' => 9**9**9,
+					'avg_time' => 0,
+					'max_time' => 0,
+					'total_time' => 0,
+					'total_busy_time' => 0,
+					'auth_min_time' => 9**9**9,
+					'auth_avg_time' => 0,
+					'auth_max_time' => 0,
+					'min_queries' => 9**9**9,
+					'avg_queries' => 0,
+					'max_queries' => 0
+				},
+				'query_total' => 0,
+				'query_types' => {
 					'SELECT' => 0,
 					'INSERT' => 0,
 					'UPDATE' => 0,
@@ -77,10 +97,11 @@ sub new {
 					'FETCH' => 0,
 					'COPY' => 0,
 					'VACUUM' => 0,
-					'TRUNCATE' => 0
+					'TRUNCATE' => 0,
+					'DECLARE' => 0,
+					'CLOSE' => 0,
+					'others' => 0
 				},
-				'others' => {}
-
 			}
 		}
 	};
@@ -99,12 +120,58 @@ sub new {
 	return bless($self, $class);
 }
 
+sub get_session {
+	my $self = shift;
+	my $pg_msg = shift;
+	my $hash = $pg_msg->{'sess_hash'};
+
+	if (not defined $self->{'sessions'}->{$hash}) {
+		$self->{'sessions'}->{$hash} = {
+			'stats' => {
+				'ts_start' => $pg_msg->{'timestamp'},
+				'busy_time' => 0,
+				'queries_count' => 0
+			}
+		};
+		$self->{'stats'}->{'globals'}->{'sessions'}->{'total'}++;
+	}
+
+	$self->{'stats'}->{'globals'}->{'trace'}->{'start'} = $pg_msg->{'timestamp'}
+		unless $self->{'stats'}->{'globals'}->{'trace'}->{'start'};
+
+	$self->{'stats'}->{'globals'}->{'trace'}->{'end'} = $pg_msg->{'timestamp'};
+
+	return $self->{'sessions'}->{$hash};
+}
+
+sub record_session_stats {
+	my $self = shift;
+	my $session = shift;
+
+	my $interval = $session->{'stats'}->{'ts_end'} - $session->{'stats'}->{'ts_start'};
+	my $globals_stats = $self->{'stats'}->{'globals'};
+	my $sessions_stats = $self->{'stats'}->{'globals'}->{'sessions'};
+
+	$sessions_stats->{'total_time'} += $interval;
+	$sessions_stats->{'min_time'}    = $interval if $sessions_stats->{'min_time'} > $interval;
+	$sessions_stats->{'max_time'}    = $interval if $sessions_stats->{'max_time'} < $interval;
+	$sessions_stats->{'avg_time'}    = (($sessions_stats->{'avg_time'} * ($sessions_stats->{'total'} - 1)) + $interval) / $sessions_stats->{'total'};
+	$sessions_stats->{'total_busy_time'} += $session->{'stats'}->{'busy_time'};
+
+	$sessions_stats->{'min_queries'} = $session->{'stats'}->{'queries_count'} if $sessions_stats->{'min_queries'} > $session->{'stats'}->{'queries_count'};
+	$sessions_stats->{'max_queries'} = $session->{'stats'}->{'queries_count'} if $sessions_stats->{'max_queries'} < $session->{'stats'}->{'queries_count'};
+	$sessions_stats->{'avg_queries'} = (($sessions_stats->{'avg_queries'} * ($sessions_stats->{'total'} - 1)) + $session->{'stats'}->{'queries_count'}) / $sessions_stats->{'total'};
+
+	$globals_stats->{'query_total'} += $session->{'stats'}->{'queries_count'};
+}
+
 ## handle command B(1) (Parse Complete)
 # @param $pg_msg hash with pg message properties
 sub process_parse_complete {
 	my $self = shift;
 	my $pg_msg = shift;
-	my $session = $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+
+	my $session = $self->get_session($pg_msg);
 
 	if (defined $session->{'running'}->{'parse'}) {
 		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'parse'}->{'ts_start'};
@@ -118,6 +185,9 @@ sub process_parse_complete {
 		$prep_stat->{'prep_disp'} += abs($prep_stat->{'prep_avg_time'} - $interval)/$prep_stat->{'prep_count'};
 
 		delete $session->{'running'}->{'parse'};
+
+		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
+		$session->{'stats'}->{'queries_count'}++;
 	}
 }
 
@@ -126,7 +196,8 @@ sub process_parse_complete {
 sub process_bind_complete {
 	my $self = shift;
 	my $pg_msg = shift;
-	my $session = $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+
+	my $session = $self->get_session($pg_msg);
 
 	if (defined $session->{'running'}->{'bind'}) {
 		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'bind'}->{'ts_start'};
@@ -140,6 +211,9 @@ sub process_bind_complete {
 		$prep_stat->{'bind_disp'} += abs($prep_stat->{'bind_avg_time'} - $interval)/$prep_stat->{'bind_count'};
 
 		delete $session->{'running'}->{'bind'};
+
+		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
+		$session->{'stats'}->{'queries_count'}++;
 	}
 }
 
@@ -148,6 +222,7 @@ sub process_bind_complete {
 sub process_notif_response {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command F(B) (bind)
@@ -155,7 +230,8 @@ sub process_notif_response {
 sub process_bind {
 	my $self = shift;
 	my $pg_msg = shift;
-	my $session = $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+
+	my $session = $self->get_session($pg_msg);
 
 	if (defined $session->{'prepd'}->{$pg_msg->{'name'}}) {
 		my $query_hash = $session->{'prepd'}->{$pg_msg->{'name'}};
@@ -175,16 +251,16 @@ sub process_command_complete {
 	my $self = shift;
 	my $pg_msg = shift;
 
-	my $session = $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+	my $session = $self->get_session($pg_msg);
 	my @command = split(' ', $pg_msg->{'command'});
 
-	if (defined $self->{'stats'}->{'globals'}->{'types'}->{$command[0]}) {
-		$self->{'stats'}->{'globals'}->{'types'}->{$command[0]}++;
+	if (defined $self->{'stats'}->{'globals'}->{'query_types'}->{$command[0]}) {
+		$self->{'stats'}->{'globals'}->{'query_types'}->{$command[0]}++;
 	}
 	else {
-		$self->{'stats'}->{'globals'}->{'others'}->{$command[0]}++;
+		debug(1, "Unknown command complete answer: %s\n", $command[0]);
+		$self->{'stats'}->{'globals'}->{'query_types'}->{'others'}++;
 	}
-	$self->{'stats'}->{'globals'}->{'total'}++;
 
 	if (defined $session->{'running'}->{'exec'}) {
 		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'exec'}->{'ts_start'};
@@ -194,10 +270,18 @@ sub process_command_complete {
 		$query_stat->{'min_time'} = $interval if ($query_stat->{'min_time'} > $interval);
 		$query_stat->{'max_time'} = $interval if ($query_stat->{'max_time'} < $interval);
 		$query_stat->{'avg_time'} = (($query_stat->{'avg_time'} * ($query_stat->{'count'} - 1)) + $interval) / $query_stat->{'count'};
-		$query_stat->{'total'} += $interval;
+		$query_stat->{'total_time'} += $interval;
 		$query_stat->{'disp'} += abs($query_stat->{'avg_time'} - $interval)/$query_stat->{'count'};
 
 		delete $session->{'running'}->{'exec'};
+
+		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
+
+		$session->{'stats'}->{'queries_count'}++;
+	}
+	else {
+		# we complete smth that was executed earlier ??
+		$self->{'stats'}->{'globals'}->{'query_total'}++;
 	}
 }
 
@@ -206,6 +290,7 @@ sub process_command_complete {
 sub process_close {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command B(D) (data row)
@@ -213,6 +298,16 @@ sub process_close {
 sub process_data_row {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
+}
+
+
+## handle command F(D) (Describe)
+# @param $pg_msg hash with pg message properties
+sub process_describe {
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command B(E) (error response)
@@ -220,6 +315,7 @@ sub process_data_row {
 sub process_error_response {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command F(E) (execute)
@@ -227,7 +323,8 @@ sub process_error_response {
 sub process_execute {
 	my $self = shift;
 	my $pg_msg = shift;
-	my $session = $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+
+	my $session = $self->get_session($pg_msg);
 
 	if (defined $session->{'portals'}->{$pg_msg->{'name'}}) {
 
@@ -243,13 +340,15 @@ sub process_execute {
 sub process_empty_query {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command B(K) (BackendKeyData)
 # @param $pg_msg hash with pg message properties
 sub process_key_data {
-	my $self = shift;
-	my $pg_msg = shift;
+	# my $self = shift;
+	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command B(N) (notice response)
@@ -257,6 +356,7 @@ sub process_key_data {
 sub process_notice_response {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command B(n) (no data)
@@ -264,6 +364,7 @@ sub process_notice_response {
 sub process_no_data {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle F(P) command (parse)
@@ -275,10 +376,7 @@ sub process_parse {
 	my $norm_query = normalize_query($pg_msg->{'query'});
 	my $query_hash = md5_base64($norm_query);
 
-	$self->{'sessions'}->{$pg_msg->{'sess_hash'}} = {}
-		if not defined $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
-
-	my $session = $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+	my $session = $self->get_session($pg_msg);
 
 	if (not defined $self->{'stats'}->{'prepd'}->{$query_hash}) {
 		$self->{'stats'}->{'prepd'}->{$query_hash} = {
@@ -300,8 +398,8 @@ sub process_parse {
 			'min_time' => 9**9**9,
 			'max_time' => -1,
 			'avg_time' => 0,
+			'total_time' => 0,
 			'disp' => 0,
-			'total' => 0,
 			## TODO
 			# add samples
 			# add min/max/avg nb of records returned
@@ -322,10 +420,7 @@ sub process_query {
 	my $self = shift;
 	my $pg_msg = shift;
 
-	$self->{'sessions'}->{$pg_msg->{'sess_hash'}} = {}
-		if not defined $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
-
-	my $session = $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+	my $session = $self->get_session($pg_msg);
 
 	my $norm_query = normalize_query($pg_msg->{'query'});
 	my $query_hash = md5_base64($norm_query);
@@ -339,7 +434,7 @@ sub process_query {
 			'max_time' => -1,
 			'avg_time' => 0,
 			'disp' => 0,
-			'total' => 0,
+			'total_time' => 0,
 			## TODO
 			# add samples
 			# add min/max/avg nb of records returned
@@ -355,8 +450,22 @@ sub process_query {
 ## handle command B(R) (authentification request)
 # @param $pg_msg hash with pg message properties
 sub process_auth_request {
-	# my $self = shift;
-	# my $pg_msg = shift;
+	my $self = shift;
+	my $pg_msg = shift;
+
+	my $session = $self->get_session($pg_msg);
+
+	# Auth succeed
+	if ($pg_msg->{'code'} == 0) {
+		my $session_stat = $self->{'stats'}->{'globals'}->{'sessions'};
+		my $interval = $pg_msg->{'timestamp'} - $session->{'stats'}->{'ts_start'};
+
+		$session_stat->{'cnx'}++;
+
+		$session_stat->{'auth_min_time'} = $interval if ($session_stat->{'auth_min_time'} > $interval);
+		$session_stat->{'auth_avg_time'} = (($session_stat->{'auth_avg_time'} * ($session_stat->{'cnx'} - 1)) + $interval) / $session_stat->{'cnx'};
+		$session_stat->{'auth_max_time'} = $interval if ($session_stat->{'auth_max_time'} < $interval);
+	}
 }
 
 ## handle command B(s) (portal suspended)
@@ -364,6 +473,7 @@ sub process_auth_request {
 sub process_portal_suspended {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command F(S) (sync)
@@ -371,6 +481,7 @@ sub process_portal_suspended {
 sub process_sync {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command B(T) (row description)
@@ -378,6 +489,7 @@ sub process_sync {
 sub process_row_desc {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command B(t) (parameter description)
@@ -385,13 +497,24 @@ sub process_row_desc {
 sub process_param_desc {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command F(X) (terminate)
 # @param $pg_msg hash with pg message properties
 sub process_disconnect {
-	# my $self = shift;
-	# my $pg_msg = shift;
+	my $self = shift;
+	my $pg_msg = shift;
+
+	my $session = $self->get_session($pg_msg);
+
+	$self->{'stats'}->{'globals'}->{'sessions'}->{'discnx'}++;
+
+	$session->{'stats'}->{'ts_end'} = $pg_msg->{'timestamp'};
+
+	$self->record_session_stats($session);
+
+	delete $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
 }
 
 ## handle command B(Z) (ready for query)
@@ -399,6 +522,7 @@ sub process_disconnect {
 sub process_ready {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ### specials messages without 1-byte type
@@ -408,6 +532,7 @@ sub process_ready {
 sub process_cancel_request {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command SSLRequest (F)
@@ -415,13 +540,17 @@ sub process_cancel_request {
 sub process_ssl_request {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 ## handle command StartupMessage (F)
 # @param $pg_msg hash with pg message properties
 sub process_startup_message {
-	# my $self = shift;
-	# my $pg_msg = shift;
+	my $self = shift;
+	my $pg_msg = shift;
+
+	# build the session and set its start time
+	my $session = $self->get_session($pg_msg);
 }
 
 ## this one doesn't exists as a backend answer
@@ -429,39 +558,83 @@ sub process_startup_message {
 sub process_ssl_answer {
 	# my $self = shift;
 	# my $pg_msg = shift;
+	# my $session = $self->get_session($pg_msg);
 }
 
 sub DESTROY {
 	my $self = shift;
 
-
 	my @top_slowest;
 	my @top_most_time;
 	my @top_most_frequent;
 
-	print "==== Queries by type ====\n\n";
+	my $globals_stats  = $self->{'stats'}->{'globals'};
+	my $trace_stats    = $self->{'stats'}->{'globals'}->{'trace'};
+	my $sessions_stats = $self->{'stats'}->{'globals'}->{'sessions'};
 
-	if ($self->{'stats'}->{'globals'}->{'total'}) {
-		@top_most_frequent = sort { $self->{'stats'}->{'globals'}->{'types'}->{$b} <=> $self->{'stats'}->{'globals'}->{'types'}->{$a} }
-			keys %{ $self->{'stats'}->{'globals'}->{'types'} };
+	# print Dumper($self->{'sessions'});
+
+	foreach my $hash (keys %{ $self->{'sessions'} }) {
+		my $session = $self->{'sessions'}->{$hash};
+
+		$session->{'stats'}->{'ts_end'} = $trace_stats->{'end'};
+
+		$self->record_session_stats($session);
+
+		delete $self->{'sessions'}->{$hash};
+	}
+
+	print "==== Overall stats ====\n\n";
+
+	print "=== General ===\n\n";
+
+	printf "First query: %s\n", scalar(localtime($trace_stats->{'start'}));
+	printf "Last query:  %s\n", scalar(localtime($trace_stats->{'end'}));
+
+	print "\n\n=== Sessions ===\n\n";
+
+	printf "Total number of sessions:                   %d\n", $sessions_stats->{'total'};
+	printf "Number connections:                         %d\n", $sessions_stats->{'cnx'};
+	printf "Number of disconnections:                   %d\n", $sessions_stats->{'discnx'};
+	printf "Min/Avg/Max authentication time (ms):       %.6f / %.6f / %.6f\n",
+		$sessions_stats->{'auth_min_time'},
+		$sessions_stats->{'auth_avg_time'},
+		$sessions_stats->{'auth_max_time'};
+	printf "Min/Avg/Max sessions time (ms):             %.6f / %.6f / %.6f\n",
+		$sessions_stats->{'min_time'},
+		$sessions_stats->{'avg_time'},
+		$sessions_stats->{'max_time'};
+	printf "Cumulated sessions time:                    %.6f ms\n", $sessions_stats->{'total_time'};
+	printf "Cumulated busy time:                        %.6f ms\n", $sessions_stats->{'total_busy_time'};
+	printf "Total busy ratio:                           %.6f %%\n", 100 * $sessions_stats->{'total_busy_time'} / $sessions_stats->{'total_time'};
+	printf "Min/Avg/Max number of queries per sessions: %d / %.2f / %d\n",
+		$sessions_stats->{'min_queries'},
+		$sessions_stats->{'avg_queries'},
+		$sessions_stats->{'max_queries'};
+
+	print "\n\n=== Queries by type ===\n\n";
+
+	if ($globals_stats->{'query_total'}) {
+		@top_most_frequent = sort { $globals_stats->{'query_types'}->{$b} <=> $globals_stats->{'query_types'}->{$a} }
+			keys %{ $globals_stats->{'query_types'} };
 		print "Rank\t        Type\t     Count\tPercentage\n";
 		my $i = 1;
 		foreach (@top_most_frequent) {
 			printf "%4d\t%12s\t%10d\t%10.2f\n",
-				$i, $_, $self->{'stats'}->{'globals'}->{'types'}->{$_}, 100*($self->{'stats'}->{'globals'}->{'types'}->{$_} / $self->{'stats'}->{'globals'}->{'total'});
+				$i, $_, $globals_stats->{'query_types'}->{$_}, 100*($globals_stats->{'query_types'}->{$_} / $globals_stats->{'query_total'});
 			$i++;
 		}
 
-		print "\n\nTotal queries: $self->{'stats'}->{'globals'}->{'total'}\n\n";
+		print "\n\nTotal queries: $globals_stats->{'query_total'}\n\n";
 	}
 	else {
 		print "\n\nBackend answers were not found.\n\n";
 	}
 
-	print "\n\n==== Prepared Statements ====\n\n";
+	print "\n==== Prepared Statements ====\n\n";
 
 	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $self->{'stats'}->{'prepd'} };
-	@top_most_time = sort { $b->{'total'} <=> $a->{'total'} } values %{ $self->{'stats'}->{'prepd'} };
+	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $self->{'stats'}->{'prepd'} };
 	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $self->{'stats'}->{'prepd'} };
 
 	print "=== Top slowest queries ===\n\n";
@@ -478,7 +651,7 @@ sub DESTROY {
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_most_time[$i]) {
 			printf "%4d\t%18.5f\t%14d\t%17.5f\t%s\n",
-				$i+1, $top_most_time[$i]->{'total'}, $top_most_time[$i]->{'count'},
+				$i+1, $top_most_time[$i]->{'total_time'}, $top_most_time[$i]->{'count'},
 				$top_most_time[$i]->{'avg_time'}, $top_most_time[$i]->{'query'};
 		}
 	}
@@ -488,7 +661,7 @@ sub DESTROY {
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_most_frequent[$i]) {
 			printf "%4d\t%14d\t%18.5f\t%17.5f\t%s\n",
-				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'total'},
+				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'total_time'},
 				$top_most_frequent[$i]->{'avg_time'}, $top_most_frequent[$i]->{'query'};
 		}
 	}
@@ -496,7 +669,7 @@ sub DESTROY {
 	print "\n\n==== Simple Queries ====\n\n";
 
 	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $self->{'stats'}->{'queries'} };
-	@top_most_time = sort { $b->{'total'} <=> $a->{'total'} } values %{ $self->{'stats'}->{'queries'} };
+	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $self->{'stats'}->{'queries'} };
 	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $self->{'stats'}->{'queries'} };
 
 	print "=== Top slowest queries ===\n\n";
@@ -513,7 +686,7 @@ sub DESTROY {
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_most_time[$i]) {
 			printf "%4d\t%18.5f\t%14d\t%17.5f\t%s\n",
-				$i+1, $top_most_time[$i]->{'total'}, $top_most_time[$i]->{'count'},
+				$i+1, $top_most_time[$i]->{'total_time'}, $top_most_time[$i]->{'count'},
 				$top_most_time[$i]->{'avg_time'}, $top_most_time[$i]->{'query'};
 		}
 	}
@@ -523,10 +696,12 @@ sub DESTROY {
 	for(my $i=0; $i < 10; $i++) {
 		if (defined $top_most_frequent[$i]) {
 			printf "%4d\t%14d\t%18.5f\t%17.5f\t%s\n",
-				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'total'},
+				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'total_time'},
 				$top_most_frequent[$i]->{'avg_time'}, $top_most_frequent[$i]->{'query'};
 		}
 	}
+
+	# print Dumper($self->{'stats'}->{'globals'}->{'query_types'});
 }
 
 1;
