@@ -12,6 +12,10 @@ our @EXPORT = qw/debug set_debug normalize_query/;
 
 my $debug_lvl = 0;
 
+sub get_debug_lvl {
+	return $debug_lvl;
+}
+
 sub set_debug {
 	my $lvl = shift;
 	$debug_lvl = $lvl;
