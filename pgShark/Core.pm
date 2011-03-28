@@ -546,9 +546,9 @@ sub process_packet {
 		#   num_args_formats=Int16
 		#   args_formats[]=int16[nb_formats]
 		#   num_args=Int16
-		#   args[]=(len=int32,value=char[len])[nb_args]
+		#   args[]=(len=int32,value=Byte[len])[nb_args]
 		#   result_format=Int16
-		# FIXME NOT TESTED yet
+		# TODO: NOT TESTED yet
 		elsif (not $from_backend and $pg_msg->{'type'} eq 'F') {
 			my @args_formats;
 			my @args;
@@ -591,8 +591,26 @@ sub process_packet {
 			$self->{'FunctionCall'}->($pg_msg) if defined $self->{'FunctionCall'};
 		}
 
-		# message: "FunctionCallResponse"
-		# FIXME TODO
+		# message: B(V) "FunctionCallResponse"
+		#   len=Int32
+		#   value=Byte[len]
+		# TODO: NOT TESTED yet
+		elsif ($from_backend and $pg_msg->{'type'} eq 'V') {
+			($pg_msg->{'len'}) = unpack('l>', $pg_msg->{'data'});
+
+			# if len < 0; the value is NULL
+			if ($len > 0) {
+				$pg_msg->{'value'} = substr($pg_msg->{'data'}, 4, $pg_msg->{'len'});
+			}
+			elsif ($len == 0) {
+				$pg_msg->{'value'} = '';
+			}
+			else { # value is NULL
+				$pg_msg->{'value'} = undef;
+			}
+
+			$self->{'FunctionCallResponse'}->($pg_msg) if defined $self->{'FunctionCallResponse'};
+		}
 
 		# message: B(n) "NoData"
 		elsif ($from_backend and $pg_msg->{'type'} eq 'n') {
