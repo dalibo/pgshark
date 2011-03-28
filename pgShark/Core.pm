@@ -267,521 +267,476 @@ sub process_packet {
 			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
 		);
 
-		SWITCH: {
+		# message: B(R) "Authentication*"
+		if ($from_backend and $pg_msg->{'type'} eq 'R') {
+			$pg_msg->{'code'} = unpack('N', $pg_msg->{'data'});
 
-			# message: B(R) "Authentication*"
-			if ($from_backend and $pg_msg->{'type'} eq 'R') {
-				$pg_msg->{'code'} = unpack('N', $pg_msg->{'data'});
+			# AuthenticationOk
+			if ($pg_msg->{'code'} == 0) {
+				$self->{'AuthenticationOk'}->($pg_msg) if defined $self->{'AuthenticationOk'};
+			}
+			# AuthenticationKerberosV5
+			elsif ($pg_msg->{'code'} == 2) {
+				$self->{'AuthenticationKerberosV5'}->($pg_msg) if defined $self->{'AuthenticationKerberosV5'};
+			}
+			# AuthenticationCleartextPassword
+			elsif ($pg_msg->{'code'} == 3) {
+				$self->{'AuthenticationCleartextPassword'}->($pg_msg) if defined $self->{'AuthenticationCleartextPassword'};
+			}
+			# AuthenticationMD5Password
+			elsif ($pg_msg->{'code'} == 5) {
+				$pg_msg->{'salt'} = substr($pg_msg->{'data'}, 4);
+				$self->{'AuthenticationMD5Password'}->($pg_msg) if defined $self->{'AuthenticationMD5Password'};
+			}
+			# AuthenticationSCMCredential
+			elsif ($pg_msg->{'code'} == 6) {
+				$self->{'AuthenticationSCMCredential'}->($pg_msg) if defined $self->{'AuthenticationSCMCredential'};
+			}
+			# AuthenticationGSS
+			elsif ($pg_msg->{'code'} == 7) {
+				$self->{'AuthenticationGSS'}->($pg_msg) if defined $self->{'AuthenticationGSS'};
+			}
+			# AuthenticationSSPI
+			elsif ($pg_msg->{'code'} == 9) {
+				$self->{'AuthenticationSSPI'}->($pg_msg) if defined $self->{'AuthenticationSSPI'};
+			}
+			# GSSAPI or SSPI authentication data
+			elsif ($pg_msg->{'code'} == 8) {
+				$pg_msg->{'auth_data'} = substr($pg_msg->{'data'}, 4);
+				$self->{'AuthenticationKerberosV5'}->($pg_msg) if defined $self->{'AuthenticationKerberosV5'};
+			}
 
-				# AuthenticationOk
-				if ($pg_msg->{'code'} == 0) {
-					$self->{'AuthenticationOk'}->($pg_msg) if defined $self->{'AuthenticationOk'};
-					last SWITCH;
+			# FIXME Add a catch all ?
+		}
+
+		# message: B(K) "BackendKeyData"
+		elsif ($from_backend and $pg_msg->{'type'} eq 'K') {
+			($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('NN', $pg_msg->{'data'});
+
+			$self->{'BackendKeyData'}->($pg_msg) if defined $self->{'BackendKeyData'};
+		}
+
+		# message: F(B) "Bind"
+		#   portal=String
+		#   name=String
+		#   num_formats=int16
+		#   formats[]=int16[nb_formats]
+		#   num_params=int16
+		#   params[]=(len=int32,value=char[len])[nb_params]
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'B') {
+			my @params_formats;
+			my @params;
+			my $msg = $pg_msg->{'data'};
+
+			($pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}) = unpack('Z* Z* n', $msg);
+			# we add 1 bytes for both portal and name that are null-terminated
+			# + 2 bytes of int16 for $num_formats
+			$msg = substr($msg, length($pg_msg->{'portal'})+1 + length($pg_msg->{'name'})+1 +2);
+
+			# catch formats and the $num_params as well
+			@params_formats = unpack("n$pg_msg->{'num_formats'} n", $msg);
+			$pg_msg->{'num_params'} = pop @params_formats;
+			$pg_msg->{'params_types'} = [@params_formats];
+
+			$msg = substr($msg, ($pg_msg->{'num_formats'}+1) * 2);
+
+			# TODO add some safety tests about available data in $msg ?
+			for (my $i=0; $i < $pg_msg->{'num_params'}; $i++) {
+				# unpack hasn't 32bit signed network template, so we use l>
+				my ($len) = unpack('l>', $msg);
+
+				# if len < 0; the value is NULL
+				if ($len > 0) {
+					push @params, unpack("x4 a$len", $msg);
+					$msg = substr($msg, 4 + $len);
 				}
-				# AuthenticationKerberosV5
-				if ($pg_msg->{'code'} == 2) {
-					$self->{'AuthenticationKerberosV5'}->($pg_msg) if defined $self->{'AuthenticationKerberosV5'};
-					last SWITCH;
+				elsif ($len == 0) {
+					push @params, '';
+					$msg = substr($msg, 4);
 				}
-				# AuthenticationCleartextPassword
-				if ($pg_msg->{'code'} == 3) {
-					$self->{'AuthenticationCleartextPassword'}->($pg_msg) if defined $self->{'AuthenticationCleartextPassword'};
-					last SWITCH;
+				else { # value is NULL
+					push @params, undef;
+					$msg = substr($msg, 4);
 				}
-				# AuthenticationMD5Password
-				if ($pg_msg->{'code'} == 5) {
-					$pg_msg->{'salt'} = substr($pg_msg->{'data'}, 4);
-					$self->{'AuthenticationMD5Password'}->($pg_msg) if defined $self->{'AuthenticationMD5Password'};
-					last SWITCH;
+			}
+
+			$pg_msg->{'params'} = [@params];
+
+			$self->{'Bind'}->($pg_msg) if defined $self->{'Bind'};
+		}
+
+		# message: B(2) "BindComplete"
+		elsif ($from_backend and $pg_msg->{'type'} eq '2') {
+			$self->{'BindComplete'}->($pg_msg) if defined $self->{'BindComplete'};
+		}
+
+		# message: CancelRequest (F)
+		#   status=Char
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'CancelRequest') {
+			($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('xxxxNN', $pg_msg->{'data'});
+			$self->{'CancelRequest'}->($pg_msg) if defined $self->{'CancelRequest'};
+		}
+
+		# message: F(C) "Close"
+		#   type=char
+		#   name=String
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'C') {
+
+			($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
+
+			$self->{'Close'}->($pg_msg) if defined $self->{'Close'};
+		}
+
+		# message: B(3) "CloseComplete"
+		elsif ($from_backend and $pg_msg->{'type'} eq '3') {
+
+			$self->{'CloseComplete'}->($pg_msg) if defined $self->{'CloseComplete'};
+		}
+
+		# message: B(C) "CommandComplete"
+		#   type=char
+		#   name=String
+		elsif ($from_backend and $pg_msg->{'type'} eq 'C') {
+
+			$pg_msg->{'command'} = substr($pg_msg->{'data'}, 0, -1);
+
+			$self->{'CommandComplete'}->($pg_msg) if defined $self->{'CommandComplete'};
+		}
+
+		# message: B(d) or F(d) "CopyData"
+		#   data=Byte[n]
+		elsif ($pg_msg->{'type'} eq 'd') {
+			my @fields;
+
+			$self->{'CopyData'}->($pg_msg, $from_backend) if defined $self->{'CopyData'};
+		}
+
+		# message: B(c) or F(c) "CopyDone"
+		#   data=Byte[n]
+		elsif ($pg_msg->{'type'} eq 'c') {
+			my @fields;
+
+			$self->{'CopyDone'}->($pg_msg, $from_backend) if defined $self->{'CopyDone'};
+		}
+
+		# message: F(f) "CopyFail"
+		#   error=String
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'f') {
+			($pg_msg->{'error'}) = unpack('Z*', $pg_msg->{'data'});
+
+			$self->{'CopyFail'}->($pg_msg) if defined $self->{'CopyFail'};
+		}
+
+		# message: B(G) "CopyInResponse"
+		#   copy_format=int8
+		#   num_fields=int16
+		#   fields_formats[]=int16[num_fields]
+		elsif ($from_backend and $pg_msg->{'type'} eq 'G') {
+			my @fields_formats;
+
+			($pg_msg->{'copy_format'}, $pg_msg->{'num_fields'}, @fields_formats)
+				= unpack('Cnn*', $pg_msg->{'data'});
+			$pg_msg->{'fields_formats'} = [@fields_formats];
+
+			$self->{'CopyInResponse'}->($pg_msg) if defined $self->{'CopyInResponse'};
+		}
+
+		# message: B(H) "CopyOutResponse"
+		#   copy_format=int8
+		#   num_fields=int16
+		#   fields_formats[]=int16[num_fields]
+		elsif ($from_backend and $pg_msg->{'type'} eq 'H') {
+			my @fields_formats;
+
+			($pg_msg->{'copy_format'}, $pg_msg->{'num_fields'}, @fields_formats)
+				= unpack('Cnn*', $pg_msg->{'data'});
+			$pg_msg->{'fields_formats'} = [@fields_formats];
+
+			$self->{'CopyOutResponse'}->($pg_msg) if defined $self->{'CopyOutResponse'};
+		}
+
+		# message: B(D) "DataRow"
+		#   num_values=int16
+		#   (
+		#   value_len=int32
+		#   value=Byte[value_len] (TODO give the format given in previous message B(T) ?)
+		#   )[num_values]
+		elsif ($from_backend and $pg_msg->{'type'} eq 'D') {
+			my @values;
+			my $msg = substr($pg_msg->{'data'}, 2);
+			my $i = 0;
+
+			$pg_msg->{'num_values'} = unpack('n', $pg_msg->{'data'});
+
+			while ($i < $pg_msg->{'num_values'}) {
+				my $val_len = unpack('l>', $msg);
+				my $val = undef;
+				if ($val_len != -1) {
+					$val = substr($msg, 4, $val_len);
+					$msg = substr($msg, 4 + $val_len);
 				}
-				# AuthenticationSCMCredential
-				if ($pg_msg->{'code'} == 6) {
-					$self->{'AuthenticationSCMCredential'}->($pg_msg) if defined $self->{'AuthenticationSCMCredential'};
-					last SWITCH;
-				}
-				# AuthenticationGSS
-				if ($pg_msg->{'code'} == 7) {
-					$self->{'AuthenticationGSS'}->($pg_msg) if defined $self->{'AuthenticationGSS'};
-					last SWITCH;
-				}
-				# AuthenticationSSPI
-				if ($pg_msg->{'code'} == 9) {
-					$self->{'AuthenticationSSPI'}->($pg_msg) if defined $self->{'AuthenticationSSPI'};
-					last SWITCH;
-				}
-				# GSSAPI or SSPI authentication data
-				if ($pg_msg->{'code'} == 8) {
-					$pg_msg->{'auth_data'} = substr($pg_msg->{'data'}, 4);
-					$self->{'AuthenticationKerberosV5'}->($pg_msg) if defined $self->{'AuthenticationKerberosV5'};
-					last SWITCH;
-				}
-
-				# FIXME Add a catch all ?
-			}
-
-			# message: B(K) "BackendKeyData"
-			if ($from_backend and $pg_msg->{'type'} eq 'K') {
-				($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('NN', $pg_msg->{'data'});
-
-				$self->{'BackendKeyData'}->($pg_msg) if defined $self->{'BackendKeyData'};
-				last SWITCH;
-			}
-
-			# message: F(B) "Bind"
-			#   portal=String
-			#   name=String
-			#   num_formats=int16
-			#   formats[]=int16[nb_formats]
-			#   num_params=int16
-			#   params[]=(len=int32,value=char[len])[nb_params]
-			if (not $from_backend and $pg_msg->{'type'} eq 'B') {
-				my @params_formats;
-				my @params;
-				my $msg = $pg_msg->{'data'};
-
-				($pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}) = unpack('Z* Z* n', $msg);
-				# we add 1 bytes for both portal and name that are null-terminated
-				# + 2 bytes of int16 for $num_formats
-				$msg = substr($msg, length($pg_msg->{'portal'})+1 + length($pg_msg->{'name'})+1 +2);
-
-				# catch formats and the $num_params as well
-				@params_formats = unpack("n$pg_msg->{'num_formats'} n", $msg);
-				$pg_msg->{'num_params'} = pop @params_formats;
-				$pg_msg->{'params_types'} = [@params_formats];
-
-				$msg = substr($msg, ($pg_msg->{'num_formats'}+1) * 2);
-
-				# TODO add some safety tests about available data in $msg ?
-				for (my $i=0; $i < $pg_msg->{'num_params'}; $i++) {
-					# unpack hasn't 32bit signed network template, so we use l>
-					my ($len) = unpack('l>', $msg);
-
-					# if len < 0; the value is NULL
-					if ($len > 0) {
-						push @params, unpack("x4 a$len", $msg);
-						$msg = substr($msg, 4 + $len);
-					}
-					elsif ($len == 0) {
-						push @params, '';
-						$msg = substr($msg, 4);
-					}
-					else { # value is NULL
-						push @params, undef;
-						$msg = substr($msg, 4);
-					}
-				}
-
-				$pg_msg->{'params'} = [@params];
-
-				$self->{'Bind'}->($pg_msg) if defined $self->{'Bind'};
-				last SWITCH;
-			}
-
-			# message: B(2) "BindComplete"
-			if ($from_backend and $pg_msg->{'type'} eq '2') {
-				$self->{'BindComplete'}->($pg_msg) if defined $self->{'BindComplete'};
-				last SWITCH;
-			}
-
-			# message: CancelRequest (F)
-			#   status=Char
-			if (not $from_backend and $pg_msg->{'type'} eq 'CancelRequest') {
-				($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('xxxxNN', $pg_msg->{'data'});
-				$self->{'CancelRequest'}->($pg_msg) if defined $self->{'CancelRequest'};
-				last SWITCH;
-			}
-
-			# message: F(C) "Close"
-			#   type=char
-			#   name=String
-			if (not $from_backend and $pg_msg->{'type'} eq 'C') {
-
-				($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
-
-				$self->{'Close'}->($pg_msg) if defined $self->{'Close'};
-				last SWITCH;
-			}
-
-			# message: B(3) "CloseComplete"
-			if ($from_backend and $pg_msg->{'type'} eq '3') {
-
-				$self->{'CloseComplete'}->($pg_msg) if defined $self->{'CloseComplete'};
-				last SWITCH;
-			}
-
-			# message: B(C) "CommandComplete"
-			#   type=char
-			#   name=String
-			if ($from_backend and $pg_msg->{'type'} eq 'C') {
-
-				$pg_msg->{'command'} = substr($pg_msg->{'data'}, 0, -1);
-
-				$self->{'CommandComplete'}->($pg_msg) if defined $self->{'CommandComplete'};
-				last SWITCH;
-			}
-
-			# message: B(d) or F(d) "CopyData"
-			#   data=Byte[n]
-			if ($pg_msg->{'type'} eq 'd') {
-				my @fields;
-
-				$self->{'CopyData'}->($pg_msg, $from_backend) if defined $self->{'CopyData'};
-				last SWITCH;
-			}
-
-			# message: B(c) or F(c) "CopyDone"
-			#   data=Byte[n]
-			if ($pg_msg->{'type'} eq 'c') {
-				my @fields;
-
-				$self->{'CopyDone'}->($pg_msg, $from_backend) if defined $self->{'CopyDone'};
-				last SWITCH;
-			}
-
-			# message: F(f) "CopyFail"
-			#   error=String
-			if (not $from_backend and $pg_msg->{'type'} eq 'f') {
-				($pg_msg->{'error'}) = unpack('Z*', $pg_msg->{'data'});
-
-				$self->{'CopyFail'}->($pg_msg) if defined $self->{'CopyFail'};
-				last SWITCH;
-			}
-
-			# message: B(G) "CopyInResponse"
-			#   copy_format=int8
-			#   num_fields=int16
-			#   fields_formats[]=int16[num_fields]
-			if ($from_backend and $pg_msg->{'type'} eq 'G') {
-				my @fields_formats;
-
-				($pg_msg->{'copy_format'}, $pg_msg->{'num_fields'}, @fields_formats)
-					= unpack('Cnn*', $pg_msg->{'data'});
-				$pg_msg->{'fields_formats'} = [@fields_formats];
-
-				$self->{'CopyInResponse'}->($pg_msg) if defined $self->{'CopyInResponse'};
-				last SWITCH;
-			}
-
-			# message: B(H) "CopyOutResponse"
-			#   copy_format=int8
-			#   num_fields=int16
-			#   fields_formats[]=int16[num_fields]
-			if ($from_backend and $pg_msg->{'type'} eq 'H') {
-				my @fields_formats;
-
-				($pg_msg->{'copy_format'}, $pg_msg->{'num_fields'}, @fields_formats)
-					= unpack('Cnn*', $pg_msg->{'data'});
-				$pg_msg->{'fields_formats'} = [@fields_formats];
-
-				$self->{'CopyOutResponse'}->($pg_msg) if defined $self->{'CopyOutResponse'};
-				last SWITCH;
-			}
-
-			# message: B(D) "DataRow"
-			#   num_values=int16
-			#   (
-			#   value_len=int32
-			#   value=Byte[value_len] (TODO give the format given in previous message B(T) ?)
-			#   )[num_values]
-			if ($from_backend and $pg_msg->{'type'} eq 'D') {
-				my @values;
-				my $msg = substr($pg_msg->{'data'}, 2);
-				my $i = 0;
-
-				$pg_msg->{'num_values'} = unpack('n', $pg_msg->{'data'});
-
-				while ($i < $pg_msg->{'num_values'}) {
-					my $val_len = unpack('l>', $msg);
-					my $val = undef;
-					if ($val_len != -1) {
-						$val = substr($msg, 4, $val_len);
-						$msg = substr($msg, 4 + $val_len);
-					}
-					else {
-						$val = undef;
-						$msg = substr($msg, 4);
-					}
-
-					push @values, [ $val_len, $val];
-
-					$i++;
+				else {
+					$val = undef;
+					$msg = substr($msg, 4);
 				}
 
-				$pg_msg->{'values'} = [ @values ];
+				push @values, [ $val_len, $val];
 
-				$self->{'DataRow'}->($pg_msg) if defined $self->{'DataRow'};
-				last SWITCH;
+				$i++;
 			}
 
-			# message: F(D) "Describe"
-			#   type=char
-			#   name=String
-			if (not $from_backend and $pg_msg->{'type'} eq 'D') {
+			$pg_msg->{'values'} = [ @values ];
 
-				($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
+			$self->{'DataRow'}->($pg_msg) if defined $self->{'DataRow'};
+		}
 
-				$self->{'Describe'}->($pg_msg) if defined $self->{'Describe'};
-				last SWITCH;
+		# message: F(D) "Describe"
+		#   type=char
+		#   name=String
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'D') {
+
+			($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
+
+			$self->{'Describe'}->($pg_msg) if defined $self->{'Describe'};
+		}
+
+		# message: B(I) "EmptyQueryResponse"
+		elsif ($from_backend and $pg_msg->{'type'} eq 'I') {
+
+			$self->{'EmptyQueryResponse'}->($pg_msg) if defined $self->{'EmptyQueryResponse'};
+		}
+
+		# message: B(E) "ErrorResponse"
+		#   (code=char
+		#   value=String){1,}\x00
+		elsif ($from_backend and $pg_msg->{'type'} eq 'E') {
+			my $fields = {};
+			my $msg = $pg_msg->{'data'};
+
+			while ($msg ne '') {
+				my ($code, $value) = unpack('AZ*', $msg);
+				last if ($code eq '');
+				$fields->{$code} = $value;
+				$msg = substr($msg, 2 + length($value));
 			}
 
-			# message: B(I) "EmptyQueryResponse"
-			if ($from_backend and $pg_msg->{'type'} eq 'I') {
+			$pg_msg->{'fields'} = $fields;
 
-				$self->{'EmptyQueryResponse'}->($pg_msg) if defined $self->{'EmptyQueryResponse'};
-				last SWITCH;
+			$self->{'ErrorResponse'}->($pg_msg);
+		}
+
+		# message: F(E) "Execute"
+		#   name=String
+		#   nb_rows=int32
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'E') {
+			($pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('Z*N', $pg_msg->{'data'});
+
+			$self->{'Execute'}->($pg_msg) if defined $self->{'Execute'};
+		}
+
+		# message: F(H) "Flush"
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'H') {
+
+			$self->{'Flush'}->($pg_msg) if defined $self->{'Flush'};
+		}
+
+		# message: "FunctionCall"
+		# FIXME TODO
+
+		# message: "FunctionCallResponse"
+		# FIXME TODO
+
+		# message: B(n) "NoData"
+		elsif ($from_backend and $pg_msg->{'type'} eq 'n') {
+			$self->{'NoData'}->($pg_msg) if defined $self->{'NoData'};
+		}
+
+		# message: B(N) "NoticeResponse"
+		#   (code=char
+		#   value=String){1,}\x00
+		elsif ($from_backend and $pg_msg->{'type'} eq 'N') {
+			my $fields = {};
+			my $msg = $pg_msg->{'data'};
+
+			while ($msg ne '') {
+				my ($code, $value) = unpack('AZ*', $msg);
+				last if ($code eq '');
+				$fields->{$code} = $value;
+				$msg = substr($msg, 2 + length($value));
 			}
 
-			# message: B(E) "ErrorResponse"
-			#   (code=char
-			#   value=String){1,}\x00
-			if ($from_backend and $pg_msg->{'type'} eq 'E') {
-				my $fields = {};
-				my $msg = $pg_msg->{'data'};
+			$pg_msg->{'fields'} = $fields;
 
-				while ($msg ne '') {
-					my ($code, $value) = unpack('AZ*', $msg);
-					last if ($code eq '');
-					$fields->{$code} = $value;
-					$msg = substr($msg, 2 + length($value));
-				}
+			$self->{'NoticeResponse'}->($pg_msg) if defined $self->{'NoticeResponse'};
+		}
 
-				$pg_msg->{'fields'} = $fields;
+		# message: B(A) "NotificationResponse"
+		#   pid=int32
+		#   channel=String
+		#   payload=String
+		elsif ($from_backend and $pg_msg->{'type'} eq 'A') {
+			($pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'}) = unpack('N Z* Z*', $pg_msg->{'data'});
+			$self->{'NotificationResponse'}->($pg_msg) if defined $self->{'NotificationResponse'};
+		}
 
-				$self->{'ErrorResponse'}->($pg_msg);
-				last SWITCH;
+		# message: B(t) "ParameterDescription"
+		#   num_params=int16
+		#   params_types[]=int32[nb_formats]
+		elsif ($from_backend and $pg_msg->{'type'} eq 't') {
+			my @params_types;
+			($pg_msg->{'num_params'}, @params_types) = unpack('nN*', $pg_msg->{'data'});
+			$pg_msg->{'params_types'} = [@params_types];
+			$self->{'ParameterDescription'}->($pg_msg) if defined $self->{'ParameterDescription'};
+		}
+
+		# message: B(S) "ParameterStatus"
+		#   name=String
+		#   value=String
+		elsif ($from_backend and $pg_msg->{'type'} eq 'S') {
+			($pg_msg->{'name'}, $pg_msg->{'value'}) = unpack('Z*Z*', $pg_msg->{'data'});
+			$self->{'ParameterStatus'}->($pg_msg) if defined $self->{'ParameterStatus'};
+		}
+
+		# message: F(P) "Parse"
+		#   name=String
+		#   query=String
+		#   num_params=int16
+		#   params_types[]=int32[nb_formats]
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'P') {
+			my @params_types;
+			($pg_msg->{'name'}, $pg_msg->{'query'},
+				$pg_msg->{'num_params'}, @params_types
+			) = unpack('Z*Z*nN*', $pg_msg->{'data'});
+			$pg_msg->{'params_types'} = [@params_types];
+
+			$self->{'Parse'}->($pg_msg) if defined $self->{'Parse'};
+		}
+
+		# message: B(1) "ParseComplete"
+		elsif ($from_backend and $pg_msg->{'type'} eq '1') {
+			$self->{'ParseComplete'}->($pg_msg) if defined $self->{'ParseComplete'};
+		}
+
+		# message: F(p) "PasswordMessage"
+		#    password=String
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'p') {
+
+			# we remove the last char:
+			# query are null terminated in pgsql proto
+			$pg_msg->{'password'} = substr($pg_msg->{'data'}, 0, -1);
+
+			$self->{'PasswordMessage'}->($pg_msg) if defined $self->{'PasswordMessage'};
+		}
+
+		# message: B(s) "PortalSuspended"
+		elsif ($from_backend and $pg_msg->{'type'} eq 's') {
+			$self->{'PortalSuspended'}->($pg_msg) if defined $self->{'PortalSuspended'};
+		}
+
+		# message: F(Q) "Query"
+		#    query=String
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'Q') {
+
+			# we remove the last char:
+			# query are null terminated
+			$pg_msg->{'query'} = substr($pg_msg->{'data'}, 0, -1);
+
+			$self->{'Query'}->($pg_msg) if defined $self->{'Query'};
+		}
+
+		# message: B(Z) "ReadyForQuery"
+		#   status=Char
+		elsif ($from_backend and $pg_msg->{'type'} eq 'Z') {
+			$pg_msg->{'status'} = $pg_msg->{'data'};
+			$self->{'ReadyForQuery'}->($pg_msg) if defined $self->{'ReadyForQuery'};
+		}
+
+		# message: B(T) "RowDescription"
+		#   num_fields=int16
+		#   (
+		#     field=String
+		#     relid=int32 (0 if not associated to a table)
+		#     attnum=int16 (0 if not associated to a table)
+		#     type=int32
+		#     type_len=int16 (-1 if variable, see pg_type.typlen)
+		#     type_mod=int32 (see pg_attribute.atttypmod)
+		#     format=int16 (0:text or 1:binary)
+		#   )[num_fields]
+		elsif ($from_backend and $pg_msg->{'type'} eq 'T') {
+			my @fields;
+			my $i=0;
+			my $msg = $pg_msg->{'data'};
+
+			$pg_msg->{'num_fields'} = unpack('n', $msg);
+
+			while ($i < $pg_msg->{'num_fields'}) {
+				my @field = unpack('Z*NnNnNn', $msg);
+				push @fields, [ @field ];
+				$msg = substr($msg, 19 + length($field[0]));
+
+				$i++;
 			}
 
-			# message: F(E) "Execute"
-			#   name=String
-			#   nb_rows=int32
-			if (not $from_backend and $pg_msg->{'type'} eq 'E') {
-				($pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('Z*N', $pg_msg->{'data'});
+			$pg_msg->{'fields'} = [ @fields ];
+			$self->{'RowDescription'}->($pg_msg) if defined $self->{'RowDescription'};
+		}
 
-				$self->{'Execute'}->($pg_msg) if defined $self->{'Execute'};
-				last SWITCH;
+		# message: SSLAnswer (B)
+		elsif ($from_backend and $pg_msg->{'type'} eq 'SSLAnswer') {
+			$pg_msg->{'ssl_answer'} = $pg_msg->{'data'};
+			$self->{'SSLAnswer'}->($pg_msg) if defined $self->{'SSLAnswer'};
+		}
+
+		# message: SSLRequest (F)
+		#   status=Char
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'SSLRequest') {
+			$self->{'SSLRequest'}->($pg_msg) if defined $self->{'SSLRequest'};
+		}
+
+		# message: StartupMessage2 (F)
+		#   status=Char
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'StartupMessage2') {
+			$pg_msg->{'version'} = 2;
+
+			# TODO add given parameters from frontend
+
+			$self->{'StartupMessage'}->($pg_msg) if defined $self->{'StartupMessage'};
+		}
+
+		# message: StartupMessage3 (F)
+		#   status=Char
+		#   (param=String
+		#   value=String){1,}\x00
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'StartupMessage3') {
+			my $msg = substr($pg_msg->{'data'}, 4); # ignore the version fields
+			my $params = {};
+
+			$pg_msg->{'version'} = 3;
+
+			while ($msg ne '') {
+				my ($param, $value) = unpack('Z*Z*', $msg);
+				last if ($param eq '');
+				$params->{$param} = $value;
+				$msg = substr($msg, 2 + length($param) + length($value));
 			}
 
-			# message: F(H) "Flush"
-			if (not $from_backend and $pg_msg->{'type'} eq 'H') {
+			$pg_msg->{'params'} = $params;
 
-				$self->{'Flush'}->($pg_msg) if defined $self->{'Flush'};
-				last SWITCH;
-			}
+			$self->{'StartupMessage'}->($pg_msg) if defined $self->{'StartupMessage'};
+		}
 
-			# message: "FunctionCall"
-			# FIXME TODO
+		# message: F(S) "Sync"
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'S') {
+			$self->{'Sync'}->($pg_msg) if defined $self->{'Sync'};
+		}
 
-			# message: "FunctionCallResponse"
-			# FIXME TODO
+		# message: F(X) "Terminate"
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'X') {
+			$self->{'Terminate'}->($pg_msg) if defined $self->{'Terminate'};
+		}
 
-			# message: B(n) "NoData"
-			if ($from_backend and $pg_msg->{'type'} eq 'n') {
-				$self->{'NoData'}->($pg_msg) if defined $self->{'NoData'};
-				last SWITCH;
-			}
-
-			# message: B(N) "NoticeResponse"
-			#   (code=char
-			#   value=String){1,}\x00
-			if ($from_backend and $pg_msg->{'type'} eq 'N') {
-				my $fields = {};
-				my $msg = $pg_msg->{'data'};
-
-				while ($msg ne '') {
-					my ($code, $value) = unpack('AZ*', $msg);
-					last if ($code eq '');
-					$fields->{$code} = $value;
-					$msg = substr($msg, 2 + length($value));
-				}
-
-				$pg_msg->{'fields'} = $fields;
-
-				$self->{'NoticeResponse'}->($pg_msg) if defined $self->{'NoticeResponse'};
-				last SWITCH;
-			}
-
-			# message: B(A) "NotificationResponse"
-			#   pid=int32
-			#   channel=String
-			#   payload=String
-			if ($from_backend and $pg_msg->{'type'} eq 'A') {
-				($pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'}) = unpack('N Z* Z*', $pg_msg->{'data'});
-				$self->{'NotificationResponse'}->($pg_msg) if defined $self->{'NotificationResponse'};
-				last SWITCH;
-			}
-
-			# message: B(t) "ParameterDescription"
-			#   num_params=int16
-			#   params_types[]=int32[nb_formats]
-			if ($from_backend and $pg_msg->{'type'} eq 't') {
-				my @params_types;
-				($pg_msg->{'num_params'}, @params_types) = unpack('nN*', $pg_msg->{'data'});
-				$pg_msg->{'params_types'} = [@params_types];
-				$self->{'ParameterDescription'}->($pg_msg) if defined $self->{'ParameterDescription'};
-				last SWITCH;
-			}
-
-			# message: B(S) "ParameterStatus"
-			#   name=String
-			#   value=String
-			if ($from_backend and $pg_msg->{'type'} eq 'S') {
-				($pg_msg->{'name'}, $pg_msg->{'value'}) = unpack('Z*Z*', $pg_msg->{'data'});
-				$self->{'ParameterStatus'}->($pg_msg) if defined $self->{'ParameterStatus'};
-				last SWITCH;
-			}
-
-			# message: F(P) "Parse"
-			#   name=String
-			#   query=String
-			#   num_params=int16
-			#   params_types[]=int32[nb_formats]
-			if (not $from_backend and $pg_msg->{'type'} eq 'P') {
-				my @params_types;
-				($pg_msg->{'name'}, $pg_msg->{'query'},
-					$pg_msg->{'num_params'}, @params_types
-				) = unpack('Z*Z*nN*', $pg_msg->{'data'});
-				$pg_msg->{'params_types'} = [@params_types];
-
-				$self->{'Parse'}->($pg_msg) if defined $self->{'Parse'};
-				last SWITCH;
-			}
-
-			# message: B(1) "ParseComplete"
-			if ($from_backend and $pg_msg->{'type'} eq '1') {
-				$self->{'ParseComplete'}->($pg_msg) if defined $self->{'ParseComplete'};
-				last SWITCH;
-			}
-
-			# message: F(p) "PasswordMessage"
-			#    password=String
-			if (not $from_backend and $pg_msg->{'type'} eq 'p') {
-
-				# we remove the last char:
-				# query are null terminated in pgsql proto
-				$pg_msg->{'password'} = substr($pg_msg->{'data'}, 0, -1);
-
-				$self->{'PasswordMessage'}->($pg_msg) if defined $self->{'PasswordMessage'};
-				last SWITCH;
-			}
-
-			# message: B(s) "PortalSuspended"
-			if ($from_backend and $pg_msg->{'type'} eq 's') {
-				$self->{'PortalSuspended'}->($pg_msg) if defined $self->{'PortalSuspended'};
-				last SWITCH;
-			}
-
-			# message: F(Q) "Query"
-			#    query=String
-			if (not $from_backend and $pg_msg->{'type'} eq 'Q') {
-
-				# we remove the last char:
-				# query are null terminated
-				$pg_msg->{'query'} = substr($pg_msg->{'data'}, 0, -1);
-
-				$self->{'Query'}->($pg_msg) if defined $self->{'Query'};
-				last SWITCH;
-			}
-
-			# message: B(Z) "ReadyForQuery"
-			#   status=Char
-			if ($from_backend and $pg_msg->{'type'} eq 'Z') {
-				$pg_msg->{'status'} = $pg_msg->{'data'};
-				$self->{'ReadyForQuery'}->($pg_msg) if defined $self->{'ReadyForQuery'};
-				last SWITCH;
-			}
-
-			# message: B(T) "RowDescription"
-			#   num_fields=int16
-			#   (
-			#     field=String
-			#     relid=int32 (0 if not associated to a table)
-			#     attnum=int16 (0 if not associated to a table)
-			#     type=int32
-			#     type_len=int16 (-1 if variable, see pg_type.typlen)
-			#     type_mod=int32 (see pg_attribute.atttypmod)
-			#     format=int16 (0:text or 1:binary)
-			#   )[num_fields]
-			if ($from_backend and $pg_msg->{'type'} eq 'T') {
-				my @fields;
-				my $i=0;
-				my $msg = $pg_msg->{'data'};
-
-				$pg_msg->{'num_fields'} = unpack('n', $msg);
-
-				while ($i < $pg_msg->{'num_fields'}) {
-					my @field = unpack('Z*NnNnNn', $msg);
-					push @fields, [ @field ];
-					$msg = substr($msg, 19 + length($field[0]));
-
-					$i++;
-				}
-
-				$pg_msg->{'fields'} = [ @fields ];
-				$self->{'RowDescription'}->($pg_msg) if defined $self->{'RowDescription'};
-				last SWITCH;
-			}
-
-			# message: SSLAnswer (B)
-			if ($from_backend and $pg_msg->{'type'} eq 'SSLAnswer') {
-				$pg_msg->{'ssl_answer'} = $pg_msg->{'data'};
-				$self->{'SSLAnswer'}->($pg_msg) if defined $self->{'SSLAnswer'};
-				last SWITCH;
-			}
-
-			# message: SSLRequest (F)
-			#   status=Char
-			if (not $from_backend and $pg_msg->{'type'} eq 'SSLRequest') {
-				$self->{'SSLRequest'}->($pg_msg) if defined $self->{'SSLRequest'};
-				last SWITCH;
-			}
-
-			# message: StartupMessage2 (F)
-			#   status=Char
-			if (not $from_backend and $pg_msg->{'type'} eq 'StartupMessage2') {
-				$pg_msg->{'version'} = 2;
-
-				# TODO add given parameters from frontend
-
-				$self->{'StartupMessage'}->($pg_msg) if defined $self->{'StartupMessage'};
-				last SWITCH;
-			}
-
-			# message: StartupMessage3 (F)
-			#   status=Char
-			#   (param=String
-			#   value=String){1,}\x00
-			if (not $from_backend and $pg_msg->{'type'} eq 'StartupMessage3') {
-				my $msg = substr($pg_msg->{'data'}, 4); # ignore the version fields
-				my $params = {};
-
-				$pg_msg->{'version'} = 3;
-
-				while ($msg ne '') {
-					my ($param, $value) = unpack('Z*Z*', $msg);
-					last if ($param eq '');
-					$params->{$param} = $value;
-					$msg = substr($msg, 2 + length($param) + length($value));
-				}
-
-				$pg_msg->{'params'} = $params;
-
-				$self->{'StartupMessage'}->($pg_msg) if defined $self->{'StartupMessage'};
-				last SWITCH;
-			}
-
-			# message: F(S) "Sync"
-			if (not $from_backend and $pg_msg->{'type'} eq 'S') {
-				$self->{'Sync'}->($pg_msg) if defined $self->{'Sync'};
-				last SWITCH;
-			}
-
-			# message: F(X) "Terminate"
-			if (not $from_backend and $pg_msg->{'type'} eq 'X') {
-				$self->{'Terminate'}->($pg_msg) if defined $self->{'Terminate'};
-				last SWITCH;
-			}
-
-			# Default
+		# Default catchall
+		else {
 			debug(3, "PGSQL: not implemented message type: %s(%s)\n", ($from_backend?'B':'F'), $pg_msg->{'type'});
 		}
 
