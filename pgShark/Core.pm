@@ -540,8 +540,55 @@ sub process_packet {
 			$self->{'Flush'}->($pg_msg) if defined $self->{'Flush'};
 		}
 
-		# message: "FunctionCall"
-		# FIXME TODO
+		# message: F(F) "FunctionCall"
+		#   func_oid=Int32
+		#   num_args_formats=Int16
+		#   args_formats[]=int16[nb_formats]
+		#   num_args=Int16
+		#   args[]=(len=int32,value=char[len])[nb_args]
+		#   result_format=Int16
+		# FIXME NOT TESTED yet
+		elsif (not $from_backend and $pg_msg->{'type'} eq 'F') {
+			my @args_formats;
+			my @args;
+			my $msg = $pg_msg->{'data'};
+
+			($pg_msg->{'func_oid'}, $pg_msg->{'num_args_formats'}) = unpack('NN', $msg);
+
+			$msg = substr($msg, 8);
+
+			# catch formats and the $num_args as well
+			@args_formats = unpack("n$pg_msg->{'num_args_formats'} n", $msg);
+			$pg_msg->{'num_args'} = pop @args_formats;
+			$pg_msg->{'args_formats'} = [@args_formats];
+
+			$msg = substr($msg, ($pg_msg->{'num_args_formats'}+1) * 2);
+
+			for (my $i=0; $i < $pg_msg->{'num_args'}; $i++) {
+				# unpack hasn't 32bit signed network template, so we use l>
+				my ($len) = unpack('l>', $msg);
+
+				# if len < 0; the value is NULL
+				if ($len > 0) {
+					push @args, substr($msg, 4, $len);
+					$msg = substr($msg, 4 + $len);
+				}
+				elsif ($len == 0) {
+					push @args, '';
+					$msg = substr($msg, 4);
+				}
+				else { # value is NULL
+					push @args, undef;
+					$msg = substr($msg, 4);
+				}
+			}
+
+			$pg_msg->{'params'} = [@args];
+
+			$pg_msg->{'result_format'} = unpack('n', $msg);
+
+			$self->{'FunctionCall'}->($pg_msg) if defined $self->{'FunctionCall'};
+		}
 
 		# message: "FunctionCallResponse"
 		# FIXME TODO
