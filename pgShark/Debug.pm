@@ -13,13 +13,13 @@ use Data::Dumper;
 use Exporter;
 our $VERSION = 0.1;
 our @ISA = ('Exporter');
-our @EXPORT = qw/getCallbacks getFilter Authentication BackendKeyData Bind BindComplete CancelRequest Close CommandComplete CopyData CopyDone
-CopyFail CopyInResponse CopyOutResponse DataRow Describe EmptyQueryResponse ErrorResponse Execute NoData NoticeResponse
-NotificationResponse ParameterDescription ParameterStatus Parse ParseComplete PortalSuspended Query ReadyForQuery
+our @EXPORT = qw/getCallbacks getFilter Authentication BackendKeyData Bind BindComplete CancelRequest Close CloseComplete CommandComplete CopyData CopyDone
+CopyFail CopyInResponse CopyOutResponse DataRow Describe EmptyQueryResponse ErrorResponse Execute Flush NoData NoticeResponse
+NotificationResponse ParameterDescription ParameterStatus Parse ParseComplete PasswordMessage PortalSuspended Query ReadyForQuery
 RowDescription SSLAnswer SSLRequest StartupMessage Sync Terminate/;
-our @EXPORT_OK = qw/getCallbacks getFilter Authentication BackendKeyData Bind BindComplete CancelRequest Close CommandComplete CopyData CopyDone
-CopyFail CopyInResponse CopyOutResponse DataRow Describe EmptyQueryResponse ErrorResponse Execute NoData NoticeResponse
-NotificationResponse ParameterDescription ParameterStatus Parse ParseComplete PortalSuspended Query ReadyForQuery
+our @EXPORT_OK = qw/getCallbacks getFilter Authentication BackendKeyData Bind BindComplete CancelRequest Close CloseComplete CommandComplete CopyData CopyDone
+CopyFail CopyInResponse CopyOutResponse DataRow Describe EmptyQueryResponse ErrorResponse Execute Flush NoData NoticeResponse
+NotificationResponse ParameterDescription ParameterStatus Parse ParseComplete PasswordMessage PortalSuspended Query ReadyForQuery
 RowDescription SSLAnswer SSLRequest StartupMessage Sync Terminate/;
 
 ## TODO
@@ -42,7 +42,7 @@ sub getCallbacks {
 		'BindComplete' => \&BindComplete,
 		'CancelRequest' => \&CancelRequest,
 		'Close' => \&Close,
-		'CloseComplete' => sub {},
+		'CloseComplete' => \&CloseComplete,
 		'CommandComplete' => \&CommandComplete,
 		'CopyData' => \&CopyData,
 		'CopyDone' => \&CopyDone,
@@ -54,7 +54,7 @@ sub getCallbacks {
 		'EmptyQueryResponse' => \&EmptyQueryResponse,
 		'ErrorResponse' => \&ErrorResponse,
 		'Execute' => \&Execute,
-		'Flush' => sub {},
+		'Flush' => \&Flush,
 		'FunctionCall' => sub {},
 		'FunctionCallResponse' => sub {},
 		'NoData' => \&NoData,
@@ -64,7 +64,7 @@ sub getCallbacks {
 		'ParameterStatus' => \&ParameterStatus,
 		'Parse' => \&Parse,
 		'ParseComplete' => \&ParseComplete,
-		'PasswordMessage' => sub {},
+		'PasswordMessage' => \&PasswordMessage,
 		'PortalSuspended' => \&PortalSuspended,
 		'Query' => \&Query,
 		'ReadyForQuery' => \&ReadyForQuery,
@@ -106,51 +106,51 @@ sub code_response {
 		SWITCH: {
 			#S C M D H P p q W F L R
 			if ($code eq 'S') {
-				printf "Severity: '%s'\n", $value;
+				printf "  Severity: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'C') {
-				printf "Code: '%s'\n", $value;
+				printf "  Code: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'M') {
-				printf "Message: '%s'\n", $value;
+				printf "  Message: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'D') {
-				printf "Detail: '%s'\n", $value;
+				printf "  Detail: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'H') {
-				printf "Hint: '%s'\n", $value;
+				printf "  Hint: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'P') {
-				printf "Position: '%s'n", $value;
+				printf "  Position: '%s'n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'p') {
-				printf "Internal position: '%s'\n", $value;
+				printf "  Internal position: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'q') {
-				printf "Internal query: '%s'\n", $value;
+				printf "  Internal query: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'W') {
-				printf "Where: '%s'\n", $value;
+				printf "  Where: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'F') {
-				printf "File: '%s'\n", $value;
+				printf "  File: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'L') {
-				printf "Line: '%s'\n", $value;
+				printf "  Line: '%s'\n", $value;
 				last SWITCH;
 			}
 			if ($code eq 'R') {
-				printf "Routine: '%s'\n", $value;
+				printf "  Routine: '%s'\n", $value;
 				last SWITCH;
 			}
 		}
@@ -179,7 +179,7 @@ sub Authentication {
 			last SWITCH;
 		}
 		if ($pg_msg->{'code'} == 5) {
-			printf "(MD5 salt='%s')\n\n", $pg_msg->{'data'};
+			printf "(MD5 salt='%s')\n\n", unpack('h*', $pg_msg->{'salt'});
 			last SWITCH;
 		}
 		if ($pg_msg->{'code'} == 6) {
@@ -248,6 +248,15 @@ sub Close {
 	header($pg_msg, not $from_backend);
 
 	printf "CLOSE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
+}
+
+## handle command B(3)
+# @param $pg_msg hash with pg message properties
+sub CloseComplete {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "CLOSE COMPLETE\n\n";
 }
 
 ## handle command B(C)
@@ -330,7 +339,7 @@ sub DataRow {
 		else {
 			$value->[1] = 'NULL';
 		}
-		printf "---[Value %02d]---\nlength=%d\nvalue=%s\n", $i, @{ $value } ;
+		printf "  ---[Value %02d]---\n  length=%d\n  value=%s\n", $i, @{ $value } ;
 	}
 	print "\n";
 }
@@ -372,6 +381,15 @@ sub Execute {
 	header($pg_msg, not $from_backend);
 
 	printf "EXECUTE name='%s', nb_rows=%d\n\n", $pg_msg->{'name'}, $pg_msg->{'nb_rows'};
+}
+
+## handle command F(H)
+# @param $pg_msg hash with pg message properties
+sub Flush {
+	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
+
+	printf "FLUSH\n\n";
 }
 
 ## handle command B(n)
@@ -443,6 +461,15 @@ sub ParseComplete {
 	printf "PARSE COMPLETE\n\n";
 }
 
+## handle command F(p)
+# @param $pg_msg hash with pg message properties
+sub PasswordMessage {
+	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
+
+	printf "PASSWORD MESSAGE password=%s\n\n", $pg_msg->{'password'};
+}
+
 ## handle command B(s)
 # @param $pg_msg hash with pg message properties
 sub PortalSuspended {
@@ -490,7 +517,8 @@ sub RowDescription {
 
 	for my $field ( @{ $pg_msg->{'fields'} } ) {
 		$i++;
-		printf "---[Field %02d]---\nname='%s'\nrelid=%d\nattnum=%d\ntype=%d\ntype_len=%d\ntype_mod=%d\nformat=%d\n", $i, @{ $field };
+		printf "  ---[Field %02d]---\n  name='%s'\n  relid=%d\n  attnum=%d\n  type=%d\n  type_len=%d\n  type_mod=%d\n  format=%d\n",
+			$i, @{ $field };
 	}
 	print "\n";
 }
@@ -519,9 +547,15 @@ sub SSLRequest {
 # @param $pg_msg hash with pg message properties
 sub StartupMessage {
 	my $pg_msg = shift;
+	my $i=0;
 	header($pg_msg, not $from_backend);
 
-	printf "STARTUP MESSAGE version: %s\n\n", $pg_msg->{'version'};
+	printf "STARTUP MESSAGE version: %s\n", $pg_msg->{'version'};
+
+	foreach my $param ( keys %{ $pg_msg->{'params'} } ) {
+		printf "  %s=%s\n", $param, $pg_msg->{'params'}->{$param};
+	}
+	print "\n";
 }
 
 ## handle command F(S)
