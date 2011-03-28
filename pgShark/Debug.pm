@@ -9,37 +9,88 @@ use pgShark::Utils;
 use Net::Pcap qw(:functions);
 use Data::Dumper;
 
+
+use Exporter;
+our $VERSION = 0.1;
+our @ISA = ('Exporter');
+our @EXPORT = qw/getCallbacks getFilter Authentication BackendKeyData Bind BindComplete CancelRequest Close CommandComplete CopyData CopyDone
+CopyFail CopyInResponse CopyOutResponse DataRow Describe EmptyQueryResponse ErrorResponse Execute NoData NoticeResponse
+NotificationResponse ParameterDescription ParameterStatus Parse ParseComplete PortalSuspended Query ReadyForQuery
+RowDescription SSLAnswer SSLRequest StartupMessage Sync Terminate/;
+our @EXPORT_OK = qw/getCallbacks getFilter Authentication BackendKeyData Bind BindComplete CancelRequest Close CommandComplete CopyData CopyDone
+CopyFail CopyInResponse CopyOutResponse DataRow Describe EmptyQueryResponse ErrorResponse Execute NoData NoticeResponse
+NotificationResponse ParameterDescription ParameterStatus Parse ParseComplete PortalSuspended Query ReadyForQuery
+RowDescription SSLAnswer SSLRequest StartupMessage Sync Terminate/;
+
 ## TODO
-#  * ...
+# ...
 
-sub new {
-	my $class = shift;
-	my $args = shift;
-	my $pcap = shift;
+my $from_backend = 1;
 
-	my $self = {
+sub getCallbacks {
+	return {
+		'AuthenticationOk' => \&Authentication,
+		'AuthenticationKerberosV5' => \&Authentication,
+		'AuthenticationCleartextPassword' => \&Authentication,
+		'AuthenticationMD5Password' => \&Authentication,
+		'AuthenticationSCMCredential' => \&Authentication,
+		'AuthenticationGSS' => \&Authentication,
+		'AuthenticationSSPI' => \&Authentication,
+		'AuthenticationGSSContinue' => \&Authentication,
+		'BackendKeyData' => \&BackendKeyData,
+		'Bind' => \&Bind,
+		'BindComplete' => \&BindComplete,
+		'CancelRequest' => \&CancelRequest,
+		'Close' => \&Close,
+		'CloseComplete' => sub {},
+		'CommandComplete' => \&CommandComplete,
+		'CopyData' => \&CopyData,
+		'CopyDone' => \&CopyDone,
+		'CopyFail' => \&CopyFail,
+		'CopyInResponse' => \&CopyInResponse,
+		'CopyOutResponse' => \&CopyOutResponse,
+		'DataRow' => \&DataRow,
+		'Describe' => \&Describe,
+		'EmptyQueryResponse' => \&EmptyQueryResponse,
+		'ErrorResponse' => \&ErrorResponse,
+		'Execute' => \&Execute,
+		'Flush' => sub {},
+		'FunctionCall' => sub {},
+		'FunctionCallResponse' => sub {},
+		'NoData' => \&NoData,
+		'NoticeResponse' => \&NoticeResponse,
+		'NotificationResponse' => \&NotificationResponse,
+		'ParameterDescription' => \&ParameterDescription,
+		'ParameterStatus' => \&ParameterStatus,
+		'Parse' => \&Parse,
+		'ParseComplete' => \&ParseComplete,
+		'PasswordMessage' => sub {},
+		'PortalSuspended' => \&PortalSuspended,
+		'Query' => \&Query,
+		'ReadyForQuery' => \&ReadyForQuery,
+		'RowDescription' => \&RowDescription,
+		'SSLAnswer' => \&SSLAnswer,
+		'SSLRequest' => \&SSLRequest,
+		'StartupMessage' => \&StartupMessage,
+		'Sync' => \&Sync,
+		'Terminate' => \&Terminate
 	};
+}
 
-	my $filter = undef;
-
-	pcap_compile($pcap, \$filter,
-		"(tcp and port $args->{'port'}) and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)", 0, 0
-	);
-	pcap_setfilter($pcap, $filter);
-
-	debug(1, "Debug: Plugin loaded.\n");
-
-	return bless($self, $class);
+sub getFilter {
+	my $host = shift;
+	my $port = shift;
+	return "(tcp and port $port) and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)";
 }
 
 # prints formated trace with mandatored fields
 sub header {
-	my $self = shift;
 	my $pg_msg = shift;
-	my $is_srv = shift;
+	my $from_backend = shift;
+
 	printf "Packet: t=%s, session=%s\n", $pg_msg->{'timestamp'}, $pg_msg->{'sess_hash'};
 	printf "PGSQL: type=%s, ", $pg_msg->{'type'};
-	if ($is_srv) {
+	if ($from_backend) {
 		printf "B -> F\n";
 	}
 	else {
@@ -48,7 +99,6 @@ sub header {
 }
 
 sub code_response {
-	my $self = shift;
 	my $pg_msg = shift;
 
 	foreach my $code (keys %{ $pg_msg->{'fields'} }) {
@@ -107,273 +157,11 @@ sub code_response {
 	}
 }
 
-## handle F(P) command (parse)
+## handle command B(R)
 # @param $pg_msg hash with pg message properties
-sub process_parse {
-	my $self = shift;
+sub Authentication {
 	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
-
-	printf "PARSE name='%s', num_params=%d, params_type=%s, query=%s\n\n",
-		$pg_msg->{'name'}, $pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params_types'} }), $pg_msg->{'query'};
-}
-
-## handle command F(B) (bind)
-# @param $pg_msg hash with pg message properties
-sub process_bind {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
-
-	map {$_='NULL' if not defined} @{ $pg_msg->{'params'} };
-
-	printf "BIND portal='%s', name='%s', num_formats=%d, formats=%s, num_params=%d, params=%s\n\n",
-		$pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}, join(', ', @{ $pg_msg->{'params_types'} }),
-		$pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params'} });
-}
-
-
-## handle commande B & F (c) (CopyDone)
-sub process_copy_done {
-	my $self = shift;
-	my $pg_msg = shift;
-	my $is_srv = shift;
-
-	$self->header($pg_msg, $is_srv);
-
-	printf "COPY DONE\n\n";
-}
-
-## handle command F(D) (Describe)
-# @param $pg_msg hash with pg message properties
-sub process_describe {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
-
-	printf "DESCRIBE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
-}
-
-## handle command F(f) (CopyFail)
-# @param $pg_msg hash with pg message properties
-sub process_copy_fail {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
-
-	printf "COPY FAIL error='%s'\n\n", $pg_msg->{'error'};
-}
-
-## handle commande B & F (d) (CopyData)
-sub process_copy_data {
-	my $self = shift;
-	my $pg_msg = shift;
-	my $is_srv = shift;
-
-	$self->header($pg_msg, $is_srv);
-
-	printf "COPY DATA len=%d\n\n", length($pg_msg->{'data'});
-}
-
-## handle command F(E) (execute)
-# @param $pg_msg hash with pg message properties
-sub process_execute {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
-
-	printf "EXECUTE name='%s', nb_rows=%d\n\n", $pg_msg->{'name'}, $pg_msg->{'nb_rows'};
-}
-
-## handle command F(C) (close)
-# @param $pg_msg hash with pg message properties
-sub process_close {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
-
-	printf "CLOSE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
-}
-
-## handle command F(Q) (query)
-# @param $pg_msg hash with pg message properties
-sub process_query {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
-
-	printf "QUERY query=%s\n\n", $pg_msg->{'query'};
-}
-
-## handle command F(X) (terminate)
-# @param $pg_msg hash with pg message properties
-sub process_disconnect {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
-
-	printf "DISCONNECT\n\n";
-}
-
-## handle command F(S) (sync)
-# @param $pg_msg hash with pg message properties
-sub process_sync {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
-
-	printf "SYNC\n\n";
-}
-
-## handle command B(1) (Parse Complete)
-# @param $pg_msg hash with pg message properties
-sub process_parse_complete {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "PARSE COMPLETE\n\n";
-}
-
-## handle command B(2) (Bind Complete)
-# @param $pg_msg hash with pg message properties
-sub process_bind_complete {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "BIND COMPLETE\n\n";
-}
-
-## handle command B(A) (Notification Response)
-# @param $pg_msg hash with pg message properties
-sub process_notif_response {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "NOTIFICATION RESPONSE pid=%d, channel='%s', payload='%s'\n\n",
-		$pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'},;
-}
-
-## handle command B(C) (command complete)
-# @param $pg_msg hash with pg message properties
-sub process_command_complete {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "COMMAND COMPLETE command='%s'\n\n", $pg_msg->{'command'};
-}
-
-## handle command B(D) (data row)
-# @param $pg_msg hash with pg message properties
-sub process_data_row {
-	my $self = shift;
-	my $pg_msg = shift;
-	my $i = 0;
-	$self->header($pg_msg, 1);
-
-	printf "DATA ROW num_values=%d\n", $pg_msg->{'num_values'};
-
-	for my $value ( @{ $pg_msg->{'values'} } ) {
-		$i++;
-		if (defined $value->[1]) {
-			$value->[1] =~ tr/\x00-\x1F\x80-\xFF/./;
-			$value->[1] = "'$value->[1]'";
-		}
-		else {
-			$value->[1] = 'NULL';
-		}
-		printf "---[Value %02d]---\nlength=%d\nvalue=%s\n", $i, @{ $value } ;
-	}
-	print "\n";
-}
-
-## handle command B(E) (error response)
-# @param $pg_msg hash with pg message properties
-sub process_error_response {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "ERROR RESPONSE\n\n";
-	$self->code_response($pg_msg);
-
-	print "\n";
-}
-
-## handle command B(G) (CopyInResponse)
-# @param $pg_msg hash with pg message properties
-sub process_copy_in_response {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "COPY IN RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n", $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
-		join(', ', @{ $pg_msg->{'fields_formats'} });
-}
-
-## handle command B(H) (CopyOutResponse)
-# @param $pg_msg hash with pg message properties
-sub process_copy_out_response {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "COPY OUT RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n", $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
-		join(', ', @{ $pg_msg->{'fields_formats'} });
-}
-
-## handle command B(I) (empty query response)
-# @param $pg_msg hash with pg message properties
-sub process_empty_query {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "EMPTY QUERY RESPONSE\n\n";
-}
-
-## handle command B(K) (BackendKeyData)
-# @param $pg_msg hash with pg message properties
-sub process_key_data {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "BACKEND KEY DATA pid=%d, key=%d\n\n", $pg_msg->{'pid'}, $pg_msg->{'key'};
-}
-
-## handle command B(n) (no data)
-# @param $pg_msg hash with pg message properties
-sub process_no_data {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "NO DATA\n\n";
-}
-
-## handle command B(N) (notice response)
-# @param $pg_msg hash with pg message properties
-sub process_notice_response {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
-
-	printf "NOTICE RESPONSE\n\n";
-	$self->code_response($pg_msg);
-
-	print "\n";
-}
-
-## handle command B(R) (authentification request)
-# @param $pg_msg hash with pg message properties
-sub process_auth_request {
-	my $self = shift;
-	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
+	header($pg_msg, $from_backend);
 
 	printf "AUTHENTIFICATION REQUEST code=%d ", $pg_msg->{'code'};
 
@@ -413,61 +201,271 @@ sub process_auth_request {
 	}
 }
 
-## handle command B(S) (ParameterStatus)
+## handle command B(K)
 # @param $pg_msg hash with pg message properties
-sub process_parameter_status {
-	my $self = shift;
+sub BackendKeyData {
 	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
+	header($pg_msg, $from_backend);
 
-	printf "PARAMETER STATUS name='%s', value='%s'\n\n", $pg_msg->{'name'}, $pg_msg->{'value'};
+	printf "BACKEND KEY DATA pid=%d, key=%d\n\n", $pg_msg->{'pid'}, $pg_msg->{'key'};
 }
 
-## handle command B(s) (portal suspended)
+## handle command F(B)
 # @param $pg_msg hash with pg message properties
-sub process_portal_suspended {
-	my $self = shift;
+sub Bind {
 	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
+	header($pg_msg, not $from_backend);
 
-	printf "PORTAL SUSPENDED\n\n";
+	map {$_='NULL' if not defined} @{ $pg_msg->{'params'} };
+
+	printf "BIND portal='%s', name='%s', num_formats=%d, formats=%s, num_params=%d, params=%s\n\n",
+		$pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}, join(', ', @{ $pg_msg->{'params_types'} }),
+		$pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params'} });
 }
 
-## handle command B(T) (row description)
+## handle command B(2)
 # @param $pg_msg hash with pg message properties
-sub process_row_desc {
-	my $self = shift;
+sub BindComplete {
 	my $pg_msg = shift;
-	my $i=0;
-	$self->header($pg_msg, 1);
+	header($pg_msg, $from_backend);
 
-	printf "ROW DESCRIPTION: num_fields=%d\n",
-		$pg_msg->{'num_fields'};
+	printf "BIND COMPLETE\n\n";
+}
 
-	for my $field ( @{ $pg_msg->{'fields'} } ) {
+## handle command CancelRequest (F)
+# @param $pg_msg hash with pg message properties
+sub CancelRequest {
+	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
+
+	printf "CANCEL REQUEST\n\n";
+}
+
+## handle command F(C)
+# @param $pg_msg hash with pg message properties
+sub Close {
+	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
+
+	printf "CLOSE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
+}
+
+## handle command B(C)
+# @param $pg_msg hash with pg message properties
+sub CommandComplete {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "COMMAND COMPLETE command='%s'\n\n", $pg_msg->{'command'};
+}
+
+## handle commande B & F (d)
+# @param $pg_msg hash with pg message properties
+# @param $from_backend (boolean) wether the message comes from the backend or not
+sub CopyData {
+	my $pg_msg = shift;
+	my $from_backend = shift;
+
+	header($pg_msg, $from_backend);
+
+	printf "COPY DATA len=%d\n\n", length($pg_msg->{'data'});
+}
+
+## handle commande B & F (c)
+# @param $pg_msg hash with pg message properties
+# @param $from_backend (boolean) wether the message comes from the backend or not
+sub CopyDone {
+	my $pg_msg = shift;
+	my $from_backend = shift;
+
+	header($pg_msg, $from_backend);
+
+	printf "COPY DONE\n\n";
+}
+
+## handle command F(f)
+# @param $pg_msg hash with pg message properties
+sub CopyFail {
+	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
+
+	printf "COPY FAIL error='%s'\n\n", $pg_msg->{'error'};
+}
+
+## handle command B(G)
+# @param $pg_msg hash with pg message properties
+sub CopyInResponse {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "COPY IN RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n", $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
+		join(', ', @{ $pg_msg->{'fields_formats'} });
+}
+
+## handle command B(H)
+# @param $pg_msg hash with pg message properties
+sub CopyOutResponse {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "COPY OUT RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n", $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
+		join(', ', @{ $pg_msg->{'fields_formats'} });
+}
+
+## handle command B(D)
+# @param $pg_msg hash with pg message properties
+sub DataRow {
+	my $pg_msg = shift;
+	my $i = 0;
+	header($pg_msg, $from_backend);
+
+	printf "DATA ROW num_values=%d\n", $pg_msg->{'num_values'};
+
+	for my $value ( @{ $pg_msg->{'values'} } ) {
 		$i++;
-		printf "---[Field %02d]---\nname='%s'\nrelid=%d\nattnum=%d\ntype=%d\ntype_len=%d\ntype_mod=%d\nformat=%d\n", $i, @{ $field };
+		if (defined $value->[1]) {
+			$value->[1] =~ tr/\x00-\x1F\x80-\xFF/./;
+			$value->[1] = "'$value->[1]'";
+		}
+		else {
+			$value->[1] = 'NULL';
+		}
+		printf "---[Value %02d]---\nlength=%d\nvalue=%s\n", $i, @{ $value } ;
 	}
 	print "\n";
 }
 
-## handle command B(t) (parameter description)
+## handle command F(D)
 # @param $pg_msg hash with pg message properties
-sub process_param_desc {
-	my $self = shift;
+sub Describe {
 	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
+	header($pg_msg, not $from_backend);
+
+	printf "DESCRIBE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
+}
+
+## handle command B(I)
+# @param $pg_msg hash with pg message properties
+sub EmptyQueryResponse {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "EMPTY QUERY RESPONSE\n\n";
+}
+
+## handle command B(E)
+# @param $pg_msg hash with pg message properties
+sub ErrorResponse {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "ERROR RESPONSE\n";
+	code_response($pg_msg);
+
+	print "\n";
+}
+
+## handle command F(E)
+# @param $pg_msg hash with pg message properties
+sub Execute {
+	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
+
+	printf "EXECUTE name='%s', nb_rows=%d\n\n", $pg_msg->{'name'}, $pg_msg->{'nb_rows'};
+}
+
+## handle command B(n)
+# @param $pg_msg hash with pg message properties
+sub NoData {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "NO DATA\n\n";
+}
+
+## handle command B(N)
+# @param $pg_msg hash with pg message properties
+sub NoticeResponse {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "NOTICE RESPONSE\n\n";
+	code_response($pg_msg);
+
+	print "\n";
+}
+
+## handle command B(A)
+# @param $pg_msg hash with pg message properties
+sub NotificationResponse {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "NOTIFICATION RESPONSE pid=%d, channel='%s', payload='%s'\n\n",
+		$pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'},;
+}
+
+## handle command B(t)
+# @param $pg_msg hash with pg message properties
+sub ParameterDescription {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
 
 	printf "PARAMETER DESCRIPTION: num_param=%d, params_oids=%s\n\n",
 		$pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params_types'} });
 }
 
-## handle command B(Z) (ready for query)
+## handle command B(S)
 # @param $pg_msg hash with pg message properties
-sub process_ready {
-	my $self = shift;
+sub ParameterStatus {
 	my $pg_msg = shift;
-	$self->header($pg_msg, 1);
+	header($pg_msg, $from_backend);
+
+	printf "PARAMETER STATUS name='%s', value='%s'\n\n", $pg_msg->{'name'}, $pg_msg->{'value'};
+}
+
+## handle command F(P)
+# @param $pg_msg hash with pg message properties
+sub Parse {
+	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
+
+	printf "PARSE name='%s', num_params=%d, params_type=%s, query=%s\n\n",
+		$pg_msg->{'name'}, $pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params_types'} }), $pg_msg->{'query'};
+}
+
+## handle command B(1)
+# @param $pg_msg hash with pg message properties
+sub ParseComplete {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "PARSE COMPLETE\n\n";
+}
+
+## handle command B(s)
+# @param $pg_msg hash with pg message properties
+sub PortalSuspended {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
+
+	printf "PORTAL SUSPENDED\n\n";
+}
+
+## handle command F(Q)
+# @param $pg_msg hash with pg message properties
+sub Query {
+	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
+
+	printf "QUERY query=%s\n\n", $pg_msg->{'query'};
+}
+
+## handle command B(Z)
+# @param $pg_msg hash with pg message properties
+sub ReadyForQuery {
+	my $pg_msg = shift;
+	header($pg_msg, $from_backend);
 
 	if ($pg_msg->{'status'} eq 'I') {
 		printf "READY FOR QUERY type=<IDLE>\n\n";
@@ -480,51 +478,72 @@ sub process_ready {
 	}
 }
 
-## handle command CancelRequest (F)
+## handle command B(T)
 # @param $pg_msg hash with pg message properties
-sub process_cancel_request {
-	my $self = shift;
+sub RowDescription {
 	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
+	my $i=0;
+	header($pg_msg, $from_backend);
 
-	printf "CANCEL REQUEST\n\n";
+	printf "ROW DESCRIPTION: num_fields=%d\n",
+		$pg_msg->{'num_fields'};
+
+	for my $field ( @{ $pg_msg->{'fields'} } ) {
+		$i++;
+		printf "---[Field %02d]---\nname='%s'\nrelid=%d\nattnum=%d\ntype=%d\ntype_len=%d\ntype_mod=%d\nformat=%d\n", $i, @{ $field };
+	}
+	print "\n";
+}
+
+## this one doesn't exists as a backend answer
+# but pgshark call this method when backend answers to SSLRequest
+# @param $pg_msg hash with pg message properties
+sub SSLAnswer {
+	my $pg_msg = shift;
+
+	header($pg_msg, $from_backend);
+
+	printf "SSL BACKEND ANSWER: %s\n\n", $pg_msg->{'ssl_answer'};
 }
 
 ## handle command SSLRequest (F)
 # @param $pg_msg hash with pg message properties
-sub process_ssl_request {
-	my $self = shift;
+sub SSLRequest {
 	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
+	header($pg_msg, not $from_backend);
 
 	printf "SSL REQUEST\n\n";
 }
 
 ## handle command StartupMessage (F)
 # @param $pg_msg hash with pg message properties
-sub process_startup_message {
-	my $self = shift;
+sub StartupMessage {
 	my $pg_msg = shift;
-	$self->header($pg_msg, 0);
+	header($pg_msg, not $from_backend);
 
 	printf "STARTUP MESSAGE version: %s\n\n", $pg_msg->{'version'};
 }
 
-## this one doesn't exists as a backend answer
-# but pgshark call this method when backend answers to SSLRequest
-sub process_ssl_answer {
-	my $self = shift;
+## handle command F(S)
+# @param $pg_msg hash with pg message properties
+sub Sync {
 	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
 
-	$self->header($pg_msg, 0);
-
-	printf "SSL BACKEND ANSWER: %s\n\n", $pg_msg->{'ssl_answer'};
+	printf "SYNC\n\n";
 }
 
+## handle command F(X)
+# @param $pg_msg hash with pg message properties
+sub Terminate {
+	my $pg_msg = shift;
+	header($pg_msg, not $from_backend);
 
-sub DESTROY {
-	my $self = shift;
-#	debug(1, "Xxx: output something usefull here ?\n");
+	printf "DISCONNECT\n\n";
+}
+
+sub END {
+#	debug(1, "Debug: output something usefull here ?\n");
 }
 
 1;

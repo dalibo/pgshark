@@ -4,6 +4,9 @@
 
 ##
 # TODOs
+# == FIXes ==
+#
+# * Pay attention to NoData, EmptyQueryResponse, ...
 #
 # == options ==
 #
@@ -46,83 +49,91 @@ use Digest::MD5 qw(md5_base64);
 use Net::Pcap qw(:functions);
 use Data::Dumper;
 
-sub new {
-	my $class = shift;
-	my $args = shift;
-	my $pcap = shift;
+use Exporter;
+our $VERSION = 0.1;
+our @ISA = ('Exporter');
+our @EXPORT = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete CommandComplete ErrorResponse Execute
+NoticeResponse Parse ParseComplete Query StartupMessage Terminate/;
+our @EXPORT_OK = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete CommandComplete ErrorResponse Execute
+NoticeResponse Parse ParseComplete Query StartupMessage Terminate/;
 
-	my $self = {
-		'sessions' => {},
-		'stats' => {
-			'first_message' => 0,
-			'last_message' => 0,
-			'total_notices' => 0,
-			'min_notices' => 9**9**9, # min notices seen per session
-			'max_notices' => 0, # max notices seen per session
-			'total_errors' => 0,
-			'min_errors' => 9**9**9, # min errors seen per session
-			'max_errors' => 0, # max errors seen per session
-			'queries_total' => 0,
-			'errors' => {
-			},
-			'notices' => {
-			},
-			'prepd' => {
-			},
-			'queries' => {
-			},
-			'query_types' => {
-				'SELECT' => 0,
-				'INSERT' => 0,
-				'UPDATE' => 0,
-				'DELETE' => 0,
-				'BEGIN' => 0,
-				'COMMIT' => 0,
-				'ROLLBACK' => 0,
-				'MOVE' => 0,
-				'FETCH' => 0,
-				'COPY' => 0,
-				'VACUUM' => 0,
-				'TRUNCATE' => 0,
-				'DECLARE' => 0,
-				'CLOSE' => 0,
-				'others' => 0
-			},
-			'sessions' => {
-				'total' => 0,
-				'cnx' => 0,
-				'discnx' => 0,
-				'min_time' => 9**9**9,
-				'avg_time' => 0,
-				'max_time' => 0,
-				'total_time' => 0,
-				'total_busy_time' => 0,
-				'auth_min_time' => 9**9**9,
-				'auth_avg_time' => 0,
-				'auth_max_time' => 0,
-				'min_queries' => 9**9**9,
-				'avg_queries' => 0,
-				'max_queries' => 0
-			},
-		}
+my $self = {
+	'sessions' => {},
+	'stats' => {
+		'first_message' => 0,
+		'last_message' => 0,
+		'total_notices' => 0,
+		'min_notices' => 9**9**9, # min notices seen per session
+		'max_notices' => 0, # max notices seen per session
+		'total_errors' => 0,
+		'min_errors' => 9**9**9, # min errors seen per session
+		'max_errors' => 0, # max errors seen per session
+		'queries_total' => 0,
+		'errors' => {},
+		'notices' => {},
+		'prepd' => {},
+		'queries' => {},
+		'query_types' => {
+			'SELECT' => 0,
+			'INSERT' => 0,
+			'UPDATE' => 0,
+			'DELETE' => 0,
+			'BEGIN' => 0,
+			'COMMIT' => 0,
+			'ROLLBACK' => 0,
+			'MOVE' => 0,
+			'FETCH' => 0,
+			'COPY' => 0,
+			'VACUUM' => 0,
+			'TRUNCATE' => 0,
+			'DECLARE' => 0,
+			'CLOSE' => 0,
+			'others' => 0
+		},
+		'sessions' => {
+			'total' => 0,
+			'cnx' => 0,
+			'discnx' => 0,
+			'min_time' => 9**9**9,
+			'avg_time' => 0,
+			'max_time' => 0,
+			'total_time' => 0,
+			'total_busy_time' => 0,
+			'auth_min_time' => 9**9**9,
+			'auth_avg_time' => 0,
+			'auth_max_time' => 0,
+			'min_queries' => 9**9**9,
+			'avg_queries' => 0,
+			'max_queries' => 0
+		},
+	}
+};
+
+
+sub getCallbacks {
+	return {
+		'AuthenticationOk' => \&AuthenticationOk,
+		'Bind' => \&Bind,
+		'BindComplete' => \&BindComplete,
+		'CommandComplete' => \&CommandComplete,
+		'ErrorResponse' => \&ErrorResponse,
+		'Execute' => \&Execute,
+		'NoticeResponse' => \&NoticeResponse,
+		'Parse' => \&Parse,
+		'ParseComplete' => \&ParseComplete,
+		'Query' => \&Query,
+		'StartupMessage' => \&StartupMessage,
+		'Terminate' => \&Terminate
 	};
+}
 
-	# set the pcap filter to remove unneeded backend answer
-	my $filter = undef;
-
-	# the following filter reject TCP-only stuff and capture only frontend messages
-	pcap_compile($pcap, \$filter,
-		"(tcp and port $args->{'port'}) and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)", 0, 0
-	);
-	pcap_setfilter($pcap, $filter);
-
-	debug(1, "Fouine: Plugin loaded.\n");
-
-	return bless($self, $class);
+sub getFilter {
+	my $host = shift;
+	my $port = shift;
+	return "(tcp and port $port) and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)";
 }
 
 sub get_session {
-	my $self = shift;
 	my $pg_msg = shift;
 	my $hash = $pg_msg->{'sess_hash'};
 
@@ -148,7 +159,6 @@ sub get_session {
 }
 
 sub record_session_stats {
-	my $self = shift;
 	my $session = shift;
 
 	my $interval = $session->{'stats'}->{'ts_end'} - $session->{'stats'}->{'ts_start'};
@@ -174,13 +184,12 @@ sub record_session_stats {
 	$stats->{'max_errors'} = $session->{'stats'}->{'errors_count'} if $stats->{'max_errors'} < $session->{'stats'}->{'errors_count'};
 }
 
-## handle command B(1) (Parse Complete)
+## handle command B(1) (ParseComplete)
 # @param $pg_msg hash with pg message properties
-sub process_parse_complete {
-	my $self = shift;
+sub ParseComplete {
 	my $pg_msg = shift;
 
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 
 	if (defined $session->{'running'}->{'parse'}) {
 		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'parse'}->{'ts_start'};
@@ -200,13 +209,12 @@ sub process_parse_complete {
 	}
 }
 
-## handle command B(2) (Bind Complete)
+## handle command B(2) (BindComplete)
 # @param $pg_msg hash with pg message properties
-sub process_bind_complete {
-	my $self = shift;
+sub BindComplete {
 	my $pg_msg = shift;
 
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 
 	if (defined $session->{'running'}->{'bind'}) {
 		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'bind'}->{'ts_start'};
@@ -226,21 +234,12 @@ sub process_bind_complete {
 	}
 }
 
-## handle command B(A) (notification response)
+## handle command F(B) (Bind)
 # @param $pg_msg hash with pg message properties
-sub process_notif_response {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command F(B) (bind)
-# @param $pg_msg hash with pg message properties
-sub process_bind {
-	my $self = shift;
+sub Bind {
 	my $pg_msg = shift;
 
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 
 	if (defined $session->{'prepd'}->{$pg_msg->{'name'}}) {
 		my $query_hash = $session->{'prepd'}->{$pg_msg->{'name'}};
@@ -254,13 +253,12 @@ sub process_bind {
 	}
 }
 
-## handle command B(C) (command complete)
+## handle command B(C) (CommandComplete)
 # @param $pg_msg hash with pg message properties
-sub process_command_complete {
-	my $self = shift;
+sub CommandComplete {
 	my $pg_msg = shift;
 
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 	my @command = split(' ', $pg_msg->{'command'});
 
 	if (defined $self->{'stats'}->{'query_types'}->{$command[0]}) {
@@ -294,53 +292,11 @@ sub process_command_complete {
 	}
 }
 
-## handle command F(C) (close)
+## handle command B(E) (ErrorResponse)
 # @param $pg_msg hash with pg message properties
-sub process_close {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle commande B & F (c) (CopyDone)
-sub process_copy_done {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $is_srv = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(D) (data row)
-# @param $pg_msg hash with pg message properties
-sub process_data_row {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-
-## handle command F(D) (Describe)
-# @param $pg_msg hash with pg message properties
-sub process_describe {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle commande B & F (d) (CopyData)
-sub process_copy_data {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $is_srv = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(E) (error response)
-# @param $pg_msg hash with pg message properties
-sub process_error_response {
-	my $self = shift;
+sub ErrorResponse {
 	my $pg_msg = shift;
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 	my $error_stats = $self->{'stats'}->{'errors'};
 	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
 
@@ -353,13 +309,12 @@ sub process_error_response {
 	$session->{'stats'}->{'errors_count'}++;
 }
 
-## handle command F(E) (execute)
+## handle command F(E) (Execute)
 # @param $pg_msg hash with pg message properties
-sub process_execute {
-	my $self = shift;
+sub Execute {
 	my $pg_msg = shift;
 
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 
 	if (defined $session->{'portals'}->{$pg_msg->{'name'}}) {
 
@@ -370,52 +325,11 @@ sub process_execute {
 	}
 }
 
-## handle command F(f) (CopyFail)
+## handle command B(N) (NoticeResponse)
 # @param $pg_msg hash with pg message properties
-sub process_copy_fail {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(G) (CopyInResponse)
-# @param $pg_msg hash with pg message properties
-sub process_copy_in_response {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(H) (CopyOutResponse)
-# @param $pg_msg hash with pg message properties
-sub process_copy_out_response {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(I) (empty query response)
-# @param $pg_msg hash with pg message properties
-sub process_empty_query {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(K) (BackendKeyData)
-# @param $pg_msg hash with pg message properties
-sub process_key_data {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(N) (notice response)
-# @param $pg_msg hash with pg message properties
-sub process_notice_response {
-	my $self = shift;
+sub NoticeResponse {
 	my $pg_msg = shift;
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 	my $notice_stats = $self->{'stats'}->{'notices'};
 	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
 
@@ -428,24 +342,15 @@ sub process_notice_response {
 	$notice_stats->{$hash}->{'count'}++;
 }
 
-## handle command B(n) (no data)
+## handle F(P) command (Parse)
 # @param $pg_msg hash with pg message properties
-sub process_no_data {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle F(P) command (parse)
-# @param $pg_msg hash with pg message properties
-sub process_parse {
-	my $self = shift;
+sub Parse {
 	my $pg_msg = shift;
 
 	my $norm_query = normalize_query($pg_msg->{'query'});
 	my $query_hash = md5_base64($norm_query);
 
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 
 	if (not defined $self->{'stats'}->{'prepd'}->{$query_hash}) {
 		$self->{'stats'}->{'prepd'}->{$query_hash} = {
@@ -485,11 +390,10 @@ sub process_parse {
 
 ## handle command F(Q) (query)
 # @param $pg_msg hash with pg message properties
-sub process_query {
-	my $self = shift;
+sub Query {
 	my $pg_msg = shift;
 
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 
 	my $norm_query = normalize_query($pg_msg->{'query'});
 	my $query_hash = md5_base64($norm_query);
@@ -516,16 +420,15 @@ sub process_query {
 	};
 }
 
-## handle command B(R) (authentification request)
+## handle command B(R) (AuthenticationOk)
 # @param $pg_msg hash with pg message properties
-sub process_auth_request {
-	my $self = shift;
+sub AuthenticationOk {
 	my $pg_msg = shift;
 
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 
-	# Auth succeed
-	if ($pg_msg->{'code'} == 0) {
+	## Auth succeed
+	#if ($pg_msg->{'code'} == 0) {
 		my $session_stat = $self->{'stats'}->{'sessions'};
 		my $interval = $pg_msg->{'timestamp'} - $session->{'stats'}->{'ts_start'};
 
@@ -534,112 +437,35 @@ sub process_auth_request {
 		$session_stat->{'auth_min_time'} = $interval if ($session_stat->{'auth_min_time'} > $interval);
 		$session_stat->{'auth_avg_time'} = (($session_stat->{'auth_avg_time'} * ($session_stat->{'cnx'} - 1)) + $interval) / $session_stat->{'cnx'};
 		$session_stat->{'auth_max_time'} = $interval if ($session_stat->{'auth_max_time'} < $interval);
-	}
+	#}
 }
 
-## handle command B(S) (ParameterStatus)
+## handle command F(X) (Terminate)
 # @param $pg_msg hash with pg message properties
-sub process_parameter_status {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(s) (portal suspended)
-# @param $pg_msg hash with pg message properties
-sub process_portal_suspended {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command F(S) (sync)
-# @param $pg_msg hash with pg message properties
-sub process_sync {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(T) (row description)
-# @param $pg_msg hash with pg message properties
-sub process_row_desc {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command B(t) (parameter description)
-# @param $pg_msg hash with pg message properties
-sub process_param_desc {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command F(X) (terminate)
-# @param $pg_msg hash with pg message properties
-sub process_disconnect {
-	my $self = shift;
+sub Terminate {
 	my $pg_msg = shift;
 
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 
 	$self->{'stats'}->{'sessions'}->{'discnx'}++;
 
 	$session->{'stats'}->{'ts_end'} = $pg_msg->{'timestamp'};
 
-	$self->record_session_stats($session);
+	record_session_stats($session);
 
 	delete $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
 }
 
-## handle command B(Z) (ready for query)
-# @param $pg_msg hash with pg message properties
-sub process_ready {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-### specials messages without 1-byte type
-
-## handle command CancelRequest (F)
-# @param $pg_msg hash with pg message properties
-sub process_cancel_request {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-## handle command SSLRequest (F)
-# @param $pg_msg hash with pg message properties
-sub process_ssl_request {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
 ## handle command StartupMessage (F)
 # @param $pg_msg hash with pg message properties
-sub process_startup_message {
-	my $self = shift;
+sub StartupMessage {
 	my $pg_msg = shift;
 
 	# build the session and set its start time
-	my $session = $self->get_session($pg_msg);
+	my $session = get_session($pg_msg);
 }
 
-## this one doesn't exists as a backend answer
-# but pgshark call this method when backend answers to SSLRequest
-sub process_ssl_answer {
-	# my $self = shift;
-	# my $pg_msg = shift;
-	# my $session = $self->get_session($pg_msg);
-}
-
-sub DESTROY {
-	my $self = shift;
+sub END {
 
 	my @top_slowest;
 	my @top_most_time;
@@ -655,7 +481,7 @@ sub DESTROY {
 
 		$session->{'stats'}->{'ts_end'} = $stats->{'last_message'};
 
-		$self->record_session_stats($session);
+		record_session_stats($session);
 
 		delete $self->{'sessions'}->{$hash};
 	}
