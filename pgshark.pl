@@ -53,7 +53,7 @@ GetOptions(\%args, qw{
 	help
 	interface|i=s
 	output|o=s
-	host|p=s
+	host|h=s
 	port|p=s
 	read|r=s
 }) or usage();
