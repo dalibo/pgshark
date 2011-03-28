@@ -14,10 +14,23 @@ use Data::Hexdumper;
 use Data::Dumper;
 use pgShark::Utils;
 
+## Constructor
+# @param $args a hash ref of settings:
+# {
+#   'host' => IP address of the server
+#   'port' => Port of the PostgreSQL server
+#   'procs' => {
+#	   # Hash of callbacks for each messages.
+#      'message name' => \&function_to_call
+#      ...
+#   }
+# }
+# See the following link about available message name:
+#   http://www.postgresql.org/docs/8.4/static/protocol-message-formats.html
+# TODO add check about mandatory option 'procs' => {}
 sub new {
 	my $class = shift;
 	my $args = shift;
-	my $filter = undef;
 
 	my $self = {
 		'host' => defined($args->{'host'}) ? $args->{'host'} : 'localhost',
@@ -37,20 +50,23 @@ sub new {
 	return bless($self, $class);
 }
 
-# set the pcap filter
+## Set the pcap filter. See pcap-filter(7)
+# @param $filter the filter to apply
 sub setFilter {
 	my $self = shift;
 	my $filter = shift;
 	my $c_filter = undef;
 
 	if ($filter) {
-		# the following filter reject TCP-only stuff and capture only frontend messages
 		pcap_compile($self->{'pcap'}, \$c_filter, $filter, 0, 0);
 		pcap_setfilter($self->{'pcap'}, $c_filter);
 	}
 }
 
-# open a live capture on given interface
+## Open a live capture on given interface
+# @param $interface the interface to listen on
+# @param $err a reference to a string. It will be filled with the error message if the function fail.
+# @returns 0 on success, 1 on failure
 sub live {
 	my $self = shift;
 	my $interface = shift;
@@ -61,7 +77,10 @@ sub live {
 	return 0;
 }
 
-# given pcap file
+## Open a pcap file
+# @param $file the pcap file to open
+# @param $err a reference to a string. It will be filled with the error message if the function fail.
+# @returns 0 on success, 1 on failure
 sub open {
 	my $self = shift;
 	my $file = shift;
@@ -72,19 +91,28 @@ sub open {
 	return 0;
 }
 
+## Close the current pcap handle
 sub close {
 	my $self = shift;
-	pcap_close($self->{'pcap'});
+	pcap_close($self->{'pcap'}) if $self->{'pcap'};
 
-	return 0;
+	$self->{'pcap'} = undef;
 }
 
+## Loop over all available packets from the pcap handle
 sub process_all {
 	my $self = shift;
-	Net::Pcap::Reassemble::loop($self->{'pcap'}, -1, \&process_packet, $self);
+	Net::Pcap::Reassemble::loop($self->{'pcap'}, -1, \&process_packet, $self)
+		if $self->{'pcap'};
+
+	## slightly better perfs without Net::Pcap::Reassemble
 	# pcap_loop($pcap, -1, \&process_packet, $self);
 }
 
+## Main callback called to dissect a network packet
+# It dissects the given network packet looking for PostgreSQL data.
+# If one or more PostgreSQL message is found, call the appropriate callback (from $self)
+# for each messages.
 sub process_packet {
 	my($self, $pckt_hdr, $pckt) = @_;
 
@@ -94,14 +122,16 @@ sub process_packet {
 
 	$eth = NetPacket::Ethernet->decode($pckt);
 
+	# ignore non-IP packets
 	return unless (defined($eth->{'data'})
-			and defined($eth->{'type'})
-			and ($eth->{'type'} == ETH_TYPE_IP)
+		and defined($eth->{'type'})
+		and ($eth->{'type'} == ETH_TYPE_IP)
 	);
 
 	# decode the IP payload
 	$ip = NetPacket::IP->decode($eth->{'data'});
 
+	# ignore non-TCP packets
 	unless ($ip->{'proto'} == IP_PROTO_TCP) {
 		debug(2, "IP: not TCP\n");
 		return;
@@ -112,8 +142,7 @@ sub process_packet {
 
 	debug(2, "packet: #=%d len=%s, caplen=%s\n", $self->{'pckt_count'}, map { $pckt_hdr->{$_} } qw(len caplen));
 
-	# check if we have data
-
+	# ignore tcp without data
 	unless (length $tcp->{'data'}) {
 		debug(2, "TCP: no data\n");
 		return;
@@ -121,8 +150,11 @@ sub process_packet {
 
 	debug(2, "IP:TCP %s:%d -> %s:%d\n", $ip->{'src_ip'}, $tcp->{'src_port'}, $ip->{'dest_ip'}, $tcp->{'dest_port'});
 
-	# we could add server ip and port to this hash,
-	# but we are suppose to work with only one server
+	# pgShark must track every sessions to be able to dissect their data without
+	# mixing them. Sessions related data are kept in "$self->{'sessions'}", each
+	# session is identified with its hash, composed by its IP and origin port.
+	# We could add server ip and port to this hash, but we are suppose to work
+	# with only one server.
 	if ($ip->{'src_ip'} eq $self->{'host'} and $tcp->{'src_port'} == $self->{'port'}) {
 		$from_backend = 1;
 		$sess_hash = $ip->{'dest_ip'} . $tcp->{'dest_port'};
@@ -136,26 +168,32 @@ sub process_packet {
 	if (not defined($self->{'sessions'}->{$sess_hash})) {
 		debug(3, "PGSQL: creating a new session %s\n", $sess_hash);
 		$self->{'sessions'}->{$sess_hash} = {
-			'data' => '',
-			'pg_len' => 0,
+			'data' => '', # raw data of the message
 		};
 	}
 
-	# the session is already authenticated we should get type'd messages
+	# add data to the current session's buffer
 	$self->{'sessions'}->{$sess_hash}->{'data'} .= $tcp->{'data'};
+
+	# buffer length. It helps tracking if we have enough data in session's
+	# buffer to process the current message
 	my $data_len = length $self->{'sessions'}->{$sess_hash}->{'data'};
 
 	do {
 
 		# hash about message informations
 		my $pg_msg = {
+			# the session this message belongs to
 			'sess_hash' => $sess_hash,
+			# timestamps of the message
 			'timestamp' => "$pckt_hdr->{'tv_sec'}.". sprintf('%06d', $pckt_hdr->{'tv_usec'}),
 			## the following entries will be feeded bellow
 			# 'type' => message type. Either one-char type or full message for special ones
 			# 'data' =>  the message data (without the type and int32 length)
+			## other fields specifics to each messages are added bellow
 		};
 
+		# the message current total length
 		my $msg_len = 0;
 
 		if (
@@ -165,7 +203,8 @@ sub process_packet {
 			# the message has a type byte
 			($pg_msg->{'type'}, $msg_len) = unpack('AN', $self->{'sessions'}->{$sess_hash}->{'data'});
 
-			# +1 for the message type
+			# message length given in the proto doesn't include the message type
+			# Char, +1 for this type
 			$msg_len++;
 
 			# we don't have the full message, waiting for more bits
@@ -174,6 +213,7 @@ sub process_packet {
 				return;
 			}
 
+			# record the raw message without type + length bytes
 			$pg_msg->{'data'} = substr($self->{'sessions'}->{$sess_hash}->{'data'}, 5, $msg_len - 5);
 		}
 		elsif ($from_backend and $self->{'sessions'}->{$sess_hash}->{'data'} =~ /^N|S$/) {
@@ -181,42 +221,41 @@ sub process_packet {
 			$pg_msg->{'type'} = 'SSLAnswer';
 
 			$msg_len = 1;
-			$pg_msg->{'data'} = $self->{'sessions'}->{$sess_hash}->{'data'};
+			$pg_msg->{'data'} = substr($self->{'sessions'}->{$sess_hash}->{'data'}, 0, 1);
 		}
 		elsif (not $from_backend and $self->{'sessions'}->{$sess_hash}->{'data'} =~ /^.{8}/s) {
 			my $code;
-			( $msg_len, $code) = unpack('NN', $self->{'sessions'}->{$sess_hash}->{'data'});
+			($msg_len, $code) = unpack('NN', $self->{'sessions'}->{$sess_hash}->{'data'});
 			if ($code == 80877102) {
-				# CancelRequest
 				$pg_msg->{'type'} = 'CancelRequest';
 			}
 			elsif ($code == 80877103) {
-				# SSLRequest
 				$pg_msg->{'type'} = 'SSLRequest';
 			}
 			elsif ($code == 196608) {
-				# StartupMessage
 				# we ignore the $code here as we try to support both pgsql protos v2 and v3.
 				$pg_msg->{'type'} = 'StartupMessage3';
 				# my $min = $code%65536; # == 0
 				# my $maj = $code/65536; # == 3
 			}
 			elsif ($code == 131072) {
-				# StartupMessage
 				# we ignore the $code here as we try to support both pgsql protos v2 and v3.
 				$pg_msg->{'type'} = 'StartupMessage2';
 				# my $min = $code%65536; # == 0
 				# my $maj = $code/65536; # == 2
 			}
 			else {
-				$self->{'sessions'}->{$sess_hash}->{'data'} =~ tr/\x00-\x1F\x7F-\xFF/./;
-				debug(1, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
-					$pg_msg->{'timestamp'}, $self->{'sessions'}->{$sess_hash}->{'data'}
-				);
+				if (get_debug_lvl()) {
+					$self->{'sessions'}->{$sess_hash}->{'data'} =~ tr/\x00-\x1F\x7F-\xFF/./;
+					debug(1, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
+						$pg_msg->{'timestamp'}, $self->{'sessions'}->{$sess_hash}->{'data'}
+					);
+				}
 				$self->{'sessions'}->{$sess_hash}->{'data'} = '';
 				return;
 			}
 
+			# these special messages don't have type byte, only the message length on 4 bytes.
 			$pg_msg->{'data'} = substr($self->{'sessions'}->{$sess_hash}->{'data'}, 4, $msg_len - 4);
 		}
 		else {
@@ -499,9 +538,9 @@ sub process_packet {
 				my $fields = {};
 				my $msg = $pg_msg->{'data'};
 
-				FIELDS: while ($msg ne '') {
+				while ($msg ne '') {
 					my ($code, $value) = unpack('AZ*', $msg);
-					last FIELDS if ($code eq '');
+					last if ($code eq '');
 					$fields->{$code} = $value;
 					$msg = substr($msg, 2 + length($value));
 				}
@@ -548,9 +587,9 @@ sub process_packet {
 				my $fields = {};
 				my $msg = $pg_msg->{'data'};
 
-				FIELDS: while ($msg ne '') {
+				while ($msg ne '') {
 					my ($code, $value) = unpack('AZ*', $msg);
-					last FIELDS if ($code eq '');
+					last if ($code eq '');
 					$fields->{$code} = $value;
 					$msg = substr($msg, 2 + length($value));
 				}
@@ -618,7 +657,7 @@ sub process_packet {
 			if (not $from_backend and $pg_msg->{'type'} eq 'p') {
 
 				# we remove the last char:
-				# query are null terminated in pgsql proto and pg_len includes it
+				# query are null terminated in pgsql proto
 				$pg_msg->{'password'} = substr($pg_msg->{'data'}, 0, -1);
 
 				$self->{'PasswordMessage'}->($pg_msg) if defined $self->{'PasswordMessage'};
@@ -636,7 +675,7 @@ sub process_packet {
 			if (not $from_backend and $pg_msg->{'type'} eq 'Q') {
 
 				# we remove the last char:
-				# query are null terminated in pgsql proto and pg_len includes it
+				# query are null terminated
 				$pg_msg->{'query'} = substr($pg_msg->{'data'}, 0, -1);
 
 				$self->{'Query'}->($pg_msg) if defined $self->{'Query'};
@@ -669,7 +708,7 @@ sub process_packet {
 
 				$pg_msg->{'num_fields'} = unpack('n', $msg);
 
-				ROWS: while ($i < $pg_msg->{'num_fields'}) {
+				while ($i < $pg_msg->{'num_fields'}) {
 					my @field = unpack('Z*NnNnNn', $msg);
 					push @fields, [ @field ];
 					$msg = substr($msg, 19 + length($field[0]));
@@ -717,9 +756,9 @@ sub process_packet {
 
 				$pg_msg->{'version'} = 3;
 
-				PARAMS: while ($msg ne '') {
+				while ($msg ne '') {
 					my ($param, $value) = unpack('Z*Z*', $msg);
-					last PARAMS if ($param eq '');
+					last if ($param eq '');
 					$params->{$param} = $value;
 					$msg = substr($msg, 2 + length($param) + length($value));
 				}
@@ -750,6 +789,7 @@ sub process_packet {
 		$self->{'sessions'}->{$sess_hash}->{'data'} = substr($self->{'sessions'}->{$sess_hash}->{'data'}, $msg_len);
 		$data_len -= $msg_len;
 
+		# if the message was Terminate, destroy the session
 		if ($pg_msg->{'type'} eq 'X') {
 			debug(3, "PGSQL: destroying session %s (remaining buffer was %d byte long).\n", $sess_hash, $data_len);
 			delete $self->{'sessions'}->{$sess_hash};
