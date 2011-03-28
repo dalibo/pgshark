@@ -8,16 +8,16 @@ SYNOPSIS
       *fouine*.
 
 DESCRIPTION
-    This program study PostgreSQL traffic captured from the network and is
+    This program studies PostgreSQL traffic captured from the network and is
     able to make various things with it. The network dump could be live or
-    from a pcap file (usingtcpdump as instance).
+    from a pcap file (using tcpdump for instance).
 
     pgshark comes with various output plugins able to do various things with
     these network dumps.
 
     -d, --debug
       Print debug informations to the standart error. The more you repeat
-      this option, the more pgshark will be verbose. There is 3 level of
+      this option, the more verbose pgshark will be. There are 3 levels of
       debug presently.
 
     --help
@@ -27,7 +27,7 @@ DESCRIPTION
       Gives the IP address of the PostgreSQL server. By default, set to
       127.0.0.1.
 
-    --i, --interface <interface name>
+    -i, --interface <interface name>
       Capture PostgreSQL traffic directly from the given network interface.
       Conflict with --read. By default, pgshark will read from stdin if
       neither --read or --interface are given.
@@ -38,8 +38,8 @@ DESCRIPTION
       output). See section "PLUGINS".
 
     -p, --port <port>
-      Gives the port the PostgreSQL backend is listening on. Be default, set
-      to 5432
+      Specifies the port the PostgreSQL backend is listening on. By default,
+      set to 5432
 
     -r, --read <path to file>
       Read PostgreSQL traffic from given pcap file. Conflict with
@@ -48,35 +48,35 @@ DESCRIPTION
 
 PLUGINS
     sql
-      The sql plugin write captured queries on stdout. Because of limitation
-      of SQL language it doesn't support unnamed prepared statement, so it
-      actually name them.
+      The sql plugin writes captured queries on stdout. Because of a
+      limitation of the SQL language it doesn't support unnamed prepared
+      statement, so it actually names them.
 
       Presently, this plugin doesn't support cursors.
 
     normalize
       The normalize plugin will try to normalize queries and prepared
-      queries and output them to stdoud. It aims to give you a list of
-      unique queries, however the number of time they has been send by
+      queries and output them to stdout. Its purpose is to give you a list
+      of unique queries, whatever the number of time they have been sent by
       clients and whatever their parameters were.
 
     debug
       The debug plugin will output the PostgreSQL messages in human readable
-      format. Usefull to analyze what is in a network dump before using
+      format. Useful to analyze what is in a network dump before using
       pgshark on some other duties.
 
     fouine
       The fouine plugin will output a report with most popular queries,
-      slowest cumulatives ones, slowest queries ever, classification of
-      queries by types, etc.
+      slowest cumulated ones, slowest queries ever, classification of
+      queries by type, etc.
 
 EXAMPLES
     "cat some_capture.pcap* | pgshark.pl --output SQL"
-      Output all queries found in files "some_capture.pcap*" in SQL to the
+      Output all queries found in files "some_capture.pcap*" as SQL to the
       standart output.
 
     "pgshark.pl --output SQL -r some_capture.pcap001"
-      Output all queries found in file "some_capture.pcap001" in SQL to the
+      Output all queries found in file "some_capture.pcap001" as SQL to the
       standart output.
 
     "pgshark.pl --output normalize -i eth0"
