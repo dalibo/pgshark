@@ -599,10 +599,10 @@ sub process_packet {
 			($pg_msg->{'len'}) = unpack('l>', $pg_msg->{'data'});
 
 			# if len < 0; the value is NULL
-			if ($len > 0) {
+			if ($pg_msg->{'len'} > 0) {
 				$pg_msg->{'value'} = substr($pg_msg->{'data'}, 4, $pg_msg->{'len'});
 			}
-			elsif ($len == 0) {
+			elsif ($pg_msg->{'len'} == 0) {
 				$pg_msg->{'value'} = '';
 			}
 			else { # value is NULL
