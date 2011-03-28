@@ -700,6 +700,8 @@ sub process_packet {
 
 						# message: StartupMessage3 (F)
 						#   status=Char
+						#   (param=String
+						#   value=String){1,}\x00
 						if (not $from_backend and $pg_msg->{'type'} eq 'StartupMessage3') {
 							my $msg = substr($pg_msg->{'data'}, 4); # ignore the version fields
 							my $params = {};
