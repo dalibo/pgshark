@@ -145,8 +145,8 @@ Where B<plugin_name> could be I<sql> or I<normalize> or I<debug> or I<fouine>.
 
 =head1 DESCRIPTION
 
-This program study PostgreSQL traffic captured from the network and is able to make various things with it. The network
-dump could be live or from a pcap file (usingtcpdump as instance).
+This program studies PostgreSQL traffic captured from the network and is able to make various things with it. The network
+dump could be live or from a pcap file (using tcpdump for instance).
 
 B<pgshark> comes with various output plugins able to do various things with these network dumps.
 
@@ -154,8 +154,8 @@ B<pgshark> comes with various output plugins able to do various things with thes
 
 =item B<-d>, B<--debug>
 
-Print debug informations to the standart error. The more you repeat this option, the more B<pgshark> will be verbose.
-There is 3 level of debug presently.
+Print debug informations to the standart error. The more you repeat this option, the more verbose B<pgshark> will be.
+There are 3 levels of debug presently.
 
 =item B<--help>
 
@@ -165,7 +165,7 @@ Show this help message and exit.
 
 Gives the IP address of the PostgreSQL server. By default, set to 127.0.0.1.
 
-=item B<--i>, B<--interface> <interface name>
+=item B<-i>, B<--interface> <interface name>
 
 Capture PostgreSQL traffic directly from the given network interface. Conflict with B<--read>.
 By default, B<pgshark> will read from stdin if neither B<--read> or B<--interface> are given.
@@ -178,7 +178,7 @@ See section L</PLUGINS>.
 
 =item B<-p>, B<--port> <port>
 
-Gives the port the PostgreSQL backend is listening on. Be default, set to 5432
+Specifies the port the PostgreSQL backend is listening on. By default, set to 5432
 
 =item B<-r>, B<--read> <path to file>
 
@@ -193,25 +193,25 @@ By default, B<pgshark> will read from stdin if neither B<--read> or B<--interfac
 
 =item B<sql>
 
-The B<sql> plugin write captured queries on stdout. Because of limitation of SQL language it doesn't support unnamed
-prepared statement, so it actually name them.
+The B<sql> plugin writes captured queries on stdout. Because of a limitation of the SQL language it doesn't support unnamed
+prepared statement, so it actually names them.
 
 Presently, this plugin doesn't support cursors.
 
 =item B<normalize>
 
-The B<normalize> plugin will try to normalize queries and prepared queries and output them to stdoud. It aims to give you a list
-of unique queries, however the number of time they has been send by clients and whatever their parameters were.
+The B<normalize> plugin will try to normalize queries and prepared queries and output them to stdout. Its purpose is to give you a list
+of unique queries, whatever the number of time they have been sent by clients and whatever their parameters were.
 
 =item B<debug>
 
-The B<debug> plugin will output the PostgreSQL messages in human readable format. Usefull to analyze what is in a network
+The B<debug> plugin will output the PostgreSQL messages in human readable format. Useful to analyze what is in a network
 dump before using pgshark on some other duties.
 
 =item B<fouine>
 
-The B<fouine> plugin will output a report with most popular queries, slowest cumulatives ones, slowest queries ever,
-classification of queries by types, etc.
+The B<fouine> plugin will output a report with most popular queries, slowest cumulated ones, slowest queries ever,
+classification of queries by type, etc.
 
 =back
 
@@ -221,11 +221,11 @@ classification of queries by types, etc.
 
 =item C<cat some_capture.pcap* | pgshark.pl --output SQL>
 
-Output all queries found in files C<some_capture.pcap*> in SQL to the standart output.
+Output all queries found in files C<some_capture.pcap*> as SQL to the standart output.
 
 =item C<pgshark.pl --output SQL -r some_capture.pcap001>
 
-Output all queries found in file C<some_capture.pcap001> in SQL to the standart output.
+Output all queries found in file C<some_capture.pcap001> as SQL to the standart output.
 
 =item C<pgshark.pl --output normalize -i eth0>
 
