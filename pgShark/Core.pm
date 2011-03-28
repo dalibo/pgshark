@@ -224,7 +224,6 @@ sub process_packet {
 						# message: B(R) "Authentication*"
 						if ($from_backend and $pg_msg->{'type'} eq 'R') {
 							$pg_msg->{'code'} = unpack('N', $pg_msg->{'data'});
-							$pg_msg->{'data'} = undef;
 
 							# AuthenticationOk
 							if ($pg_msg->{'code'} == 0) {
@@ -243,7 +242,7 @@ sub process_packet {
 							}
 							# AuthenticationMD5Password
 							if ($pg_msg->{'code'} == 5) {
-								$pg_msg->{'data'} = unpack('xxxxZ*', $pg_msg->{'data'});
+								$pg_msg->{'salt'} = substr($pg_msg->{'data'}, 4);
 								$self->{'AuthenticationMD5Password'}->($pg_msg) if defined $self->{'AuthenticationMD5Password'};
 								last SWITCH;
 							}
@@ -264,7 +263,7 @@ sub process_packet {
 							}
 							# GSSAPI or SSPI authentication data
 							if ($pg_msg->{'code'} == 8) {
-								$pg_msg->{'data'} = substr($pg_msg->{'data'}, 5);
+								$pg_msg->{'auth_data'} = substr($pg_msg->{'data'}, 4);
 								$self->{'AuthenticationKerberosV5'}->($pg_msg) if defined $self->{'AuthenticationKerberosV5'};
 								last SWITCH;
 							}
@@ -675,6 +674,9 @@ sub process_packet {
 						#   status=Char
 						if (not $from_backend and $pg_msg->{'type'} eq 'StartupMessage2') {
 							$pg_msg->{'version'} = 2;
+
+							# TODO add given parameters from frontend
+
 							$self->{'StartupMessage'}->($pg_msg) if defined $self->{'StartupMessage'};
 							last SWITCH;
 						}
@@ -682,7 +684,20 @@ sub process_packet {
 						# message: StartupMessage3 (F)
 						#   status=Char
 						if (not $from_backend and $pg_msg->{'type'} eq 'StartupMessage3') {
+							my $msg = substr($pg_msg->{'data'}, 4); # ignore the version fields
+							my $params = {};
+
 							$pg_msg->{'version'} = 3;
+
+							PARAMS: while ($msg ne '') {
+								my ($param, $value) = unpack('Z*Z*', $msg);
+								last PARAMS if ($param eq '');
+								$params->{$param} = $value;
+								$msg = substr($msg, 2 + length($param) + length($value));
+							}
+
+							$pg_msg->{'params'} = $params;
+
 							$self->{'StartupMessage'}->($pg_msg) if defined $self->{'StartupMessage'};
 							last SWITCH;
 						}
