@@ -354,8 +354,12 @@ sub process_packet {
 							last SWITCH;
 						}
 
-						# message: B(3) CloseComplete
-						# FIXME TODO
+						# message: B(3) "CloseComplete"
+						if ($from_backend and $pg_msg->{'type'} eq '3') {
+
+							$self->{'CloseComplete'}->($pg_msg) if defined $self->{'CloseComplete'};
+							last SWITCH;
+						}
 
 						# message: B(C) "CommandComplete"
 						#   type=char
@@ -509,8 +513,12 @@ sub process_packet {
 							last SWITCH;
 						}
 
-						# message: "Flush"
-						# FIXME TODO
+						# message: F(H) "Flush"
+						if (not $from_backend and $pg_msg->{'type'} eq 'H') {
+
+							$self->{'Flush'}->($pg_msg) if defined $self->{'Flush'};
+							last SWITCH;
+						}
 
 						# message: "FunctionCall"
 						# FIXME TODO
@@ -597,7 +605,16 @@ sub process_packet {
 						}
 
 						# message: F(p) "PasswordMessage"
-						# FIXME TODO
+						#    password=String
+						if (not $from_backend and $pg_msg->{'type'} eq 'p') {
+
+							# we remove the last char:
+							# query are null terminated in pgsql proto and pg_len includes it
+							$pg_msg->{'password'} = substr($pg_msg->{'data'}, 0, -1);
+
+							$self->{'PasswordMessage'}->($pg_msg) if defined $self->{'PasswordMessage'};
+							last SWITCH;
+						}
 
 						# message: B(s) "PortalSuspended"
 						if ($from_backend and $pg_msg->{'type'} eq 's') {
