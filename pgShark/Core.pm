@@ -328,7 +328,8 @@ sub process_packet {
 			my @params;
 			my $msg = $pg_msg->{'data'};
 
-			($pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}) = unpack('Z* Z* n', $msg);
+			($pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}) = unpack('Z*Z*n', $msg);
+
 			# we add 1 bytes for both portal and name that are null-terminated
 			# + 2 bytes of int16 for $num_formats
 			$msg = substr($msg, length($pg_msg->{'portal'})+1 + length($pg_msg->{'name'})+1 +2);
@@ -347,7 +348,7 @@ sub process_packet {
 
 				# if len < 0; the value is NULL
 				if ($len > 0) {
-					push @params, unpack("x4 a$len", $msg);
+					push @params, substr($msg, 4, $len);
 					$msg = substr($msg, 4 + $len);
 				}
 				elsif ($len == 0) {
