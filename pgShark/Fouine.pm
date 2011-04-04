@@ -190,28 +190,22 @@ sub record_session_stats {
 	$stats->{'max_errors'} = $session->{'stats'}->{'errors_count'} if $stats->{'max_errors'} < $session->{'stats'}->{'errors_count'};
 }
 
-## handle command B(1) (ParseComplete)
+## handle command F(B) (Bind)
 # @param $pg_msg hash with pg message properties
-sub ParseComplete {
+sub Bind {
 	my $pg_msg = shift;
 
 	my $session = get_session($pg_msg);
 
-	if (defined $session->{'running'}->{'parse'}) {
-		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'parse'}->{'ts_start'};
-		my $prep_stat = $session->{'running'}->{'parse'}->{'query_stat'};
+	if (defined $session->{'prepd'}->{$pg_msg->{'name'}}) {
+		my $query_hash = $session->{'prepd'}->{$pg_msg->{'name'}};
 
-		$prep_stat->{'prep_count'}++;
-		$prep_stat->{'prep_min_time'} = $interval if ($prep_stat->{'prep_min_time'} > $interval);
-		$prep_stat->{'prep_max_time'} = $interval if ($prep_stat->{'prep_max_time'} < $interval);
-		$prep_stat->{'prep_avg_time'} = (($prep_stat->{'prep_avg_time'} * ($prep_stat->{'prep_count'} - 1)) + $interval) / $prep_stat->{'prep_count'};
-		$prep_stat->{'prep_total'} += $interval;
-		$prep_stat->{'prep_disp'} += abs($prep_stat->{'prep_avg_time'} - $interval)/$prep_stat->{'prep_count'};
+		$session->{'portals'}->{$pg_msg->{'portal'}} = $session->{'prepd'}->{$pg_msg->{'name'}};
 
-		delete $session->{'running'}->{'parse'};
-
-		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
-		$session->{'stats'}->{'queries_count'}++;
+		$session->{'running'}->{'bind'} = {
+			'ts_start' => $pg_msg->{'timestamp'},
+			'query_stat' => $self->{'stats'}->{'prepd'}->{$query_hash}
+		};
 	}
 }
 
@@ -237,25 +231,6 @@ sub BindComplete {
 
 		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
 		$session->{'stats'}->{'queries_count'}++;
-	}
-}
-
-## handle command F(B) (Bind)
-# @param $pg_msg hash with pg message properties
-sub Bind {
-	my $pg_msg = shift;
-
-	my $session = get_session($pg_msg);
-
-	if (defined $session->{'prepd'}->{$pg_msg->{'name'}}) {
-		my $query_hash = $session->{'prepd'}->{$pg_msg->{'name'}};
-
-		$session->{'portals'}->{$pg_msg->{'portal'}} = $session->{'prepd'}->{$pg_msg->{'name'}};
-
-		$session->{'running'}->{'bind'} = {
-			'ts_start' => $pg_msg->{'timestamp'},
-			'query_stat' => $self->{'stats'}->{'prepd'}->{$query_hash}
-		};
 	}
 }
 
@@ -434,6 +409,31 @@ sub Parse {
 	};
 }
 
+## handle command B(1) (ParseComplete)
+# @param $pg_msg hash with pg message properties
+sub ParseComplete {
+	my $pg_msg = shift;
+
+	my $session = get_session($pg_msg);
+
+	if (defined $session->{'running'}->{'parse'}) {
+		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'parse'}->{'ts_start'};
+		my $prep_stat = $session->{'running'}->{'parse'}->{'query_stat'};
+
+		$prep_stat->{'prep_count'}++;
+		$prep_stat->{'prep_min_time'} = $interval if ($prep_stat->{'prep_min_time'} > $interval);
+		$prep_stat->{'prep_max_time'} = $interval if ($prep_stat->{'prep_max_time'} < $interval);
+		$prep_stat->{'prep_avg_time'} = (($prep_stat->{'prep_avg_time'} * ($prep_stat->{'prep_count'} - 1)) + $interval) / $prep_stat->{'prep_count'};
+		$prep_stat->{'prep_total'} += $interval;
+		$prep_stat->{'prep_disp'} += abs($prep_stat->{'prep_avg_time'} - $interval)/$prep_stat->{'prep_count'};
+
+		delete $session->{'running'}->{'parse'};
+
+		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
+		$session->{'stats'}->{'queries_count'}++;
+	}
+}
+
 ## handle command F(Q) (query)
 # @param $pg_msg hash with pg message properties
 sub Query {
@@ -486,6 +486,15 @@ sub AuthenticationOk {
 	#}
 }
 
+## handle command StartupMessage (F)
+# @param $pg_msg hash with pg message properties
+sub StartupMessage {
+	my $pg_msg = shift;
+
+	# build the session and set its start time
+	my $session = get_session($pg_msg);
+}
+
 ## handle command F(X) (Terminate)
 # @param $pg_msg hash with pg message properties
 sub Terminate {
@@ -500,15 +509,6 @@ sub Terminate {
 	record_session_stats($session);
 
 	delete $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
-}
-
-## handle command StartupMessage (F)
-# @param $pg_msg hash with pg message properties
-sub StartupMessage {
-	my $pg_msg = shift;
-
-	# build the session and set its start time
-	my $session = get_session($pg_msg);
 }
 
 sub END {
