@@ -52,10 +52,11 @@ use Data::Dumper;
 use Exporter;
 our $VERSION = 0.1;
 our @ISA = ('Exporter');
-our @EXPORT = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete CommandComplete ErrorResponse Execute
-NoticeResponse Parse ParseComplete Query StartupMessage Terminate/;
-our @EXPORT_OK = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete CommandComplete ErrorResponse Execute
-NoticeResponse Parse ParseComplete Query StartupMessage Terminate/;
+our @EXPORT = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete CancelRequest Close CloseComplete
+CommandComplete ErrorResponse Execute NoticeResponse Parse ParseComplete Query StartupMessage Terminate/;
+
+our @EXPORT_OK = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete CancelRequest Close CloseComplete
+CommandComplete ErrorResponse Execute NoticeResponse Parse ParseComplete Query StartupMessage Terminate/;
 
 my $self = {
 	'sessions' => {},
@@ -68,6 +69,7 @@ my $self = {
 		'total_errors' => 0,
 		'min_errors' => 9**9**9, # min errors seen per session
 		'max_errors' => 0, # max errors seen per session
+		'cancels_count' => 0,
 		'queries_total' => 0,
 		'errors' => {},
 		'notices' => {},
@@ -115,6 +117,9 @@ sub getCallbacks {
 		'AuthenticationOk' => \&AuthenticationOk,
 		'Bind' => \&Bind,
 		'BindComplete' => \&BindComplete,
+		'CancelRequest' => \&CancelRequest,
+		'Close' => \&Close,
+		'CloseComplete' => \&CloseComplete,
 		'CommandComplete' => \&CommandComplete,
 		'ErrorResponse' => \&ErrorResponse,
 		'Execute' => \&Execute,
@@ -147,6 +152,7 @@ sub get_session {
 				'errors_count' => 0
 			}
 		};
+
 		$self->{'stats'}->{'sessions'}->{'total'}++;
 	}
 
@@ -250,6 +256,46 @@ sub Bind {
 			'ts_start' => $pg_msg->{'timestamp'},
 			'query_stat' => $self->{'stats'}->{'prepd'}->{$query_hash}
 		};
+	}
+}
+
+## handle command CancelRequest (F)
+# @param $pg_msg hash with pg message properties
+sub CancelRequest {
+	my $pg_msg = shift;
+	my $session = get_session($pg_msg);
+
+	$self->{'stats'}->{'cancels_count'}++;
+}
+
+
+## handle command F(C)
+# @param $pg_msg hash with pg message properties
+sub Close {
+	my $pg_msg = shift;
+	my $session = get_session($pg_msg);
+
+	# TODO support stat for closing a portal or a prep stmt
+	# Presently we just set it for busy time
+	# we don't need to check if the prep stmt/portal exists for this stat as
+	# "It is not an error to issue Close against a nonexistent statement or portal name."
+	$session->{'running'}->{'close'} = {
+		'ts_start' => $pg_msg->{'timestamp'},
+	}
+}
+
+## handle command B(3)
+# @param $pg_msg hash with pg message properties
+sub CloseComplete {
+	my $pg_msg = shift;
+	my $session = get_session($pg_msg);
+
+	if (defined $session->{'running'}->{'close'}) {
+		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'bind'}->{'ts_start'};
+
+		delete $session->{'running'}->{'close'};
+
+		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
 	}
 }
 
@@ -488,8 +534,9 @@ sub END {
 
 	print "===== Overall stats =====\n\n";
 
-	printf "First message: %s\n", scalar(localtime($stats->{'first_message'}));
-	printf "Last message:  %s\n", scalar(localtime($stats->{'last_message'}));
+	printf "First message:              %s\n", scalar(localtime($stats->{'first_message'}));
+	printf "Last message:               %s\n", scalar(localtime($stats->{'last_message'}));
+	printf "Number of cancel requests:  %s\n", $self->{'stats'}->{'cancels_count'};
 
 	print "\n\n==== Notices & Errors ====\n\n";
 
@@ -537,8 +584,8 @@ sub END {
 		$sessions_stats->{'min_time'},
 		$sessions_stats->{'avg_time'},
 		$sessions_stats->{'max_time'};
-	printf "Cumulated sessions time:                    %.6f ms\n", $sessions_stats->{'total_time'};
-	printf "Cumulated busy time:                        %.6f ms\n", $sessions_stats->{'total_busy_time'};
+	printf "Cumulated sessions time:                    %.6f s\n", $sessions_stats->{'total_time'};
+	printf "Cumulated busy time:                        %.6f s\n", $sessions_stats->{'total_busy_time'};
 	printf "Total busy ratio:                           %.6f %%\n", 100 * $sessions_stats->{'total_busy_time'} / $sessions_stats->{'total_time'};
 	printf "Min/Avg/Max number of queries per sessions: %d / %.2f / %d\n",
 		$sessions_stats->{'min_queries'},
