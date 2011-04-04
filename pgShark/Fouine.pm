@@ -7,6 +7,7 @@
 # == FIXes ==
 #
 # * Pay attention to NoData, EmptyQueryResponse, ...
+# * a session should be busy from some given (any ?) messages to the readyForQuery backend message
 #
 # == options ==
 #
@@ -14,10 +15,10 @@
 #
 # == globals ==
 #
-# * number of query canceled/kill
 # * top 10 roles
 # * top 10 appli / IP
 # * average number of cols per query
+# * auth types (clear, md5, password, ...)
 #
 # == prepd stmt ==
 #
@@ -53,10 +54,12 @@ use Exporter;
 our $VERSION = 0.1;
 our @ISA = ('Exporter');
 our @EXPORT = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete CancelRequest Close CloseComplete
-CommandComplete ErrorResponse Execute NoticeResponse Parse ParseComplete Query StartupMessage Terminate/;
+CommandComplete DataRow ErrorResponse Execute NoticeResponse Parse ParseComplete Query RowDescription StartupMessage
+Terminate/;
 
 our @EXPORT_OK = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete CancelRequest Close CloseComplete
-CommandComplete ErrorResponse Execute NoticeResponse Parse ParseComplete Query StartupMessage Terminate/;
+CommandComplete DataRow ErrorResponse Execute NoticeResponse Parse ParseComplete Query RowDescription StartupMessage
+Terminate/;
 
 my $self = {
 	'sessions' => {},
@@ -106,11 +109,17 @@ my $self = {
 			'auth_max_time' => 0,
 			'min_queries' => 9**9**9,
 			'avg_queries' => 0,
-			'max_queries' => 0
+			'max_queries' => 0,
+			'min_rows' => 9**9**9,
+			'avg_rows' => 0,
+			'max_rows' => 0,
+			'total_rows' => 0,
+			'min_fields' => 9**9**9,
+			'max_fields' => 0,
+
 		},
 	}
 };
-
 
 sub getCallbacks {
 	return {
@@ -121,12 +130,14 @@ sub getCallbacks {
 		'Close' => \&Close,
 		'CloseComplete' => \&CloseComplete,
 		'CommandComplete' => \&CommandComplete,
+		'DataRow' => \&DataRow,
 		'ErrorResponse' => \&ErrorResponse,
 		'Execute' => \&Execute,
 		'NoticeResponse' => \&NoticeResponse,
 		'Parse' => \&Parse,
 		'ParseComplete' => \&ParseComplete,
 		'Query' => \&Query,
+		'RowDescription' => \&RowDescription,
 		'StartupMessage' => \&StartupMessage,
 		'Terminate' => \&Terminate
 	};
@@ -149,7 +160,10 @@ sub get_session {
 				'busy_time' => 0,
 				'queries_count' => 0,
 				'notices_count' => 0,
-				'errors_count' => 0
+				'errors_count' => 0,
+				'rows_count' => 0,
+				'min_fields' => 9**9**9,
+				'max_fields' => 0,
 			}
 		};
 
@@ -188,6 +202,14 @@ sub record_session_stats {
 	$stats->{'total_errors'} += $session->{'stats'}->{'errors_count'};
 	$stats->{'min_errors'} = $session->{'stats'}->{'errors_count'} if $stats->{'min_errors'} > $session->{'stats'}->{'errors_count'};
 	$stats->{'max_errors'} = $session->{'stats'}->{'errors_count'} if $stats->{'max_errors'} < $session->{'stats'}->{'errors_count'};
+
+	$sessions_stats->{'min_rows'} = $session->{'stats'}->{'rows_count'} if $sessions_stats->{'min_rows'} > $session->{'stats'}->{'rows_count'};
+	$sessions_stats->{'max_rows'} = $session->{'stats'}->{'rows_count'} if $sessions_stats->{'max_rows'} < $session->{'stats'}->{'rows_count'};
+	$sessions_stats->{'avg_rows'} = (($sessions_stats->{'avg_rows'} * ($sessions_stats->{'total'} - 1)) + $session->{'stats'}->{'rows_count'}) / $sessions_stats->{'total'};
+	$sessions_stats->{'total_rows'} += $session->{'stats'}->{'rows_count'};
+
+	$sessions_stats->{'min_fields'} = $session->{'stats'}->{'min_fields'} if $sessions_stats->{'min_fields'} > $session->{'stats'}->{'min_fields'};
+	$sessions_stats->{'max_fields'} = $session->{'stats'}->{'max_fields'} if $sessions_stats->{'max_fields'} < $session->{'stats'}->{'max_fields'};
 }
 
 ## handle command F(B) (Bind)
@@ -311,6 +333,15 @@ sub CommandComplete {
 		# we complete smth that was executed earlier ??
 		$self->{'stats'}->{'queries_total'}++;
 	}
+}
+
+## handle command B(D)
+# @param $pg_msg hash with pg message properties
+sub DataRow {
+	my $pg_msg = shift;
+	my $session = get_session($pg_msg);
+
+	$session->{'stats'}->{'rows_count'}++;
 }
 
 ## handle command B(E) (ErrorResponse)
@@ -486,6 +517,17 @@ sub AuthenticationOk {
 	#}
 }
 
+## handle command B(T)
+# @param $pg_msg hash with pg message properties
+sub RowDescription {
+	my $pg_msg = shift;
+	my $session = get_session($pg_msg);
+	my $num_fields = scalar(@{ $pg_msg->{'fields'} });
+
+	$session->{'stats'}->{'min_fields'} = $num_fields if $session->{'stats'}->{'min_fields'} > $num_fields;
+	$session->{'stats'}->{'max_fields'} = $num_fields if $session->{'stats'}->{'max_fields'} < $num_fields;
+}
+
 ## handle command StartupMessage (F)
 # @param $pg_msg hash with pg message properties
 sub StartupMessage {
@@ -537,6 +579,13 @@ sub END {
 	printf "First message:              %s\n", scalar(localtime($stats->{'first_message'}));
 	printf "Last message:               %s\n", scalar(localtime($stats->{'last_message'}));
 	printf "Number of cancel requests:  %s\n", $self->{'stats'}->{'cancels_count'};
+	printf "Total number of sessions:   %d\n", $sessions_stats->{'total'};
+	printf "Number connections:         %d\n", $sessions_stats->{'cnx'};
+	printf "Number of disconnections:   %d\n", $sessions_stats->{'discnx'};
+	printf "Cumulated sessions time:    %.6f s\n", $sessions_stats->{'total_time'};
+	printf "Cumulated busy time:        %.6f s\n", $sessions_stats->{'total_busy_time'};
+	printf "Total busy ratio:           %.6f %%\n", 100 * $sessions_stats->{'total_busy_time'} / $sessions_stats->{'total_time'};
+	printf "Total number of rows:       %d\n", $sessions_stats->{'total_rows'};
 
 	print "\n\n==== Notices & Errors ====\n\n";
 
@@ -573,24 +622,25 @@ sub END {
 
 	print "\n\n==== Sessions ====\n\n";
 
-	printf "Total number of sessions:                   %d\n", $sessions_stats->{'total'};
-	printf "Number connections:                         %d\n", $sessions_stats->{'cnx'};
-	printf "Number of disconnections:                   %d\n", $sessions_stats->{'discnx'};
-	printf "Min/Avg/Max authentication time (s):        %.6f / %.6f / %.6f\n",
+	printf "Min/Avg/Max authentication time (s):              %.6f / %.6f / %.6f\n",
 		$sessions_stats->{'auth_min_time'},
 		$sessions_stats->{'auth_avg_time'},
 		$sessions_stats->{'auth_max_time'};
-	printf "Min/Avg/Max sessions time (s):              %.6f / %.6f / %.6f\n",
+	printf "Min/Avg/Max sessions time (s):                    %.6f / %.6f / %.6f\n",
 		$sessions_stats->{'min_time'},
 		$sessions_stats->{'avg_time'},
 		$sessions_stats->{'max_time'};
-	printf "Cumulated sessions time:                    %.6f s\n", $sessions_stats->{'total_time'};
-	printf "Cumulated busy time:                        %.6f s\n", $sessions_stats->{'total_busy_time'};
-	printf "Total busy ratio:                           %.6f %%\n", 100 * $sessions_stats->{'total_busy_time'} / $sessions_stats->{'total_time'};
-	printf "Min/Avg/Max number of queries per sessions: %d / %.2f / %d\n",
+	printf "Min/Avg/Max number of queries per sessions:       %d / %.2f / %d\n",
 		$sessions_stats->{'min_queries'},
 		$sessions_stats->{'avg_queries'},
 		$sessions_stats->{'max_queries'};
+	printf "Min/Max number of fields per session and queries: %d / %d\n",
+		$sessions_stats->{'min_fields'},
+		$sessions_stats->{'max_fields'};
+	printf "Min/Avg/Max number of rows per sessions:          %d / %.2f / %d\n",
+		$sessions_stats->{'min_rows'},
+		$sessions_stats->{'avg_rows'},
+		$sessions_stats->{'max_rows'};
 
 	print "\n===== Queries =====\n\n";
 
