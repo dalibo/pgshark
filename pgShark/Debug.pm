@@ -238,7 +238,7 @@ sub CancelRequest {
 	my $pg_msg = shift;
 	header($pg_msg, not $from_backend);
 
-	printf "CANCEL REQUEST\n\n";
+	printf "CANCEL REQUEST pid=%s, key=%s\n\n", $pg_msg->{'pid'}, $pg_msg->{'key'};
 }
 
 ## handle command F(C)
