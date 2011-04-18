@@ -19,6 +19,7 @@ our @EXPORT_OK = qw/getCallbacks getFilter Bind Close Execute Parse Query Termin
 #  * Fix bind -> portal
 #  * support cursors ?
 #  * add support for COPY
+#  * add support of an optional parameterizable line prefix
 
 sub getCallbacks {
 	return {
