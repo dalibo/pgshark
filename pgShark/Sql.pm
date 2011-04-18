@@ -151,7 +151,7 @@ sub Close {
 	my $prepname = prep_name($pg_msg->{'name'}, $sess_hash);
 
 	# we ignore closing portals as it doesn't make sense in SQL
-	if ($pg_msg->{'type'} eq 'S') {
+	if ($pg_msg->{'kind'} eq 'S') {
 		deallocate($prepname);
 		foreach my $portal (keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} }) {
 			delete $portals->{$sess_hash}->{$portal};

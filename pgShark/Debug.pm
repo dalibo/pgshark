@@ -247,7 +247,7 @@ sub Close {
 	my $pg_msg = shift;
 	header($pg_msg, not $from_backend);
 
-	printf "CLOSE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
+	printf "CLOSE kind='%s', name='%s'\n\n", $pg_msg->{'kind'}, $pg_msg->{'name'};
 }
 
 ## handle command B(3)
@@ -350,7 +350,7 @@ sub Describe {
 	my $pg_msg = shift;
 	header($pg_msg, not $from_backend);
 
-	printf "DESCRIBE type='%s', name='%s'\n\n", $pg_msg->{'type'}, $pg_msg->{'name'};
+	printf "DESCRIBE kind='%s', name='%s'\n\n", $pg_msg->{'kind'}, $pg_msg->{'name'};
 }
 
 ## handle command B(I)

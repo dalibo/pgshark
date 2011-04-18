@@ -379,11 +379,11 @@ sub process_packet {
 		}
 
 		# message: F(C) "Close"
-		#   type=char
+		#   kind=char
 		#   name=String
 		elsif (not $from_backend and $pg_msg->{'type'} eq 'C') {
 
-			($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
+			($pg_msg->{'kind'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
 
 			$self->{'Close'}->($pg_msg) if defined $self->{'Close'};
 		}
@@ -496,7 +496,7 @@ sub process_packet {
 		#   name=String
 		elsif (not $from_backend and $pg_msg->{'type'} eq 'D') {
 
-			($pg_msg->{'type'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
+			($pg_msg->{'kind'}, $pg_msg->{'name'}) = unpack('AZ*', $pg_msg->{'data'});
 
 			$self->{'Describe'}->($pg_msg) if defined $self->{'Describe'};
 		}
