@@ -8,7 +8,7 @@ use warnings;
 use Exporter;
 our $VERSION = 0.1;
 our @ISA = ('Exporter');
-our @EXPORT = qw/debug set_debug normalize_query/;
+our @EXPORT = qw/debug set_debug normalize_query get_debug_lvl/;
 
 my $debug_lvl = 0;
 
