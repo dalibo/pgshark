@@ -62,8 +62,7 @@ CommandComplete DataRow ErrorResponse Execute NoticeResponse Parse ParseComplete
 Terminate/;
 
 my $sessions = {};
-my $self = {
-	'stats' => {
+my $stats = {
 		'first_message' => 0,
 		'last_message' => 0,
 		'total_notices' => 0,
@@ -118,8 +117,7 @@ my $self = {
 			'max_fields' => 0,
 
 		},
-	}
-};
+	};
 
 sub getCallbacks {
 	return {
@@ -167,13 +165,13 @@ sub get_session {
 			}
 		};
 
-		$self->{'stats'}->{'sessions'}->{'total'}++;
+		$stats->{'sessions'}->{'total'}++;
 	}
 
-	$self->{'stats'}->{'first_message'} = $pg_msg->{'timestamp'}
-		unless $self->{'stats'}->{'first_message'};
+	$stats->{'first_message'} = $pg_msg->{'timestamp'}
+		unless $stats->{'first_message'};
 
-	$self->{'stats'}->{'last_message'} = $pg_msg->{'timestamp'};
+	$stats->{'last_message'} = $pg_msg->{'timestamp'};
 
 	return $sessions->{$hash};
 }
@@ -182,8 +180,7 @@ sub record_session_stats {
 	my $session = shift;
 
 	my $interval = $session->{'stats'}->{'ts_end'} - $session->{'stats'}->{'ts_start'};
-	my $stats = $self->{'stats'};
-	my $sessions_stats = $self->{'stats'}->{'sessions'};
+	my $sessions_stats = $stats->{'sessions'};
 
 	$sessions_stats->{'total_time'} += $interval;
 	$sessions_stats->{'min_time'}    = $interval if $sessions_stats->{'min_time'} > $interval;
@@ -226,7 +223,7 @@ sub Bind {
 
 		$session->{'running'}->{'bind'} = {
 			'ts_start' => $pg_msg->{'timestamp'},
-			'query_stat' => $self->{'stats'}->{'prepd'}->{$query_hash}
+			'query_stat' => $stats->{'prepd'}->{$query_hash}
 		};
 	}
 }
@@ -262,7 +259,7 @@ sub CancelRequest {
 	my $pg_msg = shift;
 	my $session = get_session($pg_msg);
 
-	$self->{'stats'}->{'cancels_count'}++;
+	$stats->{'cancels_count'}++;
 }
 
 
@@ -304,12 +301,12 @@ sub CommandComplete {
 	my $session = get_session($pg_msg);
 	my @command = split(' ', $pg_msg->{'command'});
 
-	if (defined $self->{'stats'}->{'query_types'}->{$command[0]}) {
-		$self->{'stats'}->{'query_types'}->{$command[0]}++;
+	if (defined $stats->{'query_types'}->{$command[0]}) {
+		$stats->{'query_types'}->{$command[0]}++;
 	}
 	else {
 		debug(1, "Unknown command complete answer: %s\n", $command[0]);
-		$self->{'stats'}->{'query_types'}->{'others'}++;
+		$stats->{'query_types'}->{'others'}++;
 	}
 
 	if (defined $session->{'running'}->{'exec'}) {
@@ -331,7 +328,7 @@ sub CommandComplete {
 	}
 	else {
 		# we complete smth that was executed earlier ??
-		$self->{'stats'}->{'queries_total'}++;
+		$stats->{'queries_total'}++;
 	}
 }
 
@@ -349,7 +346,7 @@ sub DataRow {
 sub ErrorResponse {
 	my $pg_msg = shift;
 	my $session = get_session($pg_msg);
-	my $error_stats = $self->{'stats'}->{'errors'};
+	my $error_stats = $stats->{'errors'};
 	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
 
 	if (not defined $error_stats->{$hash}) {
@@ -372,7 +369,7 @@ sub Execute {
 
 		$session->{'running'}->{'exec'} = {
 			'ts_start' => $pg_msg->{'timestamp'},
-			'query_stat' => $self->{'stats'}->{'prepd'}->{$session->{'portals'}->{$pg_msg->{'name'}}}
+			'query_stat' => $stats->{'prepd'}->{$session->{'portals'}->{$pg_msg->{'name'}}}
 		};
 	}
 }
@@ -382,7 +379,7 @@ sub Execute {
 sub NoticeResponse {
 	my $pg_msg = shift;
 	my $session = get_session($pg_msg);
-	my $notice_stats = $self->{'stats'}->{'notices'};
+	my $notice_stats = $stats->{'notices'};
 	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
 
 	if (not defined $notice_stats->{$hash}) {
@@ -404,8 +401,8 @@ sub Parse {
 
 	my $session = get_session($pg_msg);
 
-	if (not defined $self->{'stats'}->{'prepd'}->{$query_hash}) {
-		$self->{'stats'}->{'prepd'}->{$query_hash} = {
+	if (not defined $stats->{'prepd'}->{$query_hash}) {
+		$stats->{'prepd'}->{$query_hash} = {
 			'query' => $norm_query,
 			'prep_count' => 0,
 			'count' => 0,  # will be increased when result received
@@ -436,7 +433,7 @@ sub Parse {
 
 	$session->{'running'}->{'parse'} = {
 		'ts_start' => $pg_msg->{'timestamp'},
-		'query_stat' => $self->{'stats'}->{'prepd'}->{$query_hash}
+		'query_stat' => $stats->{'prepd'}->{$query_hash}
 	};
 }
 
@@ -475,9 +472,9 @@ sub Query {
 	my $norm_query = normalize_query($pg_msg->{'query'});
 	my $query_hash = md5_base64($norm_query);
 
-	if (not defined $self->{'stats'}->{'queries'}->{$query_hash}) {
+	if (not defined $stats->{'queries'}->{$query_hash}) {
 
-		$self->{'stats'}->{'queries'}->{$query_hash} = {
+		$stats->{'queries'}->{$query_hash} = {
 			'query' => $norm_query,
 			'count' => 0,  # will be increased when result received
 			'min_time' => 9**9**9,
@@ -493,7 +490,7 @@ sub Query {
 
 	$session->{'running'}->{'exec'} = {
 		'ts_start' => $pg_msg->{'timestamp'},
-		'query_stat' => $self->{'stats'}->{'queries'}->{$query_hash}
+		'query_stat' => $stats->{'queries'}->{$query_hash}
 	};
 }
 
@@ -506,7 +503,7 @@ sub AuthenticationOk {
 
 	## Auth succeed
 	#if ($pg_msg->{'code'} == 0) {
-		my $session_stat = $self->{'stats'}->{'sessions'};
+		my $session_stat = $stats->{'sessions'};
 		my $interval = $pg_msg->{'timestamp'} - $session->{'stats'}->{'ts_start'};
 
 		$session_stat->{'cnx'}++;
@@ -544,7 +541,7 @@ sub Terminate {
 
 	my $session = get_session($pg_msg);
 
-	$self->{'stats'}->{'sessions'}->{'discnx'}++;
+	$stats->{'sessions'}->{'discnx'}++;
 
 	$session->{'stats'}->{'ts_end'} = $pg_msg->{'timestamp'};
 
@@ -559,10 +556,7 @@ sub END {
 	my @top_most_time;
 	my @top_most_frequent;
 
-	my $stats = $self->{'stats'};
-	my $sessions_stats = $self->{'stats'}->{'sessions'};
-
-	# print Dumper($self->{'sessions'});
+	my $sessions_stats = $stats->{'sessions'};
 
 	foreach my $hash (keys %{ $sessions }) {
 		my $session = $sessions->{$hash};
@@ -578,7 +572,7 @@ sub END {
 
 	printf "First message:              %s\n", scalar(localtime($stats->{'first_message'}));
 	printf "Last message:               %s\n", scalar(localtime($stats->{'last_message'}));
-	printf "Number of cancel requests:  %s\n", $self->{'stats'}->{'cancels_count'};
+	printf "Number of cancel requests:  %s\n", $stats->{'cancels_count'};
 	printf "Total number of sessions:   %d\n", $sessions_stats->{'total'};
 	printf "Number connections:         %d\n", $sessions_stats->{'cnx'};
 	printf "Number of disconnections:   %d\n", $sessions_stats->{'discnx'};
@@ -665,9 +659,9 @@ sub END {
 
 	print "\n==== Prepared Statements ====\n\n";
 
-	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $self->{'stats'}->{'prepd'} };
-	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $self->{'stats'}->{'prepd'} };
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $self->{'stats'}->{'prepd'} };
+	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $stats->{'prepd'} };
+	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $stats->{'prepd'} };
+	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $stats->{'prepd'} };
 
 	print "=== Top slowest queries ===\n\n";
 	print "Rank\tDuration(s)\tQuery\n";
@@ -700,9 +694,9 @@ sub END {
 
 	print "\n\n==== Simple Queries ====\n\n";
 
-	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $self->{'stats'}->{'queries'} };
-	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $self->{'stats'}->{'queries'} };
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $self->{'stats'}->{'queries'} };
+	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $stats->{'queries'} };
+	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $stats->{'queries'} };
+	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $stats->{'queries'} };
 
 	print "=== Top slowest queries ===\n\n";
 	print "Rank\tDuration(s)\tQuery\n";
@@ -732,8 +726,7 @@ sub END {
 				$top_most_frequent[$i]->{'avg_time'}, $top_most_frequent[$i]->{'query'};
 		}
 	}
-
-	# print Dumper($self->{'stats'}->{'query_types'});
+	# print Dumper($stats->{'query_types'});
 }
 
 1;
