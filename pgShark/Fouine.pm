@@ -63,61 +63,61 @@ Terminate/;
 
 my $sessions = {};
 my $stats = {
-		'first_message' => 0,
-		'last_message' => 0,
-		'total_notices' => 0,
-		'min_notices' => 9**9**9, # min notices seen per session
-		'max_notices' => 0, # max notices seen per session
-		'total_errors' => 0,
-		'min_errors' => 9**9**9, # min errors seen per session
-		'max_errors' => 0, # max errors seen per session
-		'cancels_count' => 0,
-		'queries_total' => 0,
-		'errors' => {},
-		'notices' => {},
-		'prepd' => {},
-		'queries' => {},
-		'query_types' => {
-			'SELECT' => 0,
-			'INSERT' => 0,
-			'UPDATE' => 0,
-			'DELETE' => 0,
-			'BEGIN' => 0,
-			'COMMIT' => 0,
-			'ROLLBACK' => 0,
-			'MOVE' => 0,
-			'FETCH' => 0,
-			'COPY' => 0,
-			'VACUUM' => 0,
-			'TRUNCATE' => 0,
-			'DECLARE' => 0,
-			'CLOSE' => 0,
-			'others' => 0
-		},
-		'sessions' => {
-			'total' => 0,
-			'cnx' => 0,
-			'discnx' => 0,
-			'min_time' => 9**9**9,
-			'avg_time' => 0,
-			'max_time' => 0,
-			'total_time' => 0,
-			'total_busy_time' => 0,
-			'auth_min_time' => 9**9**9,
-			'auth_avg_time' => 0,
-			'auth_max_time' => 0,
-			'min_queries' => 9**9**9,
-			'avg_queries' => 0,
-			'max_queries' => 0,
-			'min_rows' => 9**9**9,
-			'avg_rows' => 0,
-			'max_rows' => 0,
-			'total_rows' => 0,
-			'min_fields' => 9**9**9,
-			'max_fields' => 0,
+	'first_message' => 0,
+	'last_message' => 0,
+	'total_notices' => 0,
+	'total_errors' => 0,
+	'cancels_count' => 0,
+	'queries_total' => 0,
+	'errors' => {},
+	'notices' => {},
+	'prepd' => {},
+	'queries' => {},
+	'query_types' => {
+		'SELECT' => 0,
+		'INSERT' => 0,
+		'UPDATE' => 0,
+		'DELETE' => 0,
+		'BEGIN' => 0,
+		'COMMIT' => 0,
+		'ROLLBACK' => 0,
+		'MOVE' => 0,
+		'FETCH' => 0,
+		'COPY' => 0,
+		'VACUUM' => 0,
+		'TRUNCATE' => 0,
+		'DECLARE' => 0,
+		'CLOSE' => 0,
+		'others' => 0
+	}
+};
 
-		},
-	};
+my $sess_stats = {
+	'total' => 0,
+	'cnx' => 0,
+	'discnx' => 0,
+	'min_notices' => 9**9**9, # min notices seen per session
+	'max_notices' => 0, # max notices seen per session
+	'min_errors' => 9**9**9, # min errors seen per session
+	'max_errors' => 0, # max errors seen per session
+	'min_time' => 9**9**9,
+	'avg_time' => 0,
+	'max_time' => 0,
+	'total_time' => 0,
+	'total_busy_time' => 0,
+	'auth_min_time' => 9**9**9,
+	'auth_avg_time' => 0,
+	'auth_max_time' => 0,
+	'min_queries' => 9**9**9,
+	'avg_queries' => 0,
+	'max_queries' => 0,
+	'min_rows' => 9**9**9,
+	'avg_rows' => 0,
+	'max_rows' => 0,
+	'total_rows' => 0,
+	'min_fields' => 9**9**9,
+	'max_fields' => 0
+};
 
 sub getCallbacks {
 	return {
@@ -165,7 +165,7 @@ sub get_session {
 			}
 		};
 
-		$stats->{'sessions'}->{'total'}++;
+		$sess_stats->{'total'}++;
 	}
 
 	$stats->{'first_message'} = $pg_msg->{'timestamp'}
@@ -180,33 +180,32 @@ sub record_session_stats {
 	my $session = shift;
 
 	my $interval = $session->{'stats'}->{'ts_end'} - $session->{'stats'}->{'ts_start'};
-	my $sessions_stats = $stats->{'sessions'};
 
-	$sessions_stats->{'total_time'} += $interval;
-	$sessions_stats->{'min_time'}    = $interval if $sessions_stats->{'min_time'} > $interval;
-	$sessions_stats->{'max_time'}    = $interval if $sessions_stats->{'max_time'} < $interval;
-	$sessions_stats->{'avg_time'}    = (($sessions_stats->{'avg_time'} * ($sessions_stats->{'total'} - 1)) + $interval) / $sessions_stats->{'total'};
-	$sessions_stats->{'total_busy_time'} += $session->{'stats'}->{'busy_time'};
+	$sess_stats->{'total_time'} += $interval;
+	$sess_stats->{'min_time'}    = $interval if $sess_stats->{'min_time'} > $interval;
+	$sess_stats->{'max_time'}    = $interval if $sess_stats->{'max_time'} < $interval;
+	$sess_stats->{'avg_time'}    = (($sess_stats->{'avg_time'} * ($sess_stats->{'total'} - 1)) + $interval) / $sess_stats->{'total'};
+	$sess_stats->{'total_busy_time'} += $session->{'stats'}->{'busy_time'};
 
-	$sessions_stats->{'min_queries'} = $session->{'stats'}->{'queries_count'} if $sessions_stats->{'min_queries'} > $session->{'stats'}->{'queries_count'};
-	$sessions_stats->{'max_queries'} = $session->{'stats'}->{'queries_count'} if $sessions_stats->{'max_queries'} < $session->{'stats'}->{'queries_count'};
-	$sessions_stats->{'avg_queries'} = (($sessions_stats->{'avg_queries'} * ($sessions_stats->{'total'} - 1)) + $session->{'stats'}->{'queries_count'}) / $sessions_stats->{'total'};
+	$sess_stats->{'min_queries'} = $session->{'stats'}->{'queries_count'} if $sess_stats->{'min_queries'} > $session->{'stats'}->{'queries_count'};
+	$sess_stats->{'max_queries'} = $session->{'stats'}->{'queries_count'} if $sess_stats->{'max_queries'} < $session->{'stats'}->{'queries_count'};
+	$sess_stats->{'avg_queries'} = (($sess_stats->{'avg_queries'} * ($sess_stats->{'total'} - 1)) + $session->{'stats'}->{'queries_count'}) / $sess_stats->{'total'};
 
 	$stats->{'queries_total'} += $session->{'stats'}->{'queries_count'};
 	$stats->{'total_notices'} += $session->{'stats'}->{'notices_count'};
-	$stats->{'min_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} < $stats->{'min_notices'};
-	$stats->{'max_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} > $stats->{'max_notices'};
+	$sess_stats->{'min_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} < $sess_stats->{'min_notices'};
+	$sess_stats->{'max_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} > $sess_stats->{'max_notices'};
 	$stats->{'total_errors'} += $session->{'stats'}->{'errors_count'};
-	$stats->{'min_errors'} = $session->{'stats'}->{'errors_count'} if $stats->{'min_errors'} > $session->{'stats'}->{'errors_count'};
-	$stats->{'max_errors'} = $session->{'stats'}->{'errors_count'} if $stats->{'max_errors'} < $session->{'stats'}->{'errors_count'};
+	$sess_stats->{'min_errors'} = $session->{'stats'}->{'errors_count'} if $sess_stats->{'min_errors'} > $session->{'stats'}->{'errors_count'};
+	$sess_stats->{'max_errors'} = $session->{'stats'}->{'errors_count'} if $sess_stats->{'max_errors'} < $session->{'stats'}->{'errors_count'};
 
-	$sessions_stats->{'min_rows'} = $session->{'stats'}->{'rows_count'} if $sessions_stats->{'min_rows'} > $session->{'stats'}->{'rows_count'};
-	$sessions_stats->{'max_rows'} = $session->{'stats'}->{'rows_count'} if $sessions_stats->{'max_rows'} < $session->{'stats'}->{'rows_count'};
-	$sessions_stats->{'avg_rows'} = (($sessions_stats->{'avg_rows'} * ($sessions_stats->{'total'} - 1)) + $session->{'stats'}->{'rows_count'}) / $sessions_stats->{'total'};
-	$sessions_stats->{'total_rows'} += $session->{'stats'}->{'rows_count'};
+	$sess_stats->{'min_rows'} = $session->{'stats'}->{'rows_count'} if $sess_stats->{'min_rows'} > $session->{'stats'}->{'rows_count'};
+	$sess_stats->{'max_rows'} = $session->{'stats'}->{'rows_count'} if $sess_stats->{'max_rows'} < $session->{'stats'}->{'rows_count'};
+	$sess_stats->{'avg_rows'} = (($sess_stats->{'avg_rows'} * ($sess_stats->{'total'} - 1)) + $session->{'stats'}->{'rows_count'}) / $sess_stats->{'total'};
+	$sess_stats->{'total_rows'} += $session->{'stats'}->{'rows_count'};
 
-	$sessions_stats->{'min_fields'} = $session->{'stats'}->{'min_fields'} if $sessions_stats->{'min_fields'} > $session->{'stats'}->{'min_fields'};
-	$sessions_stats->{'max_fields'} = $session->{'stats'}->{'max_fields'} if $sessions_stats->{'max_fields'} < $session->{'stats'}->{'max_fields'};
+	$sess_stats->{'min_fields'} = $session->{'stats'}->{'min_fields'} if $sess_stats->{'min_fields'} > $session->{'stats'}->{'min_fields'};
+	$sess_stats->{'max_fields'} = $session->{'stats'}->{'max_fields'} if $sess_stats->{'max_fields'} < $session->{'stats'}->{'max_fields'};
 }
 
 ## handle command F(B) (Bind)
@@ -501,17 +500,13 @@ sub AuthenticationOk {
 
 	my $session = get_session($pg_msg);
 
-	## Auth succeed
-	#if ($pg_msg->{'code'} == 0) {
-		my $session_stat = $stats->{'sessions'};
-		my $interval = $pg_msg->{'timestamp'} - $session->{'stats'}->{'ts_start'};
+	my $interval = $pg_msg->{'timestamp'} - $session->{'stats'}->{'ts_start'};
 
-		$session_stat->{'cnx'}++;
+	$sess_stats->{'cnx'}++;
 
-		$session_stat->{'auth_min_time'} = $interval if ($session_stat->{'auth_min_time'} > $interval);
-		$session_stat->{'auth_avg_time'} = (($session_stat->{'auth_avg_time'} * ($session_stat->{'cnx'} - 1)) + $interval) / $session_stat->{'cnx'};
-		$session_stat->{'auth_max_time'} = $interval if ($session_stat->{'auth_max_time'} < $interval);
-	#}
+	$sess_stats->{'auth_min_time'} = $interval if ($sess_stats->{'auth_min_time'} > $interval);
+	$sess_stats->{'auth_avg_time'} = (($sess_stats->{'auth_avg_time'} * ($sess_stats->{'cnx'} - 1)) + $interval) / $sess_stats->{'cnx'};
+	$sess_stats->{'auth_max_time'} = $interval if ($sess_stats->{'auth_max_time'} < $interval);
 }
 
 ## handle command B(T)
@@ -541,7 +536,7 @@ sub Terminate {
 
 	my $session = get_session($pg_msg);
 
-	$stats->{'sessions'}->{'discnx'}++;
+	$sess_stats->{'discnx'}++;
 
 	$session->{'stats'}->{'ts_end'} = $pg_msg->{'timestamp'};
 
@@ -555,8 +550,6 @@ sub END {
 	my @top_slowest;
 	my @top_most_time;
 	my @top_most_frequent;
-
-	my $sessions_stats = $stats->{'sessions'};
 
 	foreach my $hash (keys %{ $sessions }) {
 		my $session = $sessions->{$hash};
@@ -573,20 +566,20 @@ sub END {
 	printf "First message:              %s\n", scalar(localtime($stats->{'first_message'}));
 	printf "Last message:               %s\n", scalar(localtime($stats->{'last_message'}));
 	printf "Number of cancel requests:  %s\n", $stats->{'cancels_count'};
-	printf "Total number of sessions:   %d\n", $sessions_stats->{'total'};
-	printf "Number connections:         %d\n", $sessions_stats->{'cnx'};
-	printf "Number of disconnections:   %d\n", $sessions_stats->{'discnx'};
-	printf "Cumulated sessions time:    %.6f s\n", $sessions_stats->{'total_time'};
-	printf "Cumulated busy time:        %.6f s\n", $sessions_stats->{'total_busy_time'};
-	printf "Total busy ratio:           %.6f %%\n", 100 * $sessions_stats->{'total_busy_time'} / $sessions_stats->{'total_time'};
-	printf "Total number of rows:       %d\n", $sessions_stats->{'total_rows'};
+	printf "Total number of sessions:   %d\n", $sess_stats->{'total'};
+	printf "Number connections:         %d\n", $sess_stats->{'cnx'};
+	printf "Number of disconnections:   %d\n", $sess_stats->{'discnx'};
+	printf "Cumulated sessions time:    %.6f s\n", $sess_stats->{'total_time'};
+	printf "Cumulated busy time:        %.6f s\n", $sess_stats->{'total_busy_time'};
+	printf "Total busy ratio:           %.6f %%\n", 100 * $sess_stats->{'total_busy_time'} / $sess_stats->{'total_time'};
+	printf "Total number of rows:       %d\n", $sess_stats->{'total_rows'};
 
 	print "\n\n==== Notices & Errors ====\n\n";
 
 	printf "Total notices:                %d\n",  $stats->{'total_notices'};
-	printf "Min/Max notices per sessions: %d/%d\n",  $stats->{'min_notices'}, $stats->{'max_notices'};
+	printf "Min/Max notices per sessions: %d/%d\n",  $sess_stats->{'min_notices'}, $sess_stats->{'max_notices'};
 	printf "Total errors:                 %d\n",  $stats->{'total_errors'};
-	printf "Min/Max errors per sessions:  %d/%d\n",  $stats->{'min_errors'}, $stats->{'max_errors'};
+	printf "Min/Max errors per sessions:  %d/%d\n",  $sess_stats->{'min_errors'}, $sess_stats->{'max_errors'};
 
 	print "\n\n=== Most frequent notices ===\n\n";
 
@@ -617,24 +610,24 @@ sub END {
 	print "\n\n==== Sessions ====\n\n";
 
 	printf "Min/Avg/Max authentication time (s):              %.6f / %.6f / %.6f\n",
-		$sessions_stats->{'auth_min_time'},
-		$sessions_stats->{'auth_avg_time'},
-		$sessions_stats->{'auth_max_time'};
+		$sess_stats->{'auth_min_time'},
+		$sess_stats->{'auth_avg_time'},
+		$sess_stats->{'auth_max_time'};
 	printf "Min/Avg/Max sessions time (s):                    %.6f / %.6f / %.6f\n",
-		$sessions_stats->{'min_time'},
-		$sessions_stats->{'avg_time'},
-		$sessions_stats->{'max_time'};
+		$sess_stats->{'min_time'},
+		$sess_stats->{'avg_time'},
+		$sess_stats->{'max_time'};
 	printf "Min/Avg/Max number of queries per sessions:       %d / %.2f / %d\n",
-		$sessions_stats->{'min_queries'},
-		$sessions_stats->{'avg_queries'},
-		$sessions_stats->{'max_queries'};
+		$sess_stats->{'min_queries'},
+		$sess_stats->{'avg_queries'},
+		$sess_stats->{'max_queries'};
 	printf "Min/Max number of fields per session and queries: %d / %d\n",
-		$sessions_stats->{'min_fields'},
-		$sessions_stats->{'max_fields'};
+		$sess_stats->{'min_fields'},
+		$sess_stats->{'max_fields'};
 	printf "Min/Avg/Max number of rows per sessions:          %d / %.2f / %d\n",
-		$sessions_stats->{'min_rows'},
-		$sessions_stats->{'avg_rows'},
-		$sessions_stats->{'max_rows'};
+		$sess_stats->{'min_rows'},
+		$sess_stats->{'avg_rows'},
+		$sess_stats->{'max_rows'};
 
 	print "\n===== Queries =====\n\n";
 
