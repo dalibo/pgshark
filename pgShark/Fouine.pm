@@ -61,7 +61,12 @@ our @EXPORT_OK = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete Ca
 CommandComplete DataRow ErrorResponse Execute NoticeResponse Parse ParseComplete Query RowDescription StartupMessage
 Terminate/;
 
+##
+# Hash of current sessions activities and stats
 my $sessions = {};
+
+##
+# Hash of global statistics
 my $stats = {
 	'first_message' => 0,
 	'last_message' => 0,
@@ -70,12 +75,20 @@ my $stats = {
 	'cancels_count' => 0,
 	'queries_total' => 0,
 	'errors' => {},
-	'notices' => {},
-	'prepd' => {},
-	'queries' => {}
+	'notices' => {}
 };
 
-my $query_stats = {
+##
+# Hash of prepd stmt statistics
+my $prepd_stats = {};
+
+##
+# Hash of queries statistics
+my $query_stats = {};
+
+##
+# Hash of query types statistics
+my $qtype_stats = {
 	'SELECT' => 0,
 	'INSERT' => 0,
 	'UPDATE' => 0,
@@ -93,18 +106,20 @@ my $query_stats = {
 	'others' => 0
 };
 
+##
+# Hash of sessions statistics
 my $sess_stats = {
-	'total' => 0,
-	'cnx' => 0,
-	'discnx' => 0,
+	'total' => 0, # total sessions seen
+	'cnx' => 0, # number of connexions seen
+	'discnx' => 0, # number of disconnexions seen
 	'min_notices' => 9**9**9, # min notices seen per session
 	'max_notices' => 0, # max notices seen per session
 	'min_errors' => 9**9**9, # min errors seen per session
 	'max_errors' => 0, # max errors seen per session
-	'min_time' => 9**9**9,
-	'avg_time' => 0,
-	'max_time' => 0,
-	'total_time' => 0,
+	'min_sess_time' => 9**9**9,
+	'avg_sess_time' => 0,
+	'max_sess_time' => 0,
+	'total_sess_time' => 0,
 	'total_busy_time' => 0,
 	'auth_min_time' => 9**9**9,
 	'auth_avg_time' => 0,
@@ -182,10 +197,10 @@ sub record_session_stats {
 
 	my $interval = $session->{'stats'}->{'ts_end'} - $session->{'stats'}->{'ts_start'};
 
-	$sess_stats->{'total_time'} += $interval;
-	$sess_stats->{'min_time'}    = $interval if $sess_stats->{'min_time'} > $interval;
-	$sess_stats->{'max_time'}    = $interval if $sess_stats->{'max_time'} < $interval;
-	$sess_stats->{'avg_time'}    = (($sess_stats->{'avg_time'} * ($sess_stats->{'total'} - 1)) + $interval) / $sess_stats->{'total'};
+	$sess_stats->{'total_sess_time'} += $interval;
+	$sess_stats->{'min_sess_time'}    = $interval if $sess_stats->{'min_sess_time'} > $interval;
+	$sess_stats->{'max_sess_time'}    = $interval if $sess_stats->{'max_sess_time'} < $interval;
+	$sess_stats->{'avg_sess_time'}    = (($sess_stats->{'avg_sess_time'} * ($sess_stats->{'total'} - 1)) + $interval) / $sess_stats->{'total'};
 	$sess_stats->{'total_busy_time'} += $session->{'stats'}->{'busy_time'};
 
 	$sess_stats->{'min_queries'} = $session->{'stats'}->{'queries_count'} if $sess_stats->{'min_queries'} > $session->{'stats'}->{'queries_count'};
@@ -223,7 +238,7 @@ sub Bind {
 
 		$session->{'running'}->{'bind'} = {
 			'ts_start' => $pg_msg->{'timestamp'},
-			'query_stat' => $stats->{'prepd'}->{$query_hash}
+			'query_stat' => $prepd_stats->{$query_hash}
 		};
 	}
 }
@@ -301,12 +316,12 @@ sub CommandComplete {
 	my $session = get_session($pg_msg);
 	my @command = split(' ', $pg_msg->{'command'});
 
-	if (defined $query_stats->{$command[0]}) {
-		$query_stats->{$command[0]}++;
+	if (defined $qtype_stats->{$command[0]}) {
+		$qtype_stats->{$command[0]}++;
 	}
 	else {
 		debug(1, "Unknown command complete answer: %s\n", $command[0]);
-		$query_stats->{'others'}++;
+		$qtype_stats->{'others'}++;
 	}
 
 	if (defined $session->{'running'}->{'exec'}) {
@@ -369,7 +384,7 @@ sub Execute {
 
 		$session->{'running'}->{'exec'} = {
 			'ts_start' => $pg_msg->{'timestamp'},
-			'query_stat' => $stats->{'prepd'}->{$session->{'portals'}->{$pg_msg->{'name'}}}
+			'query_stat' => $prepd_stats->{$session->{'portals'}->{$pg_msg->{'name'}}}
 		};
 	}
 }
@@ -401,8 +416,8 @@ sub Parse {
 
 	my $session = get_session($pg_msg);
 
-	if (not defined $stats->{'prepd'}->{$query_hash}) {
-		$stats->{'prepd'}->{$query_hash} = {
+	if (not defined $prepd_stats->{$query_hash}) {
+		$prepd_stats->{$query_hash} = {
 			'query' => $norm_query,
 			'prep_count' => 0,
 			'count' => 0,  # will be increased when result received
@@ -433,7 +448,7 @@ sub Parse {
 
 	$session->{'running'}->{'parse'} = {
 		'ts_start' => $pg_msg->{'timestamp'},
-		'query_stat' => $stats->{'prepd'}->{$query_hash}
+		'query_stat' => $prepd_stats->{$query_hash}
 	};
 }
 
@@ -472,9 +487,9 @@ sub Query {
 	my $norm_query = normalize_query($pg_msg->{'query'});
 	my $query_hash = md5_base64($norm_query);
 
-	if (not defined $stats->{'queries'}->{$query_hash}) {
+	if (not defined $query_stats->{$query_hash}) {
 
-		$stats->{'queries'}->{$query_hash} = {
+		$query_stats->{$query_hash} = {
 			'query' => $norm_query,
 			'count' => 0,  # will be increased when result received
 			'min_time' => 9**9**9,
@@ -490,7 +505,7 @@ sub Query {
 
 	$session->{'running'}->{'exec'} = {
 		'ts_start' => $pg_msg->{'timestamp'},
-		'query_stat' => $stats->{'queries'}->{$query_hash}
+		'query_stat' => $query_stats->{$query_hash}
 	};
 }
 
@@ -570,9 +585,9 @@ sub END {
 	printf "Total number of sessions:   %d\n", $sess_stats->{'total'};
 	printf "Number connections:         %d\n", $sess_stats->{'cnx'};
 	printf "Number of disconnections:   %d\n", $sess_stats->{'discnx'};
-	printf "Cumulated sessions time:    %.6f s\n", $sess_stats->{'total_time'};
+	printf "Cumulated sessions time:    %.6f s\n", $sess_stats->{'total_sess_time'};
 	printf "Cumulated busy time:        %.6f s\n", $sess_stats->{'total_busy_time'};
-	printf "Total busy ratio:           %.6f %%\n", 100 * $sess_stats->{'total_busy_time'} / $sess_stats->{'total_time'};
+	printf "Total busy ratio:           %.6f %%\n", 100 * $sess_stats->{'total_busy_time'} / $sess_stats->{'total_sess_time'};
 	printf "Total number of rows:       %d\n", $sess_stats->{'total_rows'};
 
 	print "\n\n==== Notices & Errors ====\n\n";
@@ -615,9 +630,9 @@ sub END {
 		$sess_stats->{'auth_avg_time'},
 		$sess_stats->{'auth_max_time'};
 	printf "Min/Avg/Max sessions time (s):                    %.6f / %.6f / %.6f\n",
-		$sess_stats->{'min_time'},
-		$sess_stats->{'avg_time'},
-		$sess_stats->{'max_time'};
+		$sess_stats->{'min_sess_time'},
+		$sess_stats->{'avg_sess_time'},
+		$sess_stats->{'max_sess_time'};
 	printf "Min/Avg/Max number of queries per sessions:       %d / %.2f / %d\n",
 		$sess_stats->{'min_queries'},
 		$sess_stats->{'avg_queries'},
@@ -635,13 +650,13 @@ sub END {
 	print "==== Queries by type ====\n\n";
 
 	if ($stats->{'queries_total'}) {
-		@top_most_frequent = sort { $query_stats->{$b} <=> $query_stats->{$a} }
-			keys %{ $query_stats };
+		@top_most_frequent = sort { $qtype_stats->{$b} <=> $qtype_stats->{$a} }
+			keys %{ $qtype_stats };
 		print "Rank\t        Type\t     Count\tPercentage\n";
 		my $i = 1;
 		foreach (@top_most_frequent) {
 			printf "%4d\t%12s\t%10d\t%10.2f\n",
-				$i, $_, $query_stats->{$_}, 100*($query_stats->{$_} / $stats->{'queries_total'});
+				$i, $_, $qtype_stats->{$_}, 100*($qtype_stats->{$_} / $stats->{'queries_total'});
 			$i++;
 		}
 
@@ -653,9 +668,9 @@ sub END {
 
 	print "\n==== Prepared Statements ====\n\n";
 
-	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $stats->{'prepd'} };
-	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $stats->{'prepd'} };
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $stats->{'prepd'} };
+	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $prepd_stats };
+	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $prepd_stats };
+	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $prepd_stats };
 
 	print "=== Top slowest queries ===\n\n";
 	print "Rank\tDuration(s)\tQuery\n";
@@ -688,9 +703,9 @@ sub END {
 
 	print "\n\n==== Simple Queries ====\n\n";
 
-	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $stats->{'queries'} };
-	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $stats->{'queries'} };
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $stats->{'queries'} };
+	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $query_stats };
+	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $query_stats };
+	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $query_stats };
 
 	print "=== Top slowest queries ===\n\n";
 	print "Rank\tDuration(s)\tQuery\n";
