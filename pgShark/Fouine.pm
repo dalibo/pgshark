@@ -103,6 +103,9 @@ my $qtype_stats = {
 	'TRUNCATE' => 0,
 	'DECLARE' => 0,
 	'CLOSE' => 0,
+	'PREPARE' => 0,
+	'BIND' => 0,
+	'DEALOCATE' => 0,
 	'others' => 0
 };
 
@@ -265,6 +268,8 @@ sub BindComplete {
 
 		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
 		$session->{'stats'}->{'queries_count'}++;
+
+		$qtype_stats->{'BIND'}++;
 	}
 }
 
@@ -305,6 +310,8 @@ sub CloseComplete {
 		delete $session->{'running'}->{'close'};
 
 		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
+
+		$qtype_stats->{'DEALLOCATE'}++;
 	}
 }
 
@@ -474,6 +481,8 @@ sub ParseComplete {
 
 		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
 		$session->{'stats'}->{'queries_count'}++;
+
+		$qtype_stats->{'PREPARE'}++;
 	}
 }
 
