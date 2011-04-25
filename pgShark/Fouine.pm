@@ -72,24 +72,25 @@ my $stats = {
 	'errors' => {},
 	'notices' => {},
 	'prepd' => {},
-	'queries' => {},
-	'query_types' => {
-		'SELECT' => 0,
-		'INSERT' => 0,
-		'UPDATE' => 0,
-		'DELETE' => 0,
-		'BEGIN' => 0,
-		'COMMIT' => 0,
-		'ROLLBACK' => 0,
-		'MOVE' => 0,
-		'FETCH' => 0,
-		'COPY' => 0,
-		'VACUUM' => 0,
-		'TRUNCATE' => 0,
-		'DECLARE' => 0,
-		'CLOSE' => 0,
-		'others' => 0
-	}
+	'queries' => {}
+};
+
+my $query_stats = {
+	'SELECT' => 0,
+	'INSERT' => 0,
+	'UPDATE' => 0,
+	'DELETE' => 0,
+	'BEGIN' => 0,
+	'COMMIT' => 0,
+	'ROLLBACK' => 0,
+	'MOVE' => 0,
+	'FETCH' => 0,
+	'COPY' => 0,
+	'VACUUM' => 0,
+	'TRUNCATE' => 0,
+	'DECLARE' => 0,
+	'CLOSE' => 0,
+	'others' => 0
 };
 
 my $sess_stats = {
@@ -300,12 +301,12 @@ sub CommandComplete {
 	my $session = get_session($pg_msg);
 	my @command = split(' ', $pg_msg->{'command'});
 
-	if (defined $stats->{'query_types'}->{$command[0]}) {
-		$stats->{'query_types'}->{$command[0]}++;
+	if (defined $query_stats->{$command[0]}) {
+		$query_stats->{$command[0]}++;
 	}
 	else {
 		debug(1, "Unknown command complete answer: %s\n", $command[0]);
-		$stats->{'query_types'}->{'others'}++;
+		$query_stats->{'others'}++;
 	}
 
 	if (defined $session->{'running'}->{'exec'}) {
@@ -634,13 +635,13 @@ sub END {
 	print "==== Queries by type ====\n\n";
 
 	if ($stats->{'queries_total'}) {
-		@top_most_frequent = sort { $stats->{'query_types'}->{$b} <=> $stats->{'query_types'}->{$a} }
-			keys %{ $stats->{'query_types'} };
+		@top_most_frequent = sort { $query_stats->{$b} <=> $query_stats->{$a} }
+			keys %{ $query_stats };
 		print "Rank\t        Type\t     Count\tPercentage\n";
 		my $i = 1;
 		foreach (@top_most_frequent) {
 			printf "%4d\t%12s\t%10d\t%10.2f\n",
-				$i, $_, $stats->{'query_types'}->{$_}, 100*($stats->{'query_types'}->{$_} / $stats->{'queries_total'});
+				$i, $_, $query_stats->{$_}, 100*($query_stats->{$_} / $stats->{'queries_total'});
 			$i++;
 		}
 
@@ -719,7 +720,6 @@ sub END {
 				$top_most_frequent[$i]->{'avg_time'}, $top_most_frequent[$i]->{'query'};
 		}
 	}
-	# print Dumper($stats->{'query_types'});
 }
 
 1;
