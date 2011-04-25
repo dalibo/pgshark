@@ -61,8 +61,8 @@ our @EXPORT_OK = qw/getCallbacks getFilter AuthenticationOk Bind BindComplete Ca
 CommandComplete DataRow ErrorResponse Execute NoticeResponse Parse ParseComplete Query RowDescription StartupMessage
 Terminate/;
 
+my $sessions = {};
 my $self = {
-	'sessions' => {},
 	'stats' => {
 		'first_message' => 0,
 		'last_message' => 0,
@@ -153,8 +153,8 @@ sub get_session {
 	my $pg_msg = shift;
 	my $hash = $pg_msg->{'sess_hash'};
 
-	if (not defined $self->{'sessions'}->{$hash}) {
-		$self->{'sessions'}->{$hash} = {
+	if (not defined $sessions->{$hash}) {
+		$sessions->{$hash} = {
 			'stats' => {
 				'ts_start' => $pg_msg->{'timestamp'},
 				'busy_time' => 0,
@@ -175,7 +175,7 @@ sub get_session {
 
 	$self->{'stats'}->{'last_message'} = $pg_msg->{'timestamp'};
 
-	return $self->{'sessions'}->{$hash};
+	return $sessions->{$hash};
 }
 
 sub record_session_stats {
@@ -550,7 +550,7 @@ sub Terminate {
 
 	record_session_stats($session);
 
-	delete $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+	delete $sessions->{$pg_msg->{'sess_hash'}};
 }
 
 sub END {
@@ -564,14 +564,14 @@ sub END {
 
 	# print Dumper($self->{'sessions'});
 
-	foreach my $hash (keys %{ $self->{'sessions'} }) {
-		my $session = $self->{'sessions'}->{$hash};
+	foreach my $hash (keys %{ $sessions }) {
+		my $session = $sessions->{$hash};
 
 		$session->{'stats'}->{'ts_end'} = $stats->{'last_message'};
 
 		record_session_stats($session);
 
-		delete $self->{'sessions'}->{$hash};
+		delete $sessions->{$hash};
 	}
 
 	print "===== Overall stats =====\n\n";
