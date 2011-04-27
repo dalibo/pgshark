@@ -23,12 +23,18 @@
 # == prepd stmt ==
 #
 # * add prepare/bind/exec times to prepd stmt the top-10s tables
+# * add data transfert time per query
+# * add min/avg/max number of row per query
+#
+# == queries ==
+#
+# * add data exec estimated time (elapsed time between F(Q) and B(T))
+# * add data transfert time per query
+# * add min/avg/max number of row per query
 #
 # == repli ==
 #
 # * stats repli ?
-#
-# == session stats ==
 #
 # == graph ==
 #
