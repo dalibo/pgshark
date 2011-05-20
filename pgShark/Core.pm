@@ -734,6 +734,7 @@ sub process_packet {
 			my $msg = $pg_msg->{'data'};
 
 			$pg_msg->{'num_fields'} = unpack('n', $msg);
+			$msg = substr($msg, 2);
 
 			while ($i < $pg_msg->{'num_fields'}) {
 				my @field = unpack('Z*NnNnNn', $msg);
