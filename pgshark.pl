@@ -137,7 +137,7 @@ pgshark.pl - Messing with PostgreSQL network traffic
 
 =item pgshark.pl --help
 
-=item pgshark.pl [--debug] [--read file] {--output plugin_name}
+=item pgshark.pl [--debug] [--read file] {--output plugin_name} [-- [plugin options...]]
 
 Where B<plugin_name> could be I<sql> or I<normalize> or I<debug> or I<fouine>.
 
@@ -189,47 +189,98 @@ By default, B<pgshark> will read from stdin if neither B<--read> or B<--interfac
 
 =head1 PLUGINS
 
-=over 2
-
-=item B<sql>
-
-The B<sql> plugin writes captured queries on stdout. Because of a limitation of the SQL language it doesn't support unnamed
-prepared statement, so it actually names them.
-
-Presently, this plugin doesn't support cursors.
-
-=item B<normalize>
-
-The B<normalize> plugin will try to normalize queries and prepared queries and output them to stdout. Its purpose is to give you a list
-of unique queries, whatever the number of time they have been sent by clients and whatever their parameters were.
-
-=item B<debug>
+=head2 B<debug>
 
 The B<debug> plugin will output the PostgreSQL messages in human readable format. Useful to analyze what is in a network
 dump before using pgshark on some other duties.
 
-=item B<fouine>
+=head2 B<sql>
+
+The B<sql> plugin writes captured queries on stdout. Because of the SQL language doesn't support unnamed prepared
+statement, this plugin actually try to names them. Presently, this plugin doesn't support cursors nor COPY messages.
+
+=over 2
+
+=item B<--line_prefix> <prefix string>
+
+This is a printf-style string that is output at the beginning of each line. % characters begin "escape sequences" that
+are replaced with status information as outlined below. Unrecognized escapes are ignored.
+Other characters are copied straight to the log line. Some escapes might not be available depending on the context.
+
+=over 3
+
+=item B<%a>
+Application name
+
+=item B<%d>
+Database name
+
+=item B<%H>
+Source host
+
+=item B<%h>
+Destination host
+
+=item B<%k>
+Hash key of the session (src ip and src port concatenated)
+
+=item B<%R>
+Source host and port
+
+=item B<%r>
+Destination host and port
+
+=item B<%T>
+Raw timestamp
+
+=item B<%t>
+Human readable timestamp
+
+=item B<%u>
+User name
+
+=back
+
+=back
+
+=head2 B<normalize>
+
+The B<normalize> plugin will try to normalize queries and prepared queries and output them to stdout. Its purpose is to give you a list
+of unique queries, whatever the number of time they have been sent by clients and whatever their parameters were.
+
+=head2 B<fouine>
 
 The B<fouine> plugin will output a report with most popular queries, slowest cumulated ones, slowest queries ever,
 classification of queries by type, etc.
-
-=back
 
 =head1 EXAMPLES
 
 =over 2
 
-=item C<cat some_capture.pcap* | pgshark.pl --output SQL>
+=item Output all queries found in files C<some_capture.pcap*> as SQL to the standart output:
 
-Output all queries found in files C<some_capture.pcap*> as SQL to the standart output.
+C<cat some_capture.pcap* | pgshark.pl --output SQL>
 
-=item C<pgshark.pl --output SQL -r some_capture.pcap001>
+=item Output all queries found in file C<some_capture.pcap001> as SQL to the standart output.
 
-Output all queries found in file C<some_capture.pcap001> as SQL to the standart output.
+C<pgshark.pl --output SQL -r some_capture.pcap001>
 
-=item C<pgshark.pl --output normalize -i eth0>
+=item Capture PostgreSQL traffic from interface eth0 and output normalized queries to the standart output.
 
-Capture PostgreSQL traffic from interface eth0 and output normalized queries to the standart output.
+C<pgshark.pl --output normalize -i eth0>
+
+=item The following example shows how to work with a server that is B<NOT> listening on localhost and the default 5432 port. (1)
+dump from C<eth0> every packets from/to the port 5490, filtering out packets with no data. C<-s 0> is requiered to dump
+the whole packets. (2) use the SQL plugin with its C<--line_prefix> option. Here C<--host> and C<--port> are
+B<important> to notify pgshark who is the PostgreSQL server in the network dump and its working port.
+
+=over 3
+
+=item C<tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490 and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)E<gt>E<gt>2)) != 0)'> (1)
+
+=item C<pgshark.pl --port 5490 --host 192.168.42.5 --output SQL -r /tmp/tcp_5490.pcap -- --line_prefix "%t user=%u,database=%d: "> (2)
+
+=back
 
 =back
 
