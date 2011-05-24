@@ -102,12 +102,12 @@ EXAMPLES
       "pgshark.pl --output normalize -i eth0"
 
     The following example shows how to work with a server that is NOT 
-		listening on localhost and the default 5432 port. (1) dump from "eth0" 
-		every packets from/to the port 5490, filtering out packets with no data.
-		"-s 0" is requiered to dump the whole packets. (2) use the SQL plugin 
-		with its "--line_prefix" option. Here "--host" and "--port" are 
-		important to notify pgshark who is the PostgreSQL server in the network 
-		dump and its working port.
+    listening on localhost and the default 5432 port. (1) dump from "eth0" 
+    every packets from/to the port 5490, filtering out packets with no data.
+    "-s 0" is requiered to dump the whole packets. (2) use the SQL plugin 
+    with its "--line_prefix" option. Here "--host" and "--port" are 
+    important to notify pgshark who is the PostgreSQL server in the network 
+    dump and its working port.
 
       (1) tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 \
 			  'tcp and port 5490 and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)'
