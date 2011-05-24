@@ -8,17 +8,45 @@ use warnings;
 use pgShark::Utils;
 use Net::Pcap qw(:functions);
 use Data::Dumper;
+use Getopt::Long;
+use POSIX;
 
 use Exporter;
 our $VERSION = 0.1;
 our @ISA = ('Exporter');
-our @EXPORT = qw/getCallbacks getFilter Bind Close Execute Parse Query Terminate/;
-our @EXPORT_OK = qw/getCallbacks getFilter Bind Close Execute Parse Query Terminate/;
+our @EXPORT = qw/getCallbacks getFilter Bind Close Execute Parse Query StartupMessage Terminate/;
+our @EXPORT_OK = qw/getCallbacks getFilter Bind Close Execute Parse Query StartupMessage Terminate/;
 
 ## TODO
 #  * support cursors ?
 #  * add support for COPY
 #  * add support of an optional parameterizable line prefix
+
+my %args = (
+	'line_prefix' => ''
+);
+
+Getopt::Long::Configure('bundling');
+GetOptions(\%args, qw{
+	line_prefix=s
+});
+
+my $prefix = '';
+my @prefix_keys;
+
+if ($args{'line_prefix'} ne '') {
+	$prefix = $args{'line_prefix'};
+	push @prefix_keys, '%a' if ($prefix =~ /%a/);
+	push @prefix_keys, '%d' if ($prefix =~ /%d/);
+	push @prefix_keys, '%H' if ($prefix =~ /%H/);
+	push @prefix_keys, '%h' if ($prefix =~ /%h/);
+	push @prefix_keys, '%k' if ($prefix =~ /%k/);
+	push @prefix_keys, '%R' if ($prefix =~ /%R/);
+	push @prefix_keys, '%r' if ($prefix =~ /%r/);
+	push @prefix_keys, '%T' if ($prefix =~ /%T/);
+	push @prefix_keys, '%t' if ($prefix =~ /%t/);
+	push @prefix_keys, '%u' if ($prefix =~ /%u/);
+}
 
 sub getCallbacks {
 	return {
@@ -27,6 +55,7 @@ sub getCallbacks {
 		'Execute' => \&Execute,
 		'Parse' => \&Parse,
 		'Query' => \&Query,
+		'StartupMessage' => \&StartupMessage,
 		'Terminate' => \&Terminate
 	};
 }
@@ -36,6 +65,14 @@ sub getFilter {
 	my $port = shift;
 	return "(tcp and dst port $port) and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)";
 }
+
+# Hash for sessions properties
+# $sess = {
+#   $session hash$ => {
+#     'user' => username,
+#     'database' => database
+# }}
+my %sess;
 
 # Hash of prepared stmt
 # $prepd = {
@@ -58,8 +95,75 @@ my $prepd = {};
 # }
 my $portals = {};
 
+##
+# behave like printf, but takes $pg_msg as second argument,
+# compute the line_prefix if any and prefix the output with it
+# @param $frmt
+# @param $pg_msg
+# @params vars, ...
+sub printf_prefix {
+	my $output = shift;
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+	my $prefix_output = $prefix;
+
+	unless ($prefix eq '') {
+		foreach (@prefix_keys) {
+			if (/%a/) {
+				if (defined $sess{$sess_hash}{'application_name'}) {
+					$prefix_output =~ s/%a/$sess{$sess_hash}{'application_name'}/ge;
+				}
+				else {
+					$prefix_output =~ s/%a/?/g;
+				}
+			}
+			elsif (/%d/) {
+				if (defined $sess{$sess_hash}{'database'}) {
+					$prefix_output =~ s/%d/$sess{$sess_hash}{'database'}/ge;
+				}
+				else {
+					$prefix_output =~ s/%d/?/g;
+				}
+			}
+			elsif (/%k/) {
+				$prefix_output =~ s/%k/$sess_hash/ge;
+			}
+			elsif (/%H/) {
+				$prefix_output =~ s/%H/$pg_msg->{'tcpip'}->{'src_ip'}/ge;
+			}
+			elsif (/%h/) {
+				$prefix_output =~ s/%h/$pg_msg->{'tcpip'}->{'dest_ip'}/ge;
+			}
+			elsif (/%R/) {
+				$prefix_output =~ s/%R/"$pg_msg->{'tcpip'}->{'src_ip'}:$pg_msg->{'tcpip'}->{'src_port'}"/ge;
+			}
+			elsif (/%r/) {
+				$prefix_output =~ s/%r/"$pg_msg->{'tcpip'}->{'dest_ip'}:$pg_msg->{'tcpip'}->{'dest_port'}"/ge;
+			}
+			elsif (/%T/) {
+				$prefix_output =~ s/%T/$pg_msg->{'timestamp'}/ge;
+			}
+			elsif (/%t/) {
+				$prefix_output =~ s/%t/strftime('%Y-%m-%d %H:%M:%S', localtime $pg_msg->{'timestamp'})/ge;
+			}
+			elsif (/%u/) {
+				if (defined $sess{$sess_hash}{'user'}) {
+					$prefix_output =~ s/%u/$sess{$sess_hash}{'user'}/ge;
+				}
+				else {
+					$prefix_output =~ s/%u/?/g;
+				}
+			}
+		}
+		print $prefix_output;
+	}
+
+	printf "$output", @_;
+}
+
 sub deallocate {
-	printf "DEALLOCATE %s;\n", shift;
+	my $pg_msg = shift;
+	printf_prefix "DEALLOCATE %s;\n", $pg_msg, shift;
 }
 
 # We cannot use unnamed prepd stmt in SQL.
@@ -91,7 +195,7 @@ sub Bind {
 		# If never binded, there's no portals, so execute the PREPARE stmt as it wasn't prepd yet
 		if (not scalar(keys %{$prepd->{$sess_hash}->{$prepname}->{'portals'} })) {
 
-			printf "PREPARE %s ", $prepname;
+			printf_prefix "PREPARE %s ", $pg_msg, $prepname;
 
 			# print parameters: we use "unknown" as we can not know
 			# args types
@@ -152,7 +256,7 @@ sub Close {
 
 	# we ignore closing portals as it doesn't make sense in SQL
 	if ($pg_msg->{'kind'} eq 'S') {
-		deallocate($prepname);
+		deallocate($pg_msg, $prepname);
 		foreach my $portal (keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} }) {
 			delete $portals->{$sess_hash}->{$portal};
 		}
@@ -175,7 +279,7 @@ sub Execute {
 
 	if (defined ($portals->{$sess_hash}->{$portalname})) {
 		my $prepname = $portals->{$sess_hash}->{$portalname};
-		printf "EXECUTE %s", $prepname;
+		printf_prefix "EXECUTE %s", $pg_msg, $prepname;
 		printf "(%s)", join (',', @{ $prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} })
 			if (scalar(@{ $prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} }));
 		printf ";\n";
@@ -201,7 +305,7 @@ sub Parse {
 	# note: trying to parse using an existing name shoudl rise an error. We doesn't test
 	# this case here as if the session did it, it received an error as well.
 	if (($pg_msg->{'name'} eq '') and (defined $portals->{$sess_hash}->{$prepname})) {
-		deallocate($prepname);
+		deallocate($pg_msg, $prepname);
 		foreach my $portal (keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} }) {
 			delete $portals->{$sess_hash}->{$portal};
 		}
@@ -220,7 +324,19 @@ sub Query {
 
 	debug(2, "SQL: call process_query\n");
 
-	printf "%s;\n", $pg_msg->{'query'};
+	printf_prefix "%s;\n", $pg_msg, $pg_msg->{'query'};
+}
+
+## handle command StartupMessage (F)
+# @param $pg_msg hash with pg message properties
+sub StartupMessage {
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	$sess{$sess_hash}{'user'} = $pg_msg->{'params'}->{'user'};
+	$sess{$sess_hash}{'database'} = $pg_msg->{'params'}->{'database'};
+	$sess{$sess_hash}{'application_name'} = $pg_msg->{'params'}->{'application_name'}
+		if defined $pg_msg->{'params'}->{'application_name'};
 }
 
 ## handle command X
