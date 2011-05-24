@@ -183,6 +183,13 @@ sub process_packet {
 
 		# hash about message informations
 		my $pg_msg = {
+			# tcp/ip properties
+			'tcpip' => {
+				'src_ip' => $ip->{'src_ip'},
+				'dest_ip' => $ip->{'dest_ip'},
+				'src_port' => $tcp->{'src_port'},
+				'dest_port' => $tcp->{'dest_port'}
+			},
 			# the session this message belongs to
 			'sess_hash' => $sess_hash,
 			# timestamps of the message
