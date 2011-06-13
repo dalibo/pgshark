@@ -530,7 +530,7 @@ sub process_packet {
 
 			$pg_msg->{'fields'} = $fields;
 
-			$self->{'ErrorResponse'}->($pg_msg);
+			$self->{'ErrorResponse'}->($pg_msg) if defined $self->{'ErrorResponse'};
 		}
 
 		# message: F(E) "Execute"
