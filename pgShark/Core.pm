@@ -240,13 +240,11 @@ sub process_packet {
 				$pg_msg->{'type'} = 'SSLRequest';
 			}
 			elsif ($code == 196608) {
-				# we ignore the $code here as we try to support both pgsql protos v2 and v3.
 				$pg_msg->{'type'} = 'StartupMessage3';
 				# my $min = $code%65536; # == 0
 				# my $maj = $code/65536; # == 3
 			}
 			elsif ($code == 131072) {
-				# we ignore the $code here as we try to support both pgsql protos v2 and v3.
 				$pg_msg->{'type'} = 'StartupMessage2';
 				# my $min = $code%65536; # == 0
 				# my $maj = $code/65536; # == 2
