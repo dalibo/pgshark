@@ -38,11 +38,16 @@ sub new {
 		'pckt_count' => 0,
 		'port' => defined($args->{'port'}) ? $args->{'port'} : '5432',
 		'queries_count' => 0,
+		'protocol' => defined($args->{'protocol'}) ? $args->{'protocol'} : '3.0',
 		'sessions' => {}
 	};
 
 	foreach my $func (keys %{ $args->{'procs'} } ) {
 		$self->{$func} = $args->{'procs'}->{$func};
+	}
+
+	if ($self->{'protocol'} eq '3.0') {
+		$self->{'process_message'} = \&process_message_v3;
 	}
 
 	debug(1, "Core: loaded.\n");
@@ -175,40 +180,57 @@ sub process_packet {
 	# add data to the current session's buffer
 	$self->{'sessions'}->{$sess_hash}->{'data'} .= $tcp->{'data'};
 
+	# hash about message informations
+	my $pg_msg = {
+		# tcp/ip properties
+		'tcpip' => {
+			'src_ip' => $ip->{'src_ip'},
+			'dest_ip' => $ip->{'dest_ip'},
+			'src_port' => $tcp->{'src_port'},
+			'dest_port' => $tcp->{'dest_port'}
+		},
+		# the session this message belongs to
+		'sess_hash' => $sess_hash,
+		# is the message coming from backend ?
+		'from_backend' => $from_backend,
+		# timestamps of the message
+		'timestamp' => "$pckt_hdr->{'tv_sec'}.". sprintf('%06d', $pckt_hdr->{'tv_usec'}),
+		## the following entries will be feeded bellow
+		# 'type' => message type. Either one-char type or full message for special ones
+		# 'data' =>  the message data (without the type and int32 length)
+		## other fields specifics to each messages are added bellow
+	};
+
+	$self->{'process_message'}->($self, $pg_msg);
+}
+
+sub process_message_v3 {
+	my $self = shift;
+	my $pg_msg_orig = shift;
+	my $sess_hash = $pg_msg_orig->{'sess_hash'};
+	my $from_backend = $pg_msg_orig->{'from_backend'};
+
+	my $curr_sess = $self->{'sessions'}->{$sess_hash};
+
 	# buffer length. It helps tracking if we have enough data in session's
 	# buffer to process the current message
-	my $data_len = length $self->{'sessions'}->{$sess_hash}->{'data'};
+	my $data_len = length $curr_sess->{'data'};
 
+	# each packet processed might have one or more pgsql message.
 	do {
 
-		# hash about message informations
-		my $pg_msg = {
-			# tcp/ip properties
-			'tcpip' => {
-				'src_ip' => $ip->{'src_ip'},
-				'dest_ip' => $ip->{'dest_ip'},
-				'src_port' => $tcp->{'src_port'},
-				'dest_port' => $tcp->{'dest_port'}
-			},
-			# the session this message belongs to
-			'sess_hash' => $sess_hash,
-			# timestamps of the message
-			'timestamp' => "$pckt_hdr->{'tv_sec'}.". sprintf('%06d', $pckt_hdr->{'tv_usec'}),
-			## the following entries will be feeded bellow
-			# 'type' => message type. Either one-char type or full message for special ones
-			# 'data' =>  the message data (without the type and int32 length)
-			## other fields specifics to each messages are added bellow
-		};
+		# copy base message properties hash for this new message
+		my $pg_msg = \%{ ( $pg_msg_orig ) };
 
 		# the message current total length
 		my $msg_len = 0;
 
 		if (
-			(not $from_backend and $self->{'sessions'}->{$sess_hash}->{'data'} =~ /^[BCfDEHFPpQSXdc].{4}/s)
-			or ($from_backend and $self->{'sessions'}->{$sess_hash}->{'data'} =~ /^[RK23CGHDIEVnNAtS1sZTdc].{4}/s)
+			(not $from_backend and $curr_sess->{'data'} =~ /^[BCfDEHFPpQSXdc].{4}/s)
+			or ($from_backend and $curr_sess->{'data'} =~ /^[RK23CGHDIEVnNAtS1sZTdc].{4}/s)
 		) {
 			# the message has a type byte
-			($pg_msg->{'type'}, $msg_len) = unpack('AN', $self->{'sessions'}->{$sess_hash}->{'data'});
+			($pg_msg->{'type'}, $msg_len) = unpack('AN', $curr_sess->{'data'});
 
 			if ($data_len < $msg_len + 1) { # we add the type byte
 				# we don't have the full message, waiting for more bits
@@ -217,23 +239,23 @@ sub process_packet {
 			}
 
 			# record the raw message
-			$pg_msg->{'data'} = substr($self->{'sessions'}->{$sess_hash}->{'data'}, 0, $msg_len + 1);
+			$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len + 1);
 
 			# removes type + length bytes from the buffer
-			$self->{'sessions'}->{$sess_hash}->{'data'} = substr($self->{'sessions'}->{$sess_hash}->{'data'}, 5);
+			$curr_sess->{'data'} = substr($curr_sess->{'data'}, 5);
 			$msg_len -= 4;
 			$data_len -= 5;
 		}
-		elsif ($from_backend and $self->{'sessions'}->{$sess_hash}->{'data'} =~ /^N|S$/) {
+		elsif ($from_backend and $curr_sess->{'data'} =~ /^N|S$/) {
 			# SSL answer
 			$pg_msg->{'type'} = 'SSLAnswer';
 
 			$msg_len = 1;
-			$pg_msg->{'data'} = substr($self->{'sessions'}->{$sess_hash}->{'data'}, 0, 1);
+			$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, 1);
 		}
-		elsif (not $from_backend and $self->{'sessions'}->{$sess_hash}->{'data'} =~ /^.{8}/s) {
+		elsif (not $from_backend and $curr_sess->{'data'} =~ /^.{8}/s) {
 			my $code;
-			($msg_len, $code) = unpack('NN', $self->{'sessions'}->{$sess_hash}->{'data'});
+			($msg_len, $code) = unpack('NN', $curr_sess->{'data'});
 			if ($code == 80877102) {
 				$pg_msg->{'type'} = 'CancelRequest';
 			}
@@ -245,27 +267,27 @@ sub process_packet {
 				# my $min = $code%65536; # == 0
 				# my $maj = $code/65536; # == 3
 			}
-			elsif ($code == 131072) {
-				$pg_msg->{'type'} = 'StartupMessage2';
-				# my $min = $code%65536; # == 0
-				# my $maj = $code/65536; # == 2
-			}
+			# elsif ($code == 131072) {
+			# 	$pg_msg->{'type'} = 'StartupMessage2';
+			# 	# my $min = $code%65536; # == 0
+			# 	# my $maj = $code/65536; # == 2
+			# }
 			else {
 				if (get_debug_lvl()) {
-					$self->{'sessions'}->{$sess_hash}->{'data'} =~ tr/\x00-\x1F\x7F-\xFF/./;
+					$curr_sess->{'data'} =~ tr/\x00-\x1F\x7F-\xFF/./;
 					debug(1, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
-						$pg_msg->{'timestamp'}, $self->{'sessions'}->{$sess_hash}->{'data'}
+						$pg_msg->{'timestamp'}, $curr_sess->{'data'}
 					);
 				}
-				$self->{'sessions'}->{$sess_hash}->{'data'} = '';
+				$curr_sess->{'data'} = '';
 				return;
 			}
 
 			# record the raw message, these special messages don't have type byte, only the message length on 4 bytes.
-			$pg_msg->{'data'} = substr($self->{'sessions'}->{$sess_hash}->{'data'}, 0, $msg_len);
+			$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
 
 			# removes the length byte from the buffer
-			$self->{'sessions'}->{$sess_hash}->{'data'} = substr($self->{'sessions'}->{$sess_hash}->{'data'}, 4);
+			$curr_sess->{'data'} = substr($curr_sess->{'data'}, 4);
 			$msg_len -= 4;
 			$data_len -= 4;
 		}
@@ -273,8 +295,6 @@ sub process_packet {
 			debug(2, "NOTICE: looks like we have either an incomplette header or some junk in the buffer (data available: %d)...waiting for more bits.\n", $data_len);
 			return ;
 		}
-
-		my $curr_sess = $self->{'sessions'}->{$sess_hash};
 
 		debug(3, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
 			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
