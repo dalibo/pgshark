@@ -45,6 +45,8 @@ my %args = (
 	'host' => '127.0.0.1',
 	'port' => 5432,
 	'read' => '',
+	'2' => 0,
+	'3' => 0
 );
 
 Getopt::Long::Configure('bundling');
@@ -56,16 +58,26 @@ GetOptions(\%args, qw{
 	host|h=s
 	port|p=s
 	read|r=s
+	2+
+	3+
 }) or usage();
 
 longusage() if ($args{'help'});
 
 usage("Argument --output is mandatory.\n") if $args{'output'} eq '';
+usage("Options -2 and -3 are mutal exclusives.\n") if $args{'2'} and $args{'3'};
 
 usage("Arguments --interface and --read are incompatible.\nEither listen from the networkor open a pcap file.\n")
 	if $args{'interface'} ne '' and $args{'read'} ne '';
 
 $args{'output'} = ucfirst lc $args{'output'};
+
+if ($args{'2'}) {
+	$args{'protocol'} = 2;
+}
+else {
+	$args{'protocol'} = 3;
+}
 
 # check if given plugin name exist (avoid loading potential dangerous external unknown files)
 usage("This output plugin does not exist.\n") if ( not (
@@ -87,7 +99,8 @@ $args{'output'}->import;
 my $shark = pgShark::Core->new({
 	'procs' => getCallbacks(),
 	'host' => $args{'host'},
-	'port' => $args{'port'}
+	'port' => $args{'port'},
+	'protocol' => $args{'protocol'}
 });
 
 ## opening the pcap handler
