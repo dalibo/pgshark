@@ -150,7 +150,7 @@ pgshark.pl - Messing with PostgreSQL network traffic
 
 =item pgshark.pl --help
 
-=item pgshark.pl [--debug] [--read file] {--output plugin_name} [-- [plugin options...]]
+=item pgshark.pl [--debug] [-2|-3] [--read file] {--output plugin_name} [-- [plugin options...]]
 
 Where B<plugin_name> could be I<sql> or I<normalize> or I<debug> or I<fouine>.
 
@@ -173,6 +173,14 @@ There are 3 levels of debug presently.
 =item B<--help>
 
 Show this help message and exit.
+
+=item B<-2>
+
+Dissect the pcap flow using PostgreSQL v2.0 protocol.
+
+=item B<-3>
+
+Dissect the pcap flow using PostgreSQL v3.0 protocol. This is the default.
 
 =item B<-h>, B<--host> <ip address>
 
@@ -283,13 +291,13 @@ C<pgshark.pl --output SQL -r some_capture.pcap001>
 C<pgshark.pl --output normalize -i eth0>
 
 =item The following example shows how to work with a server that is B<NOT> listening on localhost and the default 5432 port. (1)
-dump from C<eth0> every packets from/to the port 5490, filtering out packets with no data. C<-s 0> is requiered to dump
+dump from C<eth0> every packets from/to the port 5490. C<-s 0> is requiered on some older version of tcpdump to dump
 the whole packets. (2) use the SQL plugin with its C<--line_prefix> option. Here C<--host> and C<--port> are
 B<important> to notify pgshark who is the PostgreSQL server in the network dump and its working port.
 
 =over 3
 
-=item C<tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490 and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)E<gt>E<gt>2)) != 0)'> (1)
+=item C<tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490'> (1)
 
 =item C<pgshark.pl --port 5490 --host 192.168.42.5 --output SQL -r /tmp/tcp_5490.pcap -- --line_prefix "%t user=%u,database=%d: "> (2)
 

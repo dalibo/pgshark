@@ -3,8 +3,8 @@ pgshark.pl
 
 SYNOPSIS
     pgshark.pl --help
-    pgshark.pl [--debug] [--read file] {--output plugin_name} [-- [plugin
-    options...]]
+    pgshark.pl [--debug] [-2|-3] [--read file] {--output plugin_name} [--
+    [plugin options...]]
       Where plugin_name could be *sql* or *normalize* or *debug* or
       *fouine*.
 
@@ -23,6 +23,13 @@ DESCRIPTION
 
     --help
       Show this help message and exit.
+
+    -2
+      Dissect the pcap flow using PostgreSQL v2.0 protocol.
+
+    -3
+      Dissect the pcap flow using PostgreSQL v3.0 protocol. This is the
+      default.
 
     -h, --host <ip address>
       Gives the IP address of the PostgreSQL server. By default, set to
@@ -101,18 +108,17 @@ EXAMPLES
     queries to the standart output.
       "pgshark.pl --output normalize -i eth0"
 
-    The following example shows how to work with a server that is NOT 
-    listening on localhost and the default 5432 port. (1) dump from "eth0" 
-    every packets from/to the port 5490, filtering out packets with no data.
-    "-s 0" is requiered to dump the whole packets. (2) use the SQL plugin 
-    with its "--line_prefix" option. Here "--host" and "--port" are 
-    important to notify pgshark who is the PostgreSQL server in the network 
+    The following example shows how to work with a server that is NOT
+    listening on localhost and the default 5432 port. (1) dump from "eth0"
+    every packets from/to the port 5490. "-s 0" is requiered on some older
+    version of tcpdump to dump the whole packets. (2) use the SQL plugin
+    with its "--line_prefix" option. Here "--host" and "--port" are
+    important to notify pgshark who is the PostgreSQL server in the network
     dump and its working port.
 
-      (1) tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 \
-			  'tcp and port 5490 and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)'
-      (2) pgshark.pl --port 5490 --host 192.168.42.5 --output SQL -r \
-        /tmp/tcp_5490.pcap -- --line_prefix "%t user=%u,database=%d: "
+      "tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490'" (1)
+      "pgshark.pl --port 5490 --host 192.168.42.5 --output SQL -r \
+        /tmp/tcp_5490.pcap -- --line_prefix "%t user=%u,database=%d: "" (2)
 
 AUTHORS
     Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
