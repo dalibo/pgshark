@@ -493,6 +493,8 @@ sub ReadyForQuery {
 	my $pg_msg = shift;
 	header($pg_msg, $from_backend);
 
+	$pg_msg->{'status'} = '?' if not defined $pg_msg->{'status'};
+
 	if ($pg_msg->{'status'} eq 'I') {
 		printf "READY FOR QUERY type=<IDLE>\n\n";
 	}
@@ -501,6 +503,10 @@ sub ReadyForQuery {
 	}
 	elsif ($pg_msg->{'status'} eq 'E') {
 		printf "READY FOR QUERY type=<IDLE> in transaction (aborted)\n\n";
+	}
+	else {
+		# protocol v2 has no status
+		printf "READY FOR QUERY\n\n";
 	}
 }
 
@@ -516,8 +522,10 @@ sub RowDescription {
 
 	for my $field ( @{ $pg_msg->{'fields'} } ) {
 		$i++;
-		printf "  ---[Field %02d]---\n  name='%s'\n  relid=%d\n  attnum=%d\n  type=%d\n  type_len=%d\n  type_mod=%d\n  format=%d\n",
-			$i, @{ $field };
+		printf "  ---[Field %02d]---\n  name='%s'\n  type=%d\n  type_len=%d\n  type_mod=%d\n",
+			$i, $field->[0], $field->[3], $field->[4], $field->[5];
+
+		printf("  relid=%d\n  attnum=%d\n  format=%d\n", $field->[1], $field->[2], $field->[6]) if defined $field->[1];
 	}
 	print "\n";
 }
