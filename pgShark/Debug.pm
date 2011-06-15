@@ -276,8 +276,7 @@ sub CopyData {
 
 	header($pg_msg, $pg_msg->{'from_backend'});
 
-	# we remove type and msg length bytes real data size
-	printf "COPY DATA len=%d\n\n", length($pg_msg->{'data'}) - 5;
+	printf "COPY DATA len=%d\n\n", length($pg_msg->{'row'});
 }
 
 ## handle commande B & F (c)

@@ -364,6 +364,7 @@ sub parse_v3 {
 	#   data=Byte[n]
 	elsif ($pg_msg->{'type'} eq 'd') {
 		$len = unpack('xN', $curr_sess->{'data'});
+		$pg_msg->{'row'} = substr($curr_sess->{'data'}, 5, $len-4);
 		$pg_msg->{'type'} = 'CopyData';
 		return $len+1;
 	}
