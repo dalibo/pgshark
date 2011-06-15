@@ -331,9 +331,9 @@ sub parse_v3 {
 	# message: CancelRequest (F)
 	#   status=Char
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'CancelRequest') {
-		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x9NN', $curr_sess->{'data'});
+		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x8NN', $curr_sess->{'data'});
 		$pg_msg->{'type'} = 'CancelRequest';
-		return 17;
+		return 16;
 	}
 
 	# message: F(C) "Close"
