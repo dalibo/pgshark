@@ -273,9 +273,8 @@ sub CommandComplete {
 # @param $from_backend (boolean) wether the message comes from the backend or not
 sub CopyData {
 	my $pg_msg = shift;
-	my $from_backend = shift;
 
-	header($pg_msg, $from_backend);
+	header($pg_msg, $pg_msg->{'from_backend'});
 
 	# we remove type and msg length bytes real data size
 	printf "COPY DATA len=%d\n\n", length($pg_msg->{'data'}) - 5;
@@ -286,9 +285,8 @@ sub CopyData {
 # @param $from_backend (boolean) wether the message comes from the backend or not
 sub CopyDone {
 	my $pg_msg = shift;
-	my $from_backend = shift;
 
-	header($pg_msg, $from_backend);
+	header($pg_msg, $pg_msg->{'from_backend'});
 
 	printf "COPY DONE\n\n";
 }
