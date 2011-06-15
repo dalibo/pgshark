@@ -854,11 +854,11 @@ sub process_message_v3 {
 			return ;
 		}
 
+		$msg_len = $self->parse_v3($pg_msg);
+
 		debug(3, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
 			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
 		);
-
-		$msg_len = $self->parse_v3($pg_msg);
 
 		if ($msg_len > 0) {
 			$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
@@ -871,7 +871,7 @@ sub process_message_v3 {
 		$data_len -= $msg_len;
 
 		# if the message was Terminate, destroy the session
-		if ($pg_msg->{'type'} eq 'X') {
+		if ($pg_msg->{'type'} eq 'Terminate') {
 			debug(3, "PGSQL: destroying session %s (remaining buffer was %d byte long).\n", $sess_hash, $data_len);
 			delete $self->{'sessions'}->{$sess_hash};
 		}
