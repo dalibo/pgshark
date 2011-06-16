@@ -7,12 +7,6 @@ use strict;
 use warnings;
 
 #use Net::TcpDumpLog;
-use Net::Pcap qw(:functions);
-use Net::Pcap::Reassemble;
-use NetPacket::Ethernet qw(:types);
-use NetPacket::IP qw(:protos);
-use NetPacket::TCP;
-use Data::Hexdumper;
 use Data::Dumper;
 use Getopt::Long;
 use Pod::Usage;
