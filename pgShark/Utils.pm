@@ -34,29 +34,29 @@ sub debug {
 	printf(STDERR "debug(%d): $format", $lvl, @_) if $debug_lvl >= $lvl;
 }
 
-## 
-# normalize query
-# @return the normalized query
+##
+#normalize query
+#@return the normalized query
 sub normalize_query {
 	my $query = shift;
 
 	chomp $query;
 
-	# remove bad escaped quotes in text so they are not in our way
-	# for other cleaning stuffs. We'll take care of others '' later
-	$query =~ s/\\'//g;
-	# remove multi spaces
+	#remove bad escaped quotes in text so they are not in our way
+	#for other cleaning stuffs. We'll take care of others '' later
+	$query =~ s/\\'//g while $query =~ /\\'/;
+	#remove multi spaces
 	$query =~ s/\s+/ /g;
-	# empty text
+	#empty text
 	$query =~ s/'[^']*'/''/g;
-	# remove all remaining '' (that were escaping ')
-	# left behind the previous substitution
+	#remove all remaining '' (that were escaping ')
+	#left behind the previous substitution
 	$query =~ s/''('')+/''/g;
-	# remove numbers
+	#remove numbers
 	$query =~ s/([^a-zA-Z0-9_\$-])-?([0-9]+)/${1}0/g;
-	# remove hexa numbers
+	#remove hexa numbers
 	$query =~ s/([^a-z_\$-])0x[0-9a-f]{1,10}/${1}0x/gi;
-	# remove IN (values)
+	#remove IN (values)
 	$query =~ s/(IN\s*)\([^\)]*\)/${1}0x/gi;
 	#rewrite params, some of them might have been drop in a IN parameter
 	my $pi=1;
