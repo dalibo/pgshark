@@ -9,6 +9,7 @@ use Digest::MD5 qw(md5_base64);
 use Net::Pcap qw(:functions);
 use pgShark::Utils;
 use Data::Dumper;
+use Getopt::Long;
 
 use Exporter;
 our $VERSION = 0.1;
@@ -17,10 +18,43 @@ our @EXPORT = qw/$callbacks $filter getCallbacks getFilter Parse Query/;
 our @EXPORT_OK = qw/$callbacks $filter getCallbacks getFilter Parse Query/;
 
 ## TODO
-#  add some option to control what we want to catch:
+#  * support parameters in extended protocol
+#  * add some option to control what we want to catch:
 #   * queries ? prepd stmt ? portals ? ALL (deallocate as instance ?) ??
-#   * add some query samples if asked by option (commented ?)
 #   * support $str$strings here$str$ notation
+
+my %args = (
+	'output-queries' => undef,
+	'output-norm' => undef
+);
+
+my $OUT_NORM;
+my $OUT_RAW = undef;
+
+Getopt::Long::Configure('bundling');
+GetOptions(\%args, qw{
+	output-queries|O=s
+	output-norm|o=s
+});
+
+if (defined $args{'output-norm'}) {
+
+	$args{'output-norm'} = '&STDOUT' if $args{'output-norm'} eq '-';
+
+	open($OUT_NORM, ">$args{'output-norm'}")
+		or die("Can not open file $args{'output-norm'}: $!");
+}
+else {
+	open($OUT_NORM, '>&STDOUT');
+}
+
+if (defined $args{'output-queries'}) {
+
+	$args{'output-queries'} = '&STDOUT' if $args{'output-queries'} eq '-';
+
+	open($OUT_RAW, ">$args{'output-queries'}")
+		or die("Can not open file $args{'output-queries'}: $!");
+}
 
 my $normalized = {};
 
@@ -69,7 +103,8 @@ sub Parse {
 	my $query_hash = normalize($pg_msg->{query});
 
 	if ($normalized->{$query_hash}->{count} == 1) {
-		print "PREPARE xxx(...) AS $normalized->{$query_hash}->{query}\n\n";
+		print $OUT_NORM "PREPARE xxx(...) AS $normalized->{$query_hash}->{query}\n\n";
+		print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
 	}
 }
 
@@ -81,7 +116,8 @@ sub Query {
 	my $query_hash = normalize($pg_msg->{query});
 
 	if ($normalized->{$query_hash}->{count} == 1) {
-		print "$normalized->{$query_hash}->{query}\n\n";
+		print $OUT_NORM "$normalized->{$query_hash}->{query}\n\n";
+		print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
 	}
 }
 
