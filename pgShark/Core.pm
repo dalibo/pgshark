@@ -33,7 +33,7 @@ sub new {
 	my $args = shift;
 
 	my $self = {
-		'host' => defined($args->{'host'}) ? $args->{'host'} : 'localhost',
+		'host' => defined($args->{'host'}) ? $args->{'host'} : '127.0.0.1',
 		'pcap' => undef,
 		'pckt_count' => 0,
 		'port' => defined($args->{'port'}) ? $args->{'port'} : '5432',
