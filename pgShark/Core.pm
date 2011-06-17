@@ -7,9 +7,6 @@ use strict;
 use warnings;
 use Net::Pcap qw(:functions);
 use Net::Pcap::Reassemble;
-use NetPacket::Ethernet qw(:types);
-use NetPacket::IP qw(:protos);
-use NetPacket::TCP;
 use Data::Hexdumper;
 use Data::Dumper;
 use pgShark::Utils;
@@ -41,6 +38,11 @@ sub new {
 		'protocol' => defined($args->{'protocol'}) ? $args->{'protocol'} : '3',
 		'sessions' => {}
 	};
+
+
+	# dot2dec the host
+	my ($na, $nb, $nc, $nd) = split /\./, $self->{'host'};
+	$self->{'host'} = ($na << 24) + ($nb << 16) + ($nc << 8) + ($nd);
 
 	foreach my $func (keys %{ $args->{'procs'} } ) {
 		$self->{$func} = $args->{'procs'}->{$func};
@@ -125,53 +127,63 @@ sub process_packet {
 	my($self, $pckt_hdr, $pckt) = @_;
 
 	$self->{'pckt_count'}++;
-	my ($eth, $ip, $tcp);
 	my ($sess_hash, $from_backend);
 
-	$eth = NetPacket::Ethernet->decode($pckt);
+	my ($eth_type, $data) = unpack('x12na*' , $pckt);
 
 	# ignore non-IP packets
-	return unless (defined($eth->{'data'})
-		and defined($eth->{'type'})
-		and ($eth->{'type'} == ETH_TYPE_IP)
-	);
+	return unless defined $data and defined $eth_type and $eth_type == 0x0800;
 
 	# decode the IP payload
-	$ip = NetPacket::IP->decode($eth->{'data'});
+	my ($ip_hlen, $ip_len, $ip_proto, $src_ip, $dest_ip);
+	($ip_hlen, $ip_len, $ip_proto, $src_ip, $dest_ip, $data)
+		= unpack('CxnxxxxxCxxNNa*' , $data);
 
 	# ignore non-TCP packets
-	unless ($ip->{'proto'} == IP_PROTO_TCP) {
+	unless ($ip_proto == 6) {
 		debug(2, "IP: not TCP\n");
 		return;
 	}
 
+	$ip_hlen = $ip_hlen & 0x0f;
+	$ip_hlen = 5 if $ip_hlen < 5; # precaution against bad header
+
+	$data = substr($data, ($ip_hlen - 5) * 4, $ip_len - 4 * $ip_hlen);
+
 	# decode the TCP payload
-	$tcp = NetPacket::TCP->decode($ip->{'data'});
+	my ($src_port, $dest_port, $tcp_hlen);
+	($src_port, $dest_port, $tcp_hlen, $data) = unpack("nnx8nx6a*", $data);
+
+	# Extract flags
+	$tcp_hlen = ((($tcp_hlen & 0xf000) >> 12) - 5) * 4;
+	$tcp_hlen = 0 if $tcp_hlen < 0;  # Check for bad hlen
+
+	$data = substr($data, $tcp_hlen);
 
 	debug(2, "packet: #=%d len=%s, caplen=%s\n", $self->{'pckt_count'}, map { $pckt_hdr->{$_} } qw(len caplen));
 
 	# ignore tcp without data
-	unless (length $tcp->{'data'}) {
+	unless (length $data) {
 		debug(2, "TCP: no data\n");
 		return;
 	}
 
-	debug(2, "IP:TCP %s:%d -> %s:%d\n", $ip->{'src_ip'}, $tcp->{'src_port'}, $ip->{'dest_ip'}, $tcp->{'dest_port'});
+	debug(2, "IP:TCP %s:%d -> %s:%d\n", $src_ip, $src_port, $dest_ip, $dest_port);
 
 	# pgShark must track every sessions to be able to dissect their data without
 	# mixing them. Sessions related data are kept in "$self->{'sessions'}", each
 	# session is identified with its hash, composed by its IP and origin port.
 	# We could add server ip and port to this hash, but we are suppose to work
 	# with only one server.
-	if ($ip->{'src_ip'} eq $self->{'host'} and $tcp->{'src_port'} == $self->{'port'}) {
+	if ($src_ip eq $self->{'host'} and $src_port == $self->{'port'}) {
 		$from_backend = 1;
-		$sess_hash = $ip->{'dest_ip'} . $tcp->{'dest_port'};
+		$sess_hash = $dest_ip . $dest_port;
 	}
 	else {
 		$from_backend = 0;
-		$sess_hash = $ip->{'src_ip'} . $tcp->{'src_port'};
+		$sess_hash = $src_ip . $src_port;
 	}
-	$sess_hash =~ s/\.//g; # FIXME perf ? useless but for better debug messages
+	# $sess_hash =~ s/\.//g; # FIXME perf ? useless but for better debug messages
 
 	if (not defined($self->{'sessions'}->{$sess_hash})) {
 		debug(3, "PGSQL: creating a new session %s\n", $sess_hash);
@@ -181,16 +193,16 @@ sub process_packet {
 	}
 
 	# add data to the current session's buffer
-	$self->{'sessions'}->{$sess_hash}->{'data'} .= $tcp->{'data'};
+	$self->{'sessions'}->{$sess_hash}->{'data'} .= $data;
 
 	# hash about message informations
 	my $pg_msg = {
 		# tcp/ip properties
 		'tcpip' => {
-			'src_ip' => $ip->{'src_ip'},
-			'dest_ip' => $ip->{'dest_ip'},
-			'src_port' => $tcp->{'src_port'},
-			'dest_port' => $tcp->{'dest_port'}
+			'src_ip' => $src_ip,
+			'dest_ip' => $dest_ip,
+			'src_port' => $src_port,
+			'dest_port' => $dest_port
 		},
 		# the session this message belongs to
 		'sess_hash' => $sess_hash,

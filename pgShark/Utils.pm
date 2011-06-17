@@ -8,9 +8,14 @@ use warnings;
 use Exporter;
 our $VERSION = 0.1;
 our @ISA = ('Exporter');
-our @EXPORT = qw/debug set_debug normalize_query get_debug_lvl/;
+our @EXPORT = qw/debug set_debug normalize_query get_debug_lvl dec2dot/;
 
 my $debug_lvl = 0;
+
+sub dec2dot {
+    my $addr = shift;
+    return sprintf "%s.%s.%s.%s", $addr>>24, $addr>>16 & 255, $addr>>8 & 255, $addr & 255;
+}
 
 sub get_debug_lvl {
 	return $debug_lvl;

@@ -129,16 +129,20 @@ sub printf_prefix {
 				$prefix_output =~ s/%k/$sess_hash/ge;
 			}
 			elsif (/%H/) {
-				$prefix_output =~ s/%H/$pg_msg->{'tcpip'}->{'src_ip'}/ge;
+				my $src_ip = dec2dot($pg_msg->{'tcpip'}->{'src_ip'});
+				$prefix_output =~ s/%H/$src_ip/ge;
 			}
 			elsif (/%h/) {
-				$prefix_output =~ s/%h/$pg_msg->{'tcpip'}->{'dest_ip'}/ge;
+				my $dest_ip = dec2dot($pg_msg->{'tcpip'}->{'dest_ip'});
+				$prefix_output =~ s/%h/$dest_ip/ge;
 			}
 			elsif (/%R/) {
-				$prefix_output =~ s/%R/"$pg_msg->{'tcpip'}->{'src_ip'}:$pg_msg->{'tcpip'}->{'src_port'}"/ge;
+				my $src_ip = dec2dot($pg_msg->{'tcpip'}->{'src_ip'});
+				$prefix_output =~ s/%R/"$src_ip:$pg_msg->{'tcpip'}->{'src_port'}"/ge;
 			}
 			elsif (/%r/) {
-				$prefix_output =~ s/%r/"$pg_msg->{'tcpip'}->{'dest_ip'}:$pg_msg->{'tcpip'}->{'dest_port'}"/ge;
+				my $dest_ip = dec2dot($pg_msg->{'tcpip'}->{'dest_ip'});
+				$prefix_output =~ s/%r/"$dest_ip:$pg_msg->{'tcpip'}->{'dest_port'}"/ge;
 			}
 			elsif (/%T/) {
 				$prefix_output =~ s/%T/$pg_msg->{'timestamp'}/ge;
