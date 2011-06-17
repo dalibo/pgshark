@@ -7,7 +7,6 @@ use strict;
 use warnings;
 use Net::Pcap qw(:functions);
 use Net::Pcap::Reassemble;
-use Data::Hexdumper;
 use Data::Dumper;
 use pgShark::Utils;
 
@@ -116,7 +115,7 @@ sub process_all {
 		if $self->{'pcap'};
 
 	## slightly better perfs without Net::Pcap::Reassemble
-	# pcap_loop($pcap, -1, \&process_packet, $self);
+	# pcap_loop($self->{'pcap'}, -1, \&process_packet, $self) if $self->{'pcap'};
 }
 
 ## Main callback called to dissect a network packet
