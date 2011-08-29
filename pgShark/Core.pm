@@ -150,8 +150,8 @@ sub process_packet {
 	$data = substr($data, ($ip_hlen - 5) * 4, $ip_len - 4 * $ip_hlen);
 
 	# decode the TCP payload
-	my ($src_port, $dest_port, $tcp_hlen);
-	($src_port, $dest_port, $tcp_hlen, $data) = unpack("nnx8nx6a*", $data);
+	my ($src_port, $dest_port, $seqnum, $acknum, $tcp_hlen, $tcp_len);
+	($src_port, $dest_port, $seqnum, $acknum, $tcp_hlen, $data) = unpack("nnNNnx6a*", $data);
 
 	# Extract flags
 	$tcp_hlen = ((($tcp_hlen & 0xf000) >> 12) - 5) * 4;
@@ -159,15 +159,19 @@ sub process_packet {
 
 	$data = substr($data, $tcp_hlen);
 
-	debug(2, "packet: #=%d len=%s, caplen=%s\n", $self->{'pckt_count'}, map { $pckt_hdr->{$_} } qw(len caplen));
+	debug(2, "packet: #=%d len=%s, caplen=%s\n", $self->{'pckt_count'}, $pckt_hdr->{'len'}, $pckt_hdr->{'caplen'});
+
+	$tcp_len = length($data);
 
 	# ignore tcp without data
-	unless (length $data) {
+	unless ($tcp_len) {
 		debug(2, "TCP: no data\n");
 		return;
 	}
 
-	debug(2, "IP:TCP %s:%d -> %s:%d\n", $src_ip, $src_port, $dest_ip, $dest_port);
+	debug(2, "IP:TCP %s:%d -> %s:%d, seqnum: %d, acknum: %d, len: %d\n",
+		$src_ip, $src_port, $dest_ip, $dest_port, $seqnum, $acknum, $tcp_len
+	);
 
 	# pgShark must track every sessions to be able to dissect their data without
 	# mixing them. Sessions related data are kept in "$self->{'sessions'}", each
@@ -1362,8 +1366,8 @@ sub process_message_v2 {
 			else {
 				if (get_debug_lvl()) {
 					$curr_sess->{'data'} =~ tr/\x00-\x1F\x7F-\xFF/./;
-					debug(1, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
-						$pg_msg->{'timestamp'}, $curr_sess->{'data'}
+					debug(1, "WARNING: dropped alien packet (from_backend: %d) I was unable to mess with at timestamp %s:\n'%s'\n",
+						$from_backend, $pg_msg->{'timestamp'}, $curr_sess->{'data'}
 					);
 				}
 				$curr_sess->{'data'} = '';
