@@ -839,7 +839,7 @@ sub process_message_v3 {
 				return;
 			}
 		}
-		elsif ($from_backend and $curr_sess->{'data'} =~ /^N|S$/) {
+		elsif ($from_backend and $curr_sess->{'data'} =~ /^(N|S)$/) {
 			# SSL answer
 			$pg_msg->{'type'} = 'SSLAnswer';
 		}
@@ -1330,7 +1330,7 @@ sub process_message_v2 {
 		# the message current total length
 		my $msg_len = 0;
 
-		if ($from_backend and $curr_sess->{'data'} =~ /^N|S$/) {
+		if ($from_backend and $curr_sess->{'data'} =~ /^(N|S)$/) {
 			# SSL answer
 			$pg_msg->{'type'} = 'SSLAnswer';
 		}
