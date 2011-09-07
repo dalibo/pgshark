@@ -6,6 +6,10 @@
 use strict;
 use warnings;
 
+use File::Basename 'dirname';
+use File::Spec;
+use lib join '/', File::Spec->splitdir(dirname(__FILE__));
+
 #use Net::TcpDumpLog;
 use Data::Dumper;
 use Getopt::Long;
@@ -87,7 +91,7 @@ set_debug($args{'debug'});
 debug (1, "Options:\n%s\n", Dumper(\%args));
 
 # load the plugin package
-require "./pgShark/$args{'output'}.pm";
+require "pgShark/$args{'output'}.pm";
 $args{'output'}->import;
 
 my $shark = pgShark::Core->new({
