@@ -33,7 +33,7 @@ sub new {
 		'pcap' => undef,
 		'pckt_count' => 0,
 		'port' => defined($args->{'port'}) ? $args->{'port'} : '5432',
-		'queries_count' => 0,
+		'msg_count' => 0,
 		'protocol' => defined($args->{'protocol'}) ? $args->{'protocol'} : '3',
 		'sessions' => {}
 	};
@@ -895,7 +895,7 @@ sub process_message_v3 {
 			delete $self->{'sessions'}->{$sess_hash};
 		}
 
-		$self->{'queries_count'}++;
+		$self->{'msg_count'}++;
 	} while ($data_len > 0);
 }
 
@@ -1401,13 +1401,13 @@ sub process_message_v2 {
 			delete $self->{'sessions'}->{$sess_hash};
 		}
 
-		$self->{'queries_count'}++;
+		$self->{'msg_count'}++;
 	} while ($data_len > 0);
 }
 
 DESTROY {
 	my $self = shift;
-	debug(1, "-- Core: Total number of messages: $self->{'queries_count'}\n");
+	debug(1, "-- Core: Total number of messages processed: $self->{'msg_count'}\n");
 	debug(1, "-- bye.\n");
 }
 
