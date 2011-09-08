@@ -1,9 +1,9 @@
-pgshark.pl
-    pgshark.pl - Messing with PostgreSQL network traffic
+pgshark
+    pgshark - Messing with PostgreSQL network traffic
 
 SYNOPSIS
-    pgshark.pl --help
-    pgshark.pl [--debug] [-2|-3] [--read file] {--output plugin_name} [--
+    pgshark --help
+    pgshark [--debug] [-2|-3] [--read file] {--output plugin_name} [--
     [plugin options...]]
       Where plugin_name could be *sql* or *normalize* or *debug* or
       *fouine*.
@@ -98,15 +98,15 @@ PLUGINS
 EXAMPLES
     Output all queries found in files "some_capture.pcap*" as SQL to the
     standart output:
-      "cat some_capture.pcap* | pgshark.pl --output SQL"
+      "cat some_capture.pcap* | pgshark --output SQL"
 
     Output all queries found in file "some_capture.pcap001" as SQL to the
     standart output.
-      "pgshark.pl --output SQL -r some_capture.pcap001"
+      "pgshark --output SQL -r some_capture.pcap001"
 
     Capture PostgreSQL traffic from interface eth0 and output normalized
     queries to the standart output.
-      "pgshark.pl --output normalize -i eth0"
+      "pgshark --output normalize -i eth0"
 
     The following example shows how to work with a server that is NOT
     listening on localhost and the default 5432 port. (1) dump from "eth0"
@@ -117,7 +117,7 @@ EXAMPLES
     dump and its working port.
 
       "tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490'" (1)
-      "pgshark.pl --port 5490 --host 192.168.42.5 --output SQL -r \
+      "pgshark --port 5490 --host 192.168.42.5 --output SQL -r \
         /tmp/tcp_5490.pcap -- --line_prefix "%t user=%u,database=%d: "" (2)
 
 AUTHORS

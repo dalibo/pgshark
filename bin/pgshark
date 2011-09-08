@@ -141,7 +141,7 @@ $shark->close();
 
 =head1 pgshark
 
-pgshark.pl - Messing with PostgreSQL network traffic
+pgshark - Messing with PostgreSQL network traffic
 
 =head1 SYNOPSIS
 
