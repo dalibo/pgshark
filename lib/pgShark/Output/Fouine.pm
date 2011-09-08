@@ -47,7 +47,7 @@
 # * cnx roles
 #
 ##
-package Fouine;
+package pgShark::Output::Fouine;
 
 use strict;
 use warnings;

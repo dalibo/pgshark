@@ -1,1 +1,10 @@
 /ignore/
+_build
+Build
+blib
+Makefile*
+!Makefile.PL
+*META.yml
+!META.yml
+MANIFEST*
+!MANIFEST.SKIP

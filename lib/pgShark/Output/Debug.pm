@@ -1,7 +1,7 @@
 ##
 # This program is open source, licensed under the simplified BSD license.  For license terms, see the LICENSE file.
 ##
-package Debug;
+package pgShark::Output::Debug;
 
 use strict;
 use warnings;

@@ -8,14 +8,14 @@ use warnings;
 
 use File::Basename 'dirname';
 use File::Spec;
-use lib join '/', File::Spec->splitdir(dirname(__FILE__));
+use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
 
 #use Net::TcpDumpLog;
 use Data::Dumper;
 use Getopt::Long;
 use Pod::Usage;
+use pgShark;
 use pgShark::Utils;
-use pgShark::Core;
 
 my $pckt = {};
 my $pckt_num = 0;
@@ -91,10 +91,11 @@ set_debug($args{'debug'});
 debug (1, "Options:\n%s\n", Dumper(\%args));
 
 # load the plugin package
-require "pgShark/$args{'output'}.pm";
+require "pgShark/Output/$args{'output'}.pm";
+$args{'output'} = 'pgShark::Output::' . $args{'output'};
 $args{'output'}->import;
 
-my $shark = pgShark::Core->new({
+my $shark = pgShark->new({
 	'procs' => getCallbacks(),
 	'host' => $args{'host'},
 	'port' => $args{'port'},
@@ -138,7 +139,7 @@ my $ret = $shark->process_all();
 
 $shark->close();
 
-=head1 pgshark.pl
+=head1 pgshark
 
 pgshark.pl - Messing with PostgreSQL network traffic
 
@@ -146,9 +147,9 @@ pgshark.pl - Messing with PostgreSQL network traffic
 
 =over 2
 
-=item pgshark.pl --help
+=item pgshark --help
 
-=item pgshark.pl [--debug] [-2|-3] [--read file] {--output plugin_name} [-- [plugin options...]]
+=item pgshark [--debug] [-2|-3] [--read file] {--output plugin_name} [-- [plugin options...]]
 
 Where B<plugin_name> could be I<sql> or I<normalize> or I<debug> or I<fouine>.
 
@@ -278,15 +279,15 @@ classification of queries by type, etc.
 
 =item Output all queries found in files C<some_capture.pcap*> as SQL to the standart output:
 
-C<cat some_capture.pcap* | pgshark.pl --output SQL>
+C<cat some_capture.pcap* | pgshark --output SQL>
 
 =item Output all queries found in file C<some_capture.pcap001> as SQL to the standart output.
 
-C<pgshark.pl --output SQL -r some_capture.pcap001>
+C<pgshark --output SQL -r some_capture.pcap001>
 
 =item Capture PostgreSQL traffic from interface eth0 and output normalized queries to the standart output.
 
-C<pgshark.pl --output normalize -i eth0>
+C<pgshark --output normalize -i eth0>
 
 =item The following example shows how to work with a server that is B<NOT> listening on localhost and the default 5432 port. (1)
 dump from C<eth0> every packets from/to the port 5490. C<-s 0> is requiered on some older version of tcpdump to dump
@@ -297,7 +298,7 @@ B<important> to notify pgshark who is the PostgreSQL server in the network dump 
 
 =item C<tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490'> (1)
 
-=item C<pgshark.pl --port 5490 --host 192.168.42.5 --output SQL -r /tmp/tcp_5490.pcap -- --line_prefix "%t user=%u,database=%d: "> (2)
+=item C<pgshark --port 5490 --host 192.168.42.5 --output SQL -r /tmp/tcp_5490.pcap -- --line_prefix "%t user=%u,database=%d: "> (2)
 
 =back
 
