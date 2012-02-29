@@ -65,7 +65,7 @@ longusage() if ($args{'help'});
 usage("Argument --output is mandatory.\n") if $args{'output'} eq '';
 usage("Options -2 and -3 are mutal exclusives.\n") if $args{'2'} and $args{'3'};
 
-usage("Arguments --interface and --read are incompatible.\nEither listen from the networkor open a pcap file.\n")
+usage("Arguments --interface and --read are incompatible.\nEither listen from the network or open a pcap file.\n")
 	if $args{'interface'} ne '' and $args{'read'} ne '';
 
 $args{'output'} = ucfirst lc $args{'output'};
