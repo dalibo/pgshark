@@ -124,9 +124,9 @@ sub process_all {
 # for each messages.
 sub process_packet {
 	my($self, $pckt_hdr, $pckt) = @_;
+	my ($sess_hash, $curr_sess, $from_backend);
 
 	$self->{'pckt_count'}++;
-	my ($sess_hash, $from_backend);
 
 	my ($eth_type, $data) = unpack('x12na*' , $pckt);
 
@@ -186,17 +186,73 @@ sub process_packet {
 		$from_backend = 0;
 		$sess_hash = $src_ip . $src_port;
 	}
-	# $sess_hash =~ s/\.//g; # FIXME perf ? useless but for better debug messages
 
 	if (not defined($self->{'sessions'}->{$sess_hash})) {
 		debug(3, "PGSQL: creating a new session %s\n", $sess_hash);
-		$self->{'sessions'}->{$sess_hash} = {
-			'data' => '', # raw data of the message
-		};
+		$self->{'sessions'}->{$sess_hash} = [
+			{ # not from backend
+				'data' => '', # raw tcp data
+				'next_seq' => -1,
+				'segs' => [], # segments buffer
+			},
+			{ # from backend
+				'data' => '', # raw tcp data
+				'next_seq' => -1,
+				'segs' => [], # segments buffer
+			}
+		];
 	}
 
-	# add data to the current session's buffer
-	$self->{'sessions'}->{$sess_hash}->{'data'} .= $data;
+	$curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
+
+	$curr_sess->{'next_seq'} = $seqnum;
+
+	push @{ $curr_sess->{'segs'} }, ({
+		'seq' => $seqnum,
+		'len' => $tcp_len,
+		'data' => $data
+	});
+
+	debug(3, "TCP/IP: %s-%d: segment in the buff: %d\n", $sess_hash, $from_backend, scalar @{ $curr_sess->{'segs'} });
+
+	# we loop over existing tcp segments trying to find the best one to reconstruct the data
+	my $i=0;
+	foreach my $segment ( @{ $curr_sess->{'segs'} }) {
+		# normal
+		if ($curr_sess->{'next_seq'} == $segment->{'seq'}) {
+
+			debug(3, "TCP/IP: %s-%d: perfect sequence\n", $sess_hash, $from_backend);
+			# add data to the current session's buffer
+			$curr_sess->{'data'} .= $segment->{'data'};
+			$curr_sess->{'next_seq'} = $curr_sess->{'next_seq'} + $segment->{'len'};
+
+			splice @{ $curr_sess->{'segs'} }, $i, 1;
+		}
+		# tcp's data begins in past but finish in future
+		elsif (($curr_sess->{'next_seq'} >= $segment->{'seq'})
+			and ($curr_sess->{'next_seq'} < $segment->{'seq'} + $segment->{'len'})
+		) {
+			debug(3, "TCP/IP: %s-%d: segment start in the past but complete data\n", $sess_hash, $from_backend);
+			my $offset = $curr_sess->{'next_seq'} - $segment->{'seq'};
+			# add data to the current session's buffer
+			$curr_sess->{'data'} .= substr($segment->{'data'}, $offset);
+			$curr_sess->{'next_seq'} = $curr_sess->{'next_seq'} + $segment->{'len'} - $offset;
+
+			splice @{ $curr_sess->{'segs'} }, $i, 1;
+		}
+		# tcp segment already done, drop it
+		elsif ($curr_sess->{'next_seq'} >= $segment->{'seq'} + $segment->{'len'}) {
+			debug(3, "TCP/IP: %s-%d: segment in the past.\n", $sess_hash, $from_backend);
+			splice @{ $curr_sess->{'segs'} }, $i, 1;
+		}
+		else {
+			# tcp's in the future, we keep it in the segment buffer
+			debug(3, "TCP/IP: %s-%d:  tcp's in the future, next_seq: %d, seq: %d-%d.\n",
+				$sess_hash, $from_backend, $curr_sess->{'next_seq'}, $segment->{'seq'}, $segment->{'seq'} + $segment->{'len'}
+			);
+		}
+		$i++;
+	}
 
 	# hash about message informations
 	my $pg_msg = {
@@ -219,7 +275,14 @@ sub process_packet {
 		## other fields specifics to each messages are added bellow
 	};
 
-	$self->{'process_message'}->($self, $pg_msg);
+	# if processing the message fails, reset the data for this half-part of a session
+	if ($self->{'process_message'}->($self, $pg_msg) != 0) {
+		$self->{'sessions'}->{$sess_hash}->[$from_backend] = {
+			'data' => '', # raw tcp data
+			'next_seq' => -1,
+			'segs' => [], # segments buffer
+		}
+	}
 }
 
 sub parse_v3 {
@@ -227,7 +290,7 @@ sub parse_v3 {
 	my $pg_msg = shift;
 
 	my $from_backend = $pg_msg->{'from_backend'};
-	my $curr_sess = $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+	my $curr_sess = $self->{'sessions'}->{$pg_msg->{'sess_hash'}}->[$from_backend];
 	my $len;
 
 	# message: B(R) "Authentication*"
@@ -811,7 +874,7 @@ sub process_message_v3 {
 	my $sess_hash = $pg_msg_orig->{'sess_hash'};
 	my $from_backend = $pg_msg_orig->{'from_backend'};
 
-	my $curr_sess = $self->{'sessions'}->{$sess_hash};
+	my $curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
 
 	# buffer length. It helps tracking if we have enough data in session's
 	# buffer to process the current message
@@ -836,7 +899,7 @@ sub process_message_v3 {
 			if ($data_len < $msg_len + 1) { # we add the type byte
 				# we don't have the full message, waiting for more bits
 				debug(2, "NOTICE: message fragmented (data available: %d, total message length: %d), waiting for more bits.\n", $data_len, $msg_len+1);
-				return;
+				return 0;
 			}
 		}
 		elsif ($from_backend and $curr_sess->{'data'} =~ /^(N|S)$/) {
@@ -864,18 +927,20 @@ sub process_message_v3 {
 						$pg_msg->{'timestamp'}, $curr_sess->{'data'}
 					);
 				}
-				$curr_sess->{'data'} = '';
-				return;
+				return -1;
 			}
 		}
 		else {
-			debug(2, "NOTICE: looks like we have either an incomplette header or some junk in the buffer (data available: %d)...waiting for more bits.\n", $data_len);
-			return ;
+			debug(4, "NOTICE: buffer full of junk or empty (data available: %d)...waiting for more bits.\n", $data_len);
+			my $d = $curr_sess->{'data'};
+			$d =~ tr/\x00-\x1F\x7F-\xFF/./;
+			debug(4, "HINT: data are: «%s»\n", $d);
+			return 0;
 		}
 
 		$msg_len = $self->parse_v3($pg_msg);
 
-		debug(3, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
+		debug(2, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
 			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
 		);
 
@@ -897,6 +962,8 @@ sub process_message_v3 {
 
 		$self->{'msg_count'}++;
 	} while ($data_len > 0);
+
+	return 0;
 }
 
 ##
@@ -916,7 +983,7 @@ sub parse_v2 {
 	my $pg_msg = shift;
 
 	my $from_backend = $pg_msg->{'from_backend'};
-	my $curr_sess = $self->{'sessions'}->{$pg_msg->{'sess_hash'}};
+	my $curr_sess = $self->{'sessions'}->{$pg_msg->{'sess_hash'}}->[$from_backend];
 
 	# message: B(D) "AsciiRow" or B(B) "BinaryRow"
 	# we try to be compatible with proto v3 here
@@ -1315,7 +1382,7 @@ sub process_message_v2 {
 	my $sess_hash = $pg_msg_orig->{'sess_hash'};
 	my $from_backend = $pg_msg_orig->{'from_backend'};
 
-	my $curr_sess = $self->{'sessions'}->{$sess_hash};
+	my $curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
 
 	# buffer length. It helps tracking if we have enough data in session's
 	# buffer to process the current message
@@ -1370,22 +1437,26 @@ sub process_message_v2 {
 						$from_backend, $pg_msg->{'timestamp'}, $curr_sess->{'data'}
 					);
 				}
-				$curr_sess->{'data'} = '';
-				return;
+				return -1;
 			}
 		}
 		else {
-			debug(2, "NOTICE: looks like we have either an incomplette header or some junk in the buffer (data available: %d)...waiting for more bits.\n", $data_len);
-			return ;
+			debug(3, "NOTICE: incomplette header or buffer empty (data available: %d)...\n", $data_len);
+			if ($data_len) {
+				$_ = $curr_sess->{'data'};
+				$_ =~ tr/\x00-\x1F\x7F-\xFF/./;
+				debug(3, "NOTICE: %s: %s\n", $sess_hash, $_);
+			}
+			return 0;
 		}
 
 		$msg_len = $self->parse_v2($pg_msg);
 
-		debug(3, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
+		debug(2, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
 			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
 		);
 
-		return if $msg_len < 0 # the function probably miss some bytes
+		return 0 if $msg_len < 0 # the function probably miss some bytes
 			or $msg_len > $data_len; # or have fragmentation
 
 		$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
@@ -1403,6 +1474,8 @@ sub process_message_v2 {
 
 		$self->{'msg_count'}++;
 	} while ($data_len > 0);
+
+	return 0;
 }
 
 DESTROY {
