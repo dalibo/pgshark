@@ -10,6 +10,12 @@ use Net::Pcap qw(:functions);
 use Data::Dumper;
 use pgShark::Utils;
 
+use Exporter;
+our $VERSION = 0.1;
+our @ISA = ('Exporter');
+our @EXPORT = qw/parse_v2 parse_v3/;
+our @EXPORT_OK = qw/parse_v2 parse_v3/;
+
 ## Constructor
 # @param $args a hash ref of settings:
 # {
@@ -285,17 +291,74 @@ sub process_packet {
 	}
 }
 
+##
+# @param	$pg_msg: a hash ref where data parsed will be set
+# @param	$from_backend: does this data come from the Backend or the Frontend (0/1) ?
+# @param	$raw_data: the raw data to parse
+#
+# @return 	the total size of the message in the given raw_data.
+# 			0 means we lack some data to process the current message.
+# 		 	-1 on error
 sub parse_v3 {
-	my $self = shift;
 	my $pg_msg = shift;
-
-	my $from_backend = $pg_msg->{'from_backend'};
-	my $curr_sess = $self->{'sessions'}->{$pg_msg->{'sess_hash'}}->[$from_backend];
+	my $from_backend = shift;
+	my $raw_data = shift;
+	my $data_len = length $raw_data;
 	my $len;
+	my $msg_len;
+
+	if (
+		(not $from_backend and $raw_data =~ /^[BCfDEHFPpQSXdc].{4}/s)
+		or ($from_backend and $raw_data =~ /^[RK23CGHDIEVnNAtS1sZTdc].{4}/s)
+	) {
+		# the message has a type byte
+		($pg_msg->{'type'}, $msg_len) = unpack('AN', $raw_data);
+
+		if ($data_len < $msg_len + 1) { # we add the type byte
+			# we don't have the full message, waiting for more bits
+			debug(2, "NOTICE: message fragmented (data available: %d, total message length: %d), waiting for more bits.\n", $data_len, $msg_len+1);
+			return 0;
+		}
+	}
+	elsif ($from_backend and $raw_data =~ /^(N|S)$/) {
+		# SSL answer
+		$pg_msg->{'type'} = 'SSLAnswer';
+	}
+	elsif (not $from_backend and $raw_data =~ /^.{8}/s) {
+		my $code;
+		($msg_len, $code) = unpack('NN', $raw_data);
+		if ($code == 80877102) {
+			$pg_msg->{'type'} = 'CancelRequest';
+		}
+		elsif ($code == 80877103) {
+			$pg_msg->{'type'} = 'SSLRequest';
+		}
+		elsif ($code == 196608) {
+			$pg_msg->{'type'} = 'StartupMessage';
+			# my $min = $code%65536; # == 0
+			# my $maj = $code/65536; # == 3
+		}
+		else {
+			if (get_debug_lvl()) {
+				$raw_data =~ tr/\x00-\x1F\x7F-\xFF/./;
+				debug(1, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
+					$pg_msg->{'timestamp'}, $raw_data
+				);
+			}
+			return -1;
+		}
+	}
+	else {
+		debug(4, "NOTICE: buffer full of junk or empty (data available: %d)...waiting for more bits.\n", $data_len);
+		my $d = $raw_data;
+		$d =~ tr/\x00-\x1F\x7F-\xFF/./;
+		debug(4, "HINT: data are: «%s»\n", $d);
+		return 0;
+	}
 
 	# message: B(R) "Authentication*"
 	if ($from_backend and $pg_msg->{'type'} eq 'R') {
-		($len, $pg_msg->{'code'}) = unpack('xNN', $curr_sess->{'data'});
+		($len, $pg_msg->{'code'}) = unpack('xNN', $raw_data);
 
 		# AuthenticationOk
 		if ($pg_msg->{'code'} == 0) {
@@ -314,7 +377,7 @@ sub parse_v3 {
 		}
 		# AuthenticationMD5Password
 		elsif ($pg_msg->{'code'} == 5) {
-			$pg_msg->{'salt'} = substr($curr_sess->{'data'}, 9, 4);
+			$pg_msg->{'salt'} = substr($raw_data, 9, 4);
 			$pg_msg->{'type'} = 'AuthenticationMD5Password';
 			return 13;
 		}
@@ -335,7 +398,7 @@ sub parse_v3 {
 		}
 		# GSSAPI or SSPI authentication data
 		elsif ($pg_msg->{'code'} == 8) {
-			$pg_msg->{'auth_data'} = substr($curr_sess->{'data'}, 9, $len - 8);
+			$pg_msg->{'auth_data'} = substr($raw_data, 9, $len - 8);
 			$pg_msg->{'type'} = 'AuthenticationGSSContinue';
 			return $len+1;
 		}
@@ -345,7 +408,7 @@ sub parse_v3 {
 
 	# message: B(K) "BackendKeyData"
 	elsif ($from_backend and $pg_msg->{'type'} eq 'K') {
-		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x5NN', $curr_sess->{'data'});
+		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x5NN', $raw_data);
 		$pg_msg->{'type'} = 'BackendKeyData';
 		return 13;
 	}
@@ -364,11 +427,11 @@ sub parse_v3 {
 
 		# TODO refactor this mess
 
-		($len, $pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}) = unpack('xNZ*Z*n', $curr_sess->{'data'});
+		($len, $pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}) = unpack('xNZ*Z*n', $raw_data);
 
 		# we add 1 bytes for both portal and name that are null-terminated
 		# + 2 bytes of int16 for $num_formats
-		$msg = substr($curr_sess->{'data'}, 5 + length($pg_msg->{'portal'})+1 + length($pg_msg->{'name'})+1 +2);
+		$msg = substr($raw_data, 5 + length($pg_msg->{'portal'})+1 + length($pg_msg->{'name'})+1 +2);
 
 		# catch formats and the $num_params as well
 		@params_formats = unpack("n$pg_msg->{'num_formats'} n", $msg);
@@ -412,7 +475,7 @@ sub parse_v3 {
 	# message: CancelRequest (F)
 	#   status=Char
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'CancelRequest') {
-		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x8NN', $curr_sess->{'data'});
+		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x8NN', $raw_data);
 		$pg_msg->{'type'} = 'CancelRequest';
 		return 16;
 	}
@@ -421,7 +484,7 @@ sub parse_v3 {
 	#   kind=char
 	#   name=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'C') {
-		($len, $pg_msg->{'kind'}, $pg_msg->{'name'}) = unpack('xNAZ*', $curr_sess->{'data'});
+		($len, $pg_msg->{'kind'}, $pg_msg->{'name'}) = unpack('xNAZ*', $raw_data);
 		$pg_msg->{'type'} = 'Close';
 		return $len+1;
 	}
@@ -436,7 +499,7 @@ sub parse_v3 {
 	#   type=char
 	#   name=String
 	elsif ($from_backend and $pg_msg->{'type'} eq 'C') {
-		($len, $pg_msg->{'command'}) = unpack('xNZ*', $curr_sess->{'data'});
+		($len, $pg_msg->{'command'}) = unpack('xNZ*', $raw_data);
 		$pg_msg->{'type'} = 'CommandComplete';
 		return $len+1;
 	}
@@ -444,8 +507,8 @@ sub parse_v3 {
 	# message: B(d) or F(d) "CopyData"
 	#   data=Byte[n]
 	elsif ($pg_msg->{'type'} eq 'd') {
-		$len = unpack('xN', $curr_sess->{'data'});
-		$pg_msg->{'row'} = substr($curr_sess->{'data'}, 5, $len-4);
+		$len = unpack('xN', $raw_data);
+		$pg_msg->{'row'} = substr($raw_data, 5, $len-4);
 		$pg_msg->{'type'} = 'CopyData';
 		return $len+1;
 	}
@@ -460,7 +523,7 @@ sub parse_v3 {
 	# message: F(f) "CopyFail"
 	#   error=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'f') {
-		($len, $pg_msg->{'error'}) = unpack('xNZ*', $curr_sess->{'data'});
+		($len, $pg_msg->{'error'}) = unpack('xNZ*', $raw_data);
 		$pg_msg->{'type'} = 'CopyFail';
 		return $len+1;
 	}
@@ -473,7 +536,7 @@ sub parse_v3 {
 		my @fields_formats;
 
 		($len, $pg_msg->{'copy_format'}, @fields_formats)
-			= unpack('xNCn/n', $curr_sess->{'data'});
+			= unpack('xNCn/n', $raw_data);
 		$pg_msg->{'num_fields'} = scalar(@fields_formats);
 		$pg_msg->{'fields_formats'} = [@fields_formats];
 
@@ -489,7 +552,7 @@ sub parse_v3 {
 		my @fields_formats;
 
 		($len, $pg_msg->{'copy_format'}, @fields_formats)
-			= unpack('xNCn/n', $curr_sess->{'data'});
+			= unpack('xNCn/n', $raw_data);
 		$pg_msg->{'num_fields'} = scalar(@fields_formats);
 		$pg_msg->{'fields_formats'} = [@fields_formats];
 
@@ -508,9 +571,9 @@ sub parse_v3 {
 		my $msg;
 		my $i = 0;
 
-		($len, $pg_msg->{'num_values'}) = unpack('xNn', $curr_sess->{'data'});
+		($len, $pg_msg->{'num_values'}) = unpack('xNn', $raw_data);
 
-		$msg = substr($curr_sess->{'data'}, 7, $len-6);
+		$msg = substr($raw_data, 7, $len-6);
 
 		while ($i < $pg_msg->{'num_values'}) {
 			my $val_len = unpack('l>', $msg);
@@ -539,7 +602,7 @@ sub parse_v3 {
 	#   type=char
 	#   name=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'D') {
-		($len, $pg_msg->{'kind'}, $pg_msg->{'name'}) = unpack('xNAZ*', $curr_sess->{'data'});
+		($len, $pg_msg->{'kind'}, $pg_msg->{'name'}) = unpack('xNAZ*', $raw_data);
 		$pg_msg->{'type'} = 'Describe';
 		return $len+1;
 	}
@@ -557,8 +620,8 @@ sub parse_v3 {
 		my $fields = {};
 		my $msg;
 
-		$len = unpack('xN', $curr_sess->{'data'});
-		$msg = substr($curr_sess->{'data'}, 5, $len-4);
+		$len = unpack('xN', $raw_data);
+		$msg = substr($raw_data, 5, $len-4);
 
 		while ($msg ne '') {
 			my ($code, $value) = unpack('AZ*', $msg);
@@ -577,7 +640,7 @@ sub parse_v3 {
 	#   name=String
 	#   nb_rows=int32
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'E') {
-		($len, $pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('xNZ*N', $curr_sess->{'data'});
+		($len, $pg_msg->{'name'}, $pg_msg->{'nb_rows'}) = unpack('xNZ*N', $raw_data);
 		$pg_msg->{'type'} = 'Execute';
 		return $len+1;
 	}
@@ -601,12 +664,12 @@ sub parse_v3 {
 		my @args;
 		my $msg;
 
-		($len, $pg_msg->{'func_oid'}, @args_formats) = unpack('xNNn/n n', $curr_sess->{'data'});
+		($len, $pg_msg->{'func_oid'}, @args_formats) = unpack('xNNn/n n', $raw_data);
 		$pg_msg->{'num_args'} = pop @args_formats;
 		$pg_msg->{'num_args_formats'} = scalar(@args_formats);
 		$pg_msg->{'args_formats'} = [@args_formats];
 
-		$msg = substr($curr_sess->{'data'}, 5 + 8 + $pg_msg->{'num_args_formats'} * 2);
+		$msg = substr($raw_data, 5 + 8 + $pg_msg->{'num_args_formats'} * 2);
 
 		for (my $i=0; $i < $pg_msg->{'num_args'}; $i++) {
 			# unpack hasn't 32bit signed network template, so we use l>
@@ -640,11 +703,11 @@ sub parse_v3 {
 	#   value=Byte[len]
 	# TODO: NOT TESTED yet
 	elsif ($from_backend and $pg_msg->{'type'} eq 'V') {
-		($len, $pg_msg->{'len'}) = unpack('xNl>', $curr_sess->{'data'});
+		($len, $pg_msg->{'len'}) = unpack('xNl>', $raw_data);
 
 		# if len < 0; the value is NULL
 		if ($pg_msg->{'len'} > 0) {
-			$pg_msg->{'value'} = substr($curr_sess->{'data'}, 4, $pg_msg->{'len'});
+			$pg_msg->{'value'} = substr($raw_data, 4, $pg_msg->{'len'});
 		}
 		elsif ($pg_msg->{'len'} == 0) {
 			$pg_msg->{'value'} = '';
@@ -670,8 +733,8 @@ sub parse_v3 {
 		my $fields = {};
 		my $msg;
 
-		$len = unpack('xN', $curr_sess->{'data'});
-		$msg = substr($curr_sess->{'data'}, 5, $len-4);
+		$len = unpack('xN', $raw_data);
+		$msg = substr($raw_data, 5, $len-4);
 
 		while ($msg ne '') {
 			my ($code, $value) = unpack('AZ*', $msg);
@@ -691,7 +754,7 @@ sub parse_v3 {
 	#   channel=String
 	#   payload=String
 	elsif ($from_backend and $pg_msg->{'type'} eq 'A') {
-		($len, $pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'}) = unpack('xNNZ*Z*', $curr_sess->{'data'});
+		($len, $pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'}) = unpack('xNNZ*Z*', $raw_data);
 		$pg_msg->{'type'} = 'NotificationResponse';
 		return $len+1;
 	}
@@ -702,7 +765,7 @@ sub parse_v3 {
 	elsif ($from_backend and $pg_msg->{'type'} eq 't') {
 		my @params_types;
 
-		($len, @params_types) = unpack('xNn/N', $curr_sess->{'data'});
+		($len, @params_types) = unpack('xNn/N', $raw_data);
 		$pg_msg->{'num_params'} = scalar(@params_types);
 		$pg_msg->{'params_types'} = [@params_types];
 
@@ -714,7 +777,7 @@ sub parse_v3 {
 	#   name=String
 	#   value=String
 	elsif ($from_backend and $pg_msg->{'type'} eq 'S') {
-		($len, $pg_msg->{'name'}, $pg_msg->{'value'}) = unpack('xNZ*Z*', $curr_sess->{'data'});
+		($len, $pg_msg->{'name'}, $pg_msg->{'value'}) = unpack('xNZ*Z*', $raw_data);
 
 		$pg_msg->{'type'} = 'ParameterStatus';
 		return $len+1;
@@ -728,7 +791,7 @@ sub parse_v3 {
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'P') {
 		my @params_types;
 		($len, $pg_msg->{'name'}, $pg_msg->{'query'}, @params_types)
-			= unpack('xNZ*Z*n/N', $curr_sess->{'data'});
+			= unpack('xNZ*Z*n/N', $raw_data);
 		$pg_msg->{'num_params'} = scalar(@params_types);
 		$pg_msg->{'params_types'} = [@params_types];
 
@@ -745,7 +808,7 @@ sub parse_v3 {
 	# message: F(p) "PasswordMessage"
 	#    password=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'p') {
-		($len, $pg_msg->{'password'}) = unpack('xNZ*', $curr_sess->{'data'});
+		($len, $pg_msg->{'password'}) = unpack('xNZ*', $raw_data);
 		$pg_msg->{'type'} = 'PasswordMessage';
 		return $len+1;
 	}
@@ -759,7 +822,7 @@ sub parse_v3 {
 	# message: F(Q) "Query"
 	#    query=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'Q') {
-		($len, $pg_msg->{'query'}) = unpack('xNZ*', $curr_sess->{'data'});
+		($len, $pg_msg->{'query'}) = unpack('xNZ*', $raw_data);
 		$pg_msg->{'type'} = 'Query';
 		return $len+1;
 	}
@@ -767,7 +830,7 @@ sub parse_v3 {
 	# message: B(Z) "ReadyForQuery"
 	#   status=Char
 	elsif ($from_backend and $pg_msg->{'type'} eq 'Z') {
-		$pg_msg->{'status'} = substr($curr_sess->{'data'}, 5, 1);
+		$pg_msg->{'status'} = substr($raw_data, 5, 1);
 		$pg_msg->{'type'} = 'ReadyForQuery';
 		return 6;
 	}
@@ -788,8 +851,8 @@ sub parse_v3 {
 		my $i=0;
 		my $msg;
 
-		($len, $pg_msg->{'num_fields'}) = unpack('xNn', $curr_sess->{'data'});
-		$msg = substr($curr_sess->{'data'}, 7);
+		($len, $pg_msg->{'num_fields'}) = unpack('xNn', $raw_data);
+		$msg = substr($raw_data, 7);
 
 		while ($i < $pg_msg->{'num_fields'}) {
 			my @field = unpack('Z*NnNnNn', $msg);
@@ -807,7 +870,7 @@ sub parse_v3 {
 
 	# message: SSLAnswer (B)
 	elsif ($from_backend and $pg_msg->{'type'} eq 'SSLAnswer') {
-		$pg_msg->{'ssl_answer'} = substr($curr_sess->{'data'}, 0, 1);
+		$pg_msg->{'ssl_answer'} = substr($raw_data, 0, 1);
 		$pg_msg->{'type'} = 'SSLAnswer';
 		return 1;
 	}
@@ -827,11 +890,11 @@ sub parse_v3 {
 		my $msg;
 		my $params = {};
 
-		$len = unpack('N', $curr_sess->{'data'});
+		$len = unpack('N', $raw_data);
 
 		$pg_msg->{'version'} = 3;
 
-		$msg = substr($curr_sess->{'data'}, 8); # ignore the version fields
+		$msg = substr($raw_data, 8); # ignore the version fields
 
 		while ($msg ne '') {
 			my ($param, $value) = unpack('Z*Z*', $msg);
@@ -882,73 +945,24 @@ sub process_message_v3 {
 
 	# each packet processed might have one or more pgsql message.
 	do {
-
 		# copy base message properties hash for this new message
 		my $pg_msg = \%{ ( $pg_msg_orig ) };
 
 		# the message current total length
 		my $msg_len = 0;
 
-		if (
-			(not $from_backend and $curr_sess->{'data'} =~ /^[BCfDEHFPpQSXdc].{4}/s)
-			or ($from_backend and $curr_sess->{'data'} =~ /^[RK23CGHDIEVnNAtS1sZTdc].{4}/s)
-		) {
-			# the message has a type byte
-			($pg_msg->{'type'}, $msg_len) = unpack('AN', $curr_sess->{'data'});
+		$msg_len = pgShark::parse_v3($pg_msg, $from_backend, $curr_sess->{'data'});
 
-			if ($data_len < $msg_len + 1) { # we add the type byte
-				# we don't have the full message, waiting for more bits
-				debug(2, "NOTICE: message fragmented (data available: %d, total message length: %d), waiting for more bits.\n", $data_len, $msg_len+1);
-				return 0;
-			}
-		}
-		elsif ($from_backend and $curr_sess->{'data'} =~ /^(N|S)$/) {
-			# SSL answer
-			$pg_msg->{'type'} = 'SSLAnswer';
-		}
-		elsif (not $from_backend and $curr_sess->{'data'} =~ /^.{8}/s) {
-			my $code;
-			($msg_len, $code) = unpack('NN', $curr_sess->{'data'});
-			if ($code == 80877102) {
-				$pg_msg->{'type'} = 'CancelRequest';
-			}
-			elsif ($code == 80877103) {
-				$pg_msg->{'type'} = 'SSLRequest';
-			}
-			elsif ($code == 196608) {
-				$pg_msg->{'type'} = 'StartupMessage';
-				# my $min = $code%65536; # == 0
-				# my $maj = $code/65536; # == 3
-			}
-			else {
-				if (get_debug_lvl()) {
-					$curr_sess->{'data'} =~ tr/\x00-\x1F\x7F-\xFF/./;
-					debug(1, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
-						$pg_msg->{'timestamp'}, $curr_sess->{'data'}
-					);
-				}
-				return -1;
-			}
-		}
-		else {
-			debug(4, "NOTICE: buffer full of junk or empty (data available: %d)...waiting for more bits.\n", $data_len);
-			my $d = $curr_sess->{'data'};
-			$d =~ tr/\x00-\x1F\x7F-\xFF/./;
-			debug(4, "HINT: data are: «%s»\n", $d);
-			return 0;
-		}
-
-		$msg_len = $self->parse_v3($pg_msg);
+		# we don't have enough data for the current message (0)
+		# or an error occured (<0)
+		return $msg_len if $msg_len < 1;
 
 		debug(2, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
 			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
 		);
 
-		if ($msg_len > 0) {
-			$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
-			$self->{$pg_msg->{'type'}}->($pg_msg) if defined $self->{$pg_msg->{'type'}};
-		}
-		# catch error ?
+		$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
+		$self->{$pg_msg->{'type'}}->($pg_msg) if defined $self->{$pg_msg->{'type'}};
 
 		### end of processing, remove processed data
 		$curr_sess->{'data'} = substr($curr_sess->{'data'}, $msg_len);
@@ -967,6 +981,17 @@ sub process_message_v3 {
 }
 
 ##
+# @param	$pg_msg: a hash ref where data parsed will be set
+# @param	$from_backend: does this data come from the Backend or the Frontend (0/1) ?
+# @param	$raw_data: the raw data to parse
+# @param	$curr_sess: a hash ref where session related states will be saved. Some
+#			messages need state from previous pgsql messages. Given hash ref here should
+#			concern the ONLY current session (Frontend/Backend couple) data are parsed for.
+#
+# @return 	the total size of the message in the given raw_data.
+# 			0 means we lack some data to process the current message.
+# 		 	-1 on error
+#
 # Here is how message are mapped between v2 and v3:
 # "AsciiRow"               => "DataRow"
 # "BinaryRow"              => "DataRow"
@@ -979,11 +1004,66 @@ sub process_message_v3 {
 # message "CursorResponse" is protocol v2 only !
 ##
 sub parse_v2 {
-	my $self = shift;
 	my $pg_msg = shift;
+	my $from_backend = shift;
+	my $raw_data = shift;
+	my $curr_sess = shift;
+	my $data_len = length $raw_data;
+	my $len;
+	my $msg_len;
 
-	my $from_backend = $pg_msg->{'from_backend'};
-	my $curr_sess = $self->{'sessions'}->{$pg_msg->{'sess_hash'}}->[$from_backend];
+	if ($from_backend and $raw_data =~ /^(N|S)$/) {
+		# SSL answer
+		$pg_msg->{'type'} = 'SSLAnswer';
+	}
+	elsif (
+		(not $from_backend and $raw_data =~ /^[FQX]/s)
+		or ($from_backend and $raw_data =~ /^[DRKBCGHPIEVNAZT]/s)
+	) {
+		# the message has a type byte
+		$pg_msg->{'type'} = substr($raw_data, 0, 1);
+	}
+	elsif (not $from_backend and $raw_data =~ /^.{8}/s) {
+		my $code;
+		($msg_len, $code) = unpack('NN', $raw_data);
+
+		if ($code == 80877102) {
+			$pg_msg->{'type'} = 'CancelRequest';
+		}
+		elsif ($code == 80877103) {
+			$pg_msg->{'type'} = 'SSLRequest';
+		}
+		elsif ($code == 131072) {
+			$pg_msg->{'type'} = 'StartupMessage';
+			# my $min = $code%65536; # == 0
+			# my $maj = $code/65536; # == 2
+		}
+		elsif (defined $curr_sess->{'ask_passwd'}) {
+			$pg_msg->{'type'} = 'PasswordPacket';
+			delete $curr_sess->{'ask_passwd'};
+		}
+		elsif (defined $curr_sess->{'copy_mode'}) {
+			$pg_msg->{'type'} = 'CopyDataRows';
+		}
+		else {
+			if (get_debug_lvl()) {
+				$raw_data =~ tr/\x00-\x1F\x7F-\xFF/./;
+				debug(1, "WARNING: dropped alien packet (from_backend: %d) I was unable to mess with at timestamp %s:\n'%s'\n",
+					$from_backend, $pg_msg->{'timestamp'}, $raw_data
+				);
+			}
+			return -1;
+		}
+	}
+	else {
+		debug(3, "NOTICE: incomplette header or buffer empty (data available: %d)...\n", $data_len);
+		if ($data_len) {
+			my $d = $raw_data;
+			$d =~ tr/\x00-\x1F\x7F-\xFF/./;
+			debug(3, "NOTICE: %s\n", $d);
+		}
+		return 0;
+	}
 
 	# message: B(D) "AsciiRow" or B(B) "BinaryRow"
 	# we try to be compatible with proto v3 here
@@ -993,30 +1073,29 @@ sub parse_v2 {
 		my @values;
 		my @field_notnull;
 		my $msg;
-		my $msg_len;
-		my $buff_len = length($curr_sess->{'data'});
+
+		## compute message length and check if we have enough data in the buffer ##
+		my $msg_len = 1 + $num_bytes;
 
 		$pg_msg->{'num_values'} = $curr_sess->{'num_fields'};
 
 		# DataRow message are really prone to be splitted between multi network packets
-		return -1 if ($buff_len < 1+$num_bytes);
+		return 0 if ($data_len < $msg_len);
 
-		@field_notnull = split(//, unpack("xB$num_bits", $curr_sess->{'data'}));
+		@field_notnull = split(//, unpack("xB$num_bits", $raw_data));
 
-		## compute message length and check if we have enough data in the buffer ##
-		$msg_len = 1 + $num_bytes;
 		for (my $i=0; $i < $pg_msg->{'num_values'}; $i++) {
 			if ($field_notnull[$i] eq '1') {
-				if ($msg_len+4 <= $buff_len) {
-					my $val_len = unpack("x${msg_len}N", $curr_sess->{'data'});
+				if ($msg_len+4 <= $data_len) {
+					my $val_len = unpack("x${msg_len}N", $raw_data);
 					$msg_len += $val_len;
-					return -1 unless ($msg_len <= $buff_len);
+					return 0 unless ($msg_len <= $data_len);
 				}
-				else { return -1; }
+				else { return 0; }
 			}
 		}
 
-		$msg = substr($curr_sess->{'data'}, 1 + $num_bytes);
+		$msg = substr($raw_data, 1 + $num_bytes);
 
 		for (my $i=0; $i < $pg_msg->{'num_values'}; $i++) {
 			# printf STDERR "  i: %d", $i;
@@ -1029,7 +1108,7 @@ sub parse_v2 {
 				$msg = substr($msg, $val_len);
 			}
 
-			push @values, [ $val_len, $val];
+			push @values, [ $val_len, $val ];
 		}
 
 		$pg_msg->{'values'} = [ @values ];
@@ -1042,7 +1121,7 @@ sub parse_v2 {
 
 	# message: B(R) "Authentication*"
 	elsif ($from_backend and $pg_msg->{'type'} eq 'R') {
-		($pg_msg->{'code'}) = unpack('xN', $curr_sess->{'data'});
+		($pg_msg->{'code'}) = unpack('xN', $raw_data);
 
 		# AuthenticationOk
 		if ($pg_msg->{'code'} == 0) {
@@ -1067,14 +1146,14 @@ sub parse_v2 {
 		}
 		# AuthenticationCryptPassword
 		elsif ($pg_msg->{'code'} == 4) {
-			$pg_msg->{'salt'} = substr($curr_sess->{'data'}, 5, 2);
+			$pg_msg->{'salt'} = substr($raw_data, 5, 2);
 			$pg_msg->{'type'} = 'AuthenticationCryptPassword';
 			$curr_sess->{'ask_passwd'} = 1;
 			return 7;
 		}
 		# AuthenticationMD5Password
 		elsif ($pg_msg->{'code'} == 5) {
-			$pg_msg->{'salt'} = substr($curr_sess->{'data'}, 5, 4);
+			$pg_msg->{'salt'} = substr($raw_data, 5, 4);
 			$pg_msg->{'type'} = 'AuthenticationMD5Password';
 			$curr_sess->{'ask_passwd'} = 1;
 			return 9;
@@ -1089,7 +1168,7 @@ sub parse_v2 {
 
 	# message: B(K) "BackendKeyData"
 	elsif ($from_backend and $pg_msg->{'type'} eq 'K') {
-		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('xNN', $curr_sess->{'data'});
+		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('xNN', $raw_data);
 		$pg_msg->{'type'} = 'BackendKeyData';
 		return 9;
 	}
@@ -1097,7 +1176,7 @@ sub parse_v2 {
 	# message: CancelRequest (F)
 	# TODO: NOT TESTED yet
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'CancelRequest') {
-		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x8NN', $curr_sess->{'data'});
+		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x8NN', $raw_data);
 		$pg_msg->{'type'} = 'CancelRequest';
 		return 16;
 	}
@@ -1106,7 +1185,7 @@ sub parse_v2 {
 	#   type=char
 	#   name=String
 	elsif ($from_backend and $pg_msg->{'type'} eq 'C') {
-		$pg_msg->{'command'} = unpack('xZ*', $curr_sess->{'data'});
+		$pg_msg->{'command'} = unpack('xZ*', $raw_data);
 		$pg_msg->{'type'} = 'CommandComplete';
 		return length($pg_msg->{'command'})+2; # add type + null terminated String
 	}
@@ -1115,12 +1194,12 @@ sub parse_v2 {
 	#   row=Byte[n]
 	# TODO: NOT TESTED yet
 	elsif ($pg_msg->{'type'} eq 'CopyDataRows') {
-		my $end = index($curr_sess->{'data'}, "\n");
+		my $end = index($raw_data, "\n");
 
 		# we don't have the full row (fragmentation)
-		return -1 if ($end == -1);
+		return 0 if ($end == -1);
 
-		$pg_msg->{'row'} = substr($curr_sess->{'data'}, 0, $end + 1);
+		$pg_msg->{'row'} = substr($raw_data, 0, $end + 1);
 		$pg_msg->{'type'} = 'CopyData';
 
 		if ($pg_msg->{'row'} eq "\\.\n") {
@@ -1148,7 +1227,7 @@ sub parse_v2 {
 
 	# message: B(P) "CursorResponse"
 	elsif ($from_backend and $pg_msg->{'type'} eq 'P') {
-		$pg_msg->{'name'} = unpack('xZ*', $curr_sess->{'data'});
+		$pg_msg->{'name'} = unpack('xZ*', $raw_data);
 		$pg_msg->{'type'} = 'CursorResponse';
 		return length($pg_msg->{'name'}) +2; # add type + null terminated String
 	}
@@ -1165,7 +1244,7 @@ sub parse_v2 {
 	# TODO: NOT TESTED yet
 	elsif ($from_backend and $pg_msg->{'type'} eq 'E') {
 		$pg_msg->{'fields'} = {
-			'M' => unpack('xZ*', $curr_sess->{'data'})
+			'M' => unpack('xZ*', $raw_data)
 		};
 
 		$pg_msg->{'type'} = 'ErrorResponse';
@@ -1181,26 +1260,25 @@ sub parse_v2 {
 		my @args;
 		my $msg;
 		my $msg_len = 0;
-		my $buff_len = length($curr_sess->{'data'});
 
 		# fragmentation...
-		return -1 if ($buff_len < 10);
+		return 0 if ($data_len < 10);
 
 		# FunctionCall has an empty string (one-byte "\0") as second "parameter"...
-		($pg_msg->{'func_oid'}, $pg_msg->{'num_args'}) = unpack('xxNN', $curr_sess->{'data'});
+		($pg_msg->{'func_oid'}, $pg_msg->{'num_args'}) = unpack('xxNN', $raw_data);
 
 		# compute the message size and check for fragmentation
 		$msg_len = 10;
 		for (my $i=0; $i < $pg_msg->{'num_args'}; $i++) {
-			if ($msg_len+4 <= $buff_len) {
-				my $val_len = unpack("x${msg_len}N", $curr_sess->{'data'});
+			if ($msg_len+4 <= $data_len) {
+				my $val_len = unpack("x${msg_len}N", $raw_data);
 				$msg_len += $val_len;
-				return -1 unless ($msg_len <= $buff_len);
+				return 0 unless ($msg_len <= $data_len);
 			}
-			else { return -1; }
+			else { return 0; }
 		}
 
-		$msg = substr($curr_sess->{'data'}, 10);
+		$msg = substr($raw_data, 10);
 
 		for (my $i=0; $i < $pg_msg->{'num_args'}; $i++) {
 			my $len = unpack('N', $msg);
@@ -1221,7 +1299,7 @@ sub parse_v2 {
 	#   value=Byte[len]
 	# TODO: NOT TESTED yet
 	elsif ($from_backend and $pg_msg->{'type'} eq 'V') {
-		my $status = unpack('xA', $curr_sess->{'data'});
+		my $status = unpack('xA', $raw_data);
 		$pg_msg->{'type'} = 'FunctionCallResponse';
 
 		if ($status eq '0') {
@@ -1230,8 +1308,8 @@ sub parse_v2 {
 			return 2;
 		}
 
-		$pg_msg->{'len'} = unpack('xxN', $curr_sess->{'data'});
-		$pg_msg->{'value'} = substr($curr_sess->{'data'}, 6, $pg_msg->{'len'});
+		$pg_msg->{'len'} = unpack('xxN', $raw_data);
+		$pg_msg->{'value'} = substr($raw_data, 6, $pg_msg->{'len'});
 
 		return $pg_msg->{'len'}+6;
 	}
@@ -1242,7 +1320,7 @@ sub parse_v2 {
 	# TODO: NOT TESTED yet
 	elsif ($from_backend and $pg_msg->{'type'} eq 'N') {
 		$pg_msg->{'fields'} = {
-			'M' => unpack('xZ*', $curr_sess->{'data'})
+			'M' => unpack('xZ*', $raw_data)
 		};
 
 		$pg_msg->{'type'} = 'NoticeResponse';
@@ -1256,7 +1334,7 @@ sub parse_v2 {
 	#   payload=undef (NOT in protocol v2!)
 	# TODO: NOT TESTED yet
 	elsif ($from_backend and $pg_msg->{'type'} eq 'A') {
-		($pg_msg->{'pid'}, $pg_msg->{'channel'}) = unpack('xNZ*', $curr_sess->{'data'});
+		($pg_msg->{'pid'}, $pg_msg->{'channel'}) = unpack('xNZ*', $raw_data);
 		$pg_msg->{'payload'} = undef;
 		$pg_msg->{'type'} = 'NotificationResponse';
 		return length($pg_msg->{'channel'})+6; # add type + pid + null terminated String
@@ -1266,7 +1344,7 @@ sub parse_v2 {
 	#    password=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'PasswordMessage') {
 		my $len;
-		($len, $pg_msg->{'password'}) = unpack('NZ*', $curr_sess->{'data'});
+		($len, $pg_msg->{'password'}) = unpack('NZ*', $raw_data);
 		$pg_msg->{'type'} = 'PasswordMessage';
 		return $len;
 	}
@@ -1274,7 +1352,7 @@ sub parse_v2 {
 	# message: F(Q) "Query"
 	#    query=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'Q') {
-		($pg_msg->{'query'}) = unpack('xZ*', $curr_sess->{'data'});
+		($pg_msg->{'query'}) = unpack('xZ*', $raw_data);
 		$pg_msg->{'type'} = 'Query';
 		return length($pg_msg->{'query'})+2; # add type + null terminated String
 	}
@@ -1308,8 +1386,8 @@ sub parse_v2 {
 
 		# TODO we should probably check for segmentation in here...
 
-		($pg_msg->{'num_fields'}) = unpack('xn', $curr_sess->{'data'});
-		$msg = substr($curr_sess->{'data'}, 3);
+		($pg_msg->{'num_fields'}) = unpack('xn', $raw_data);
+		$msg = substr($raw_data, 3);
 
 		$msg_len = 3;
 
@@ -1334,7 +1412,7 @@ sub parse_v2 {
 
 	# message: SSLAnswer (B)
 	elsif ($from_backend and $pg_msg->{'type'} eq 'SSLAnswer') {
-		$pg_msg->{'ssl_answer'} = substr($curr_sess->{'data'}, 0, 1);
+		$pg_msg->{'ssl_answer'} = substr($raw_data, 0, 1);
 		$pg_msg->{'type'} = 'SSLAnswer';
 		return 1;
 	}
@@ -1355,8 +1433,8 @@ sub parse_v2 {
 
 		$pg_msg->{'version'} = 2;
 
-		$pg_msg->{'params'}->{'database'} = substr($curr_sess->{'data'}, 8, 64);
-		$pg_msg->{'params'}->{'user'} = substr($curr_sess->{'data'}, 72, 64);
+		$pg_msg->{'params'}->{'database'} = substr($raw_data, 8, 64);
+		$pg_msg->{'params'}->{'user'} = substr($raw_data, 72, 64);
 
 		$pg_msg->{'params'} = $params;
 
@@ -1374,6 +1452,7 @@ sub parse_v2 {
 	debug(3, "PGSQL: not implemented message type: %s(%s)\n", ($from_backend?'B':'F'), $pg_msg->{'type'});
 
 	return -1;
+	### $curr_sess
 }
 
 sub process_message_v2 {
@@ -1395,69 +1474,14 @@ sub process_message_v2 {
 		my $pg_msg = \%{ ( $pg_msg_orig ) };
 
 		# the message current total length
-		my $msg_len = 0;
-
-		if ($from_backend and $curr_sess->{'data'} =~ /^(N|S)$/) {
-			# SSL answer
-			$pg_msg->{'type'} = 'SSLAnswer';
-		}
-		elsif (
-			(not $from_backend and $curr_sess->{'data'} =~ /^[FQX]/s)
-			or ($from_backend and $curr_sess->{'data'} =~ /^[DRKBCGHPIEVNAZT]/s)
-		) {
-			# the message has a type byte
-			$pg_msg->{'type'} = substr($curr_sess->{'data'}, 0, 1);
-		}
-		elsif (not $from_backend and $curr_sess->{'data'} =~ /^.{8}/s) {
-			my $code;
-			($msg_len, $code) = unpack('NN', $curr_sess->{'data'});
-
-			if ($code == 80877102) {
-				$pg_msg->{'type'} = 'CancelRequest';
-			}
-			elsif ($code == 80877103) {
-				$pg_msg->{'type'} = 'SSLRequest';
-			}
-			elsif ($code == 131072) {
-				$pg_msg->{'type'} = 'StartupMessage';
-				# my $min = $code%65536; # == 0
-				# my $maj = $code/65536; # == 2
-			}
-			elsif (defined $curr_sess->{'ask_passwd'}) {
-				$pg_msg->{'type'} = 'PasswordPacket';
-				delete $curr_sess->{'ask_passwd'};
-			}
-			elsif (defined $curr_sess->{'copy_mode'}) {
-				$pg_msg->{'type'} = 'CopyDataRows';
-			}
-			else {
-				if (get_debug_lvl()) {
-					$curr_sess->{'data'} =~ tr/\x00-\x1F\x7F-\xFF/./;
-					debug(1, "WARNING: dropped alien packet (from_backend: %d) I was unable to mess with at timestamp %s:\n'%s'\n",
-						$from_backend, $pg_msg->{'timestamp'}, $curr_sess->{'data'}
-					);
-				}
-				return -1;
-			}
-		}
-		else {
-			debug(3, "NOTICE: incomplette header or buffer empty (data available: %d)...\n", $data_len);
-			if ($data_len) {
-				$_ = $curr_sess->{'data'};
-				$_ =~ tr/\x00-\x1F\x7F-\xFF/./;
-				debug(3, "NOTICE: %s: %s\n", $sess_hash, $_);
-			}
-			return 0;
-		}
-
-		$msg_len = $self->parse_v2($pg_msg);
+		my $msg_len = pgShark::parse_v2($pg_msg, $from_backend, $curr_sess->{'data'}, $curr_sess);
 
 		debug(2, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
 			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
 		);
 
-		return 0 if $msg_len < 0 # the function probably miss some bytes
-			or $msg_len > $data_len; # or have fragmentation
+		return $msg_len if $msg_len < 1;  # the function probably miss some bytes or returned an error
+		return 0 if $msg_len > $data_len; # ... or have fragmentation
 
 		$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
 		$self->{$pg_msg->{'type'}}->($pg_msg) if defined $self->{$pg_msg->{'type'}};
