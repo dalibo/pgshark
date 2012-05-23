@@ -83,6 +83,7 @@ usage("This output plugin does not exist.\n") if ( not (
 	or ($args{'output'} eq 'Normalize')
 	or ($args{'output'} eq 'Debug')
 	or ($args{'output'} eq 'Fouine')
+	or ($args{'output'} eq 'Replay')
 ));
 
 # set debug level given in options
