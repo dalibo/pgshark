@@ -50,7 +50,7 @@ my $selects = new IO::Select();
 
 sub getCallbacks {
 	return {
-		'AuthenticationOk' => \&AuthenticationOK,
+		'AuthenticationOk' => \&openSocket,
 		# 'AuthenticationKerberosV5' => \&Ignore,
 		# 'AuthenticationCleartextPassword' => \&Ignore,
 		# 'AuthenticationMD5Password' => \&Ignore,
@@ -84,14 +84,14 @@ sub getCallbacks {
 		# 'ParameterDescription' => \&ReadFromBackend,
 		# 'ParameterStatus' => \&ReadFromBackend,
 		'Parse' => \&Replay,
-		# 'ParseComplete' => \&ReadFromBackend,
-		# 'PasswordMessage' => \&ReadFromBackend,
-		# 'PortalSuspended' => \&ReadFromBackend,
+		# 'ParseComplete' => undef,
+		# 'PasswordMessage' => undef,
+		# 'PortalSuspended' => undef,
 		'Query' => \&Replay,
-		# 'ReadyForQuery' => \&ReadFromBackend,
-		# 'RowDescription' => \&ReadFromBackend,
-		# 'SSLAnswer' => \&ReadFromBackend,
-		# 'SSLRequest' => \&ReadFromBackend,
+		# 'ReadyForQuery' => undef,
+		# 'RowDescription' => undef,
+		# 'SSLAnswer' => undef,
+		# 'SSLRequest' => undef,
 		'StartupMessage' => \&StartupMessage,
 		'Sync' => \&Replay,
 		'Terminate' => \&Terminate
@@ -117,10 +117,9 @@ sub readFromBackend {
 	my $buff = '';
 	my @ready;
 
-	debug(1, "canRead: on session $sess_hash.\n");
+	debug(1, "readFromBackend: on session %s.\n", $sess_hash);
 
-	# return 0 if length $session->{'data'} > 4;
-	
+	# TODO: better timeout handling
 	TIMELOOP:while ($timeout) {
 		@ready = $selects->can_read(1);
 
@@ -128,12 +127,12 @@ sub readFromBackend {
 			# our socket is ready to be readed
 			last TIMELOOP if($fh == $sock);
 		}
+		debug(1, "readFromBackend: socket not ready (%d).\n", $timeout);
+		sleep 1;
 		$timeout--;
 	}
 
 	return 1 unless $timeout > 0;
-
-	debug(1, "  reading...\n");
 
 	while($count == READMAX) {
 		$count = sysread($sock, $buff, READMAX);
@@ -171,7 +170,7 @@ sub nextMessage {
 	}
 
 	$session->{'data'} = substr($session->{'data'}, $count);
-	debug(1, "Seen a %s as answer to %s.\n", $pg_msg->{'type'}, $sess_hash);
+	debug(1, "nextMessage: Seen a %s as answer to %s.\n", $pg_msg->{'type'}, $sess_hash);
 
 	return $pg_msg;
 }
@@ -180,6 +179,8 @@ sub pg_connect {
 	my $sess_hash = shift;
 	my $sock = $sessions{$sess_hash}{'sock'};
 	my $pg_msg;
+
+	debug(1, "pg_connect: session %s\n", $sess_hash);
 
 	## authentication
 	my $msg = "user\0$args{'ruser'}\0database\0$sessions{$sess_hash}{'database'}\0\0";
@@ -201,37 +202,24 @@ sub pg_connect {
 	return 0;
 }
 
-sub pg_disconnect {
-	my $sess_hash = shift;
-	my $sock = $sessions{$sess_hash}{'sock'};
-	my $msg = pack("AN", "X", 4);
-
-	$sock->send($msg);
-	$sock->close();
-
-	# any success testing ?
-
-	return 0;
-}
-
 ## handle command StartupMessage (F)
 # @param $pg_msg hash with pg message properties
 sub StartupMessage {
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{'sess_hash'};
 
-	debug(1, "Replay: startupMessage from %s.\n", $sess_hash);
+	debug(1, "StartupMessage: session %s.\n", $sess_hash);
 	
 	$sessions{$sess_hash}{'database'} = $pg_msg->{'params'}->{'database'};
 }
 
 ## handle command B(R)
 # @param $pg_msg hash with pg message properties
-sub AuthenticationOK {
+sub openSocket {
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{'sess_hash'};
 
-	debug (1, "AuthenticationOK: %s\n", $sess_hash);
+	debug (1, "openSocket: session %s\n", $sess_hash);
 
 	# if we don't have information about the session opening, ignore it
 	return unless defined $sessions{$sess_hash};
@@ -256,12 +244,12 @@ sub AuthenticationOK {
 	}
 
 	if (not $sessions{$sess_hash}{'sock'}) {
-		debug(1, "  could not open socket for session $sess_hash. %s\n", $!);
+		debug(1, "  could not open socket for session %s. %s\n", $sess_hash, $!);
 		delete $sessions{$sess_hash};
 		return;
 	}
 	
-	debug(1, "  socket for session $sess_hash opened.\n");
+	debug(1, "  socket for session %s.\n", $sess_hash);
 
 	$selects->add($sessions{$sess_hash}{'sock'});
 
@@ -285,11 +273,12 @@ sub Replay {
 
 	return unless defined $sessions{$sess_hash};
 
-	debug(1, "Replay: replaying a «%s» for session $sess_hash.\n", $pg_msg->{'type'});
+	debug(1, "Replay: replaying a '%s' for session $sess_hash.\n", $pg_msg->{'type'});
 
 	my $sock = $sessions{$sess_hash}{'sock'};
 
 	print $sock $pg_msg->{'data'};
+	$sock->flush;
 
 	do {
 		$pg_ans = nextMessage($sess_hash);
@@ -310,14 +299,16 @@ sub ReplayCopy {
 sub Terminate {
 	my $pg_msg = shift;
 	my $sess_hash = $pg_msg->{'sess_hash'};
-	
+
 	return unless defined $sessions{$sess_hash};
 
 	my $sock = $sessions{$sess_hash}{'sock'};
 
+	debug(1, "Terminate: session %s.\n", $sess_hash);
+
 	print $sock $pg_msg->{'data'};
-	
-	debug(1, "Replay: session $sess_hash disconnected.\n");
+	$selects->remove($sock);
+	$sock->close();
 	delete $sessions{$sess_hash};
 }
 
