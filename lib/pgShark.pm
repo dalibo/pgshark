@@ -293,7 +293,7 @@ sub process_packet {
 
 ##
 # @param	$pg_msg: a hash ref where data parsed will be set
-# @param	$from_backend: does this data come from the Backend or the Frontend (0/1) ?
+# @param	$from_backend: does this data come from the Backend or the Frontend (1/0) ?
 # @param	$raw_data: the raw data to parse
 #
 # @return 	the total size of the message in the given raw_data.
