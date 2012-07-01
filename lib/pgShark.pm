@@ -946,7 +946,7 @@ sub process_message_v3 {
 	# each packet processed might have one or more pgsql message.
 	do {
 		# copy base message properties hash for this new message
-		my $pg_msg = \%{ ( $pg_msg_orig ) };
+		my $pg_msg = { %$pg_msg_orig };
 
 		# the message current total length
 		my $msg_len = 0;
@@ -1471,7 +1471,7 @@ sub process_message_v2 {
 	do {
 
 		# copy base message properties hash for this new message
-		my $pg_msg = \%{ ( $pg_msg_orig ) };
+		my $pg_msg = { %$pg_msg_orig };
 
 		# the message current total length
 		my $msg_len = pgShark::parse_v2($pg_msg, $from_backend, $curr_sess->{'data'}, $curr_sess);
