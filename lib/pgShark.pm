@@ -54,10 +54,10 @@ sub new {
 	}
 
 	if ($self->{'protocol'} eq '2') {
-		$self->{'process_message'} = \&process_message_v2;
+		$self->{'parser'} = \&parse_v2;
 	}
 	else {
-		$self->{'process_message'} = \&process_message_v3;
+		$self->{'parser'} = \&parse_v3;
 	}
 
 	debug(1, "Core: loaded.\n");
@@ -282,13 +282,61 @@ sub process_packet {
 	};
 
 	# if processing the message fails, reset the data for this half-part of a session
-	if ($self->{'process_message'}->($self, $pg_msg) != 0) {
+	if ($self->process_message($pg_msg) != 0) {
 		$self->{'sessions'}->{$sess_hash}->[$from_backend] = {
 			'data' => '', # raw tcp data
 			'next_seq' => -1,
 			'segs' => [], # segments buffer
 		}
 	}
+}
+
+
+sub process_message {
+	my $self = shift;
+	my $pg_msg_orig = shift;
+	my $sess_hash = $pg_msg_orig->{'sess_hash'};
+	my $from_backend = $pg_msg_orig->{'from_backend'};
+
+	my $curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
+
+	# buffer length. It helps tracking if we have enough data in session's
+	# buffer to process the current message
+	my $data_len = length $curr_sess->{'data'};
+
+	# each packet processed might have one or more pgsql message.
+	do {
+		# copy base message properties hash for this new message
+		my $pg_msg = { %$pg_msg_orig };
+
+		# the message current total length
+		my $msg_len = $self->{'parser'}->($pg_msg, $from_backend, $curr_sess->{'data'}, $curr_sess);
+
+		# we don't have enough data for the current message (0)
+		# or an error occured (<0)
+		return $msg_len if $msg_len < 1;
+
+		debug(2, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
+			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
+		);
+
+		$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
+		$self->{$pg_msg->{'type'}}->($pg_msg) if defined $self->{$pg_msg->{'type'}};
+
+		### end of processing, remove processed data
+		$curr_sess->{'data'} = substr($curr_sess->{'data'}, $msg_len);
+		$data_len -= $msg_len;
+
+		# if the message was Terminate, destroy the session
+		if ($pg_msg->{'type'} eq 'Terminate') {
+			debug(3, "PGSQL: destroying session %s (remaining buffer was %d byte long).\n", $sess_hash, $data_len);
+			delete $self->{'sessions'}->{$sess_hash};
+		}
+
+		$self->{'msg_count'}++;
+	} while ($data_len > 0);
+
+	return 0;
 }
 
 ##
@@ -931,55 +979,6 @@ sub parse_v3 {
 	return 1;
 }
 
-sub process_message_v3 {
-	my $self = shift;
-	my $pg_msg_orig = shift;
-	my $sess_hash = $pg_msg_orig->{'sess_hash'};
-	my $from_backend = $pg_msg_orig->{'from_backend'};
-
-	my $curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
-
-	# buffer length. It helps tracking if we have enough data in session's
-	# buffer to process the current message
-	my $data_len = length $curr_sess->{'data'};
-
-	# each packet processed might have one or more pgsql message.
-	do {
-		# copy base message properties hash for this new message
-		my $pg_msg = { %$pg_msg_orig };
-
-		# the message current total length
-		my $msg_len = 0;
-
-		$msg_len = pgShark::parse_v3($pg_msg, $from_backend, $curr_sess->{'data'});
-
-		# we don't have enough data for the current message (0)
-		# or an error occured (<0)
-		return $msg_len if $msg_len < 1;
-
-		debug(2, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
-			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
-		);
-
-		$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
-		$self->{$pg_msg->{'type'}}->($pg_msg) if defined $self->{$pg_msg->{'type'}};
-
-		### end of processing, remove processed data
-		$curr_sess->{'data'} = substr($curr_sess->{'data'}, $msg_len);
-		$data_len -= $msg_len;
-
-		# if the message was Terminate, destroy the session
-		if ($pg_msg->{'type'} eq 'Terminate') {
-			debug(3, "PGSQL: destroying session %s (remaining buffer was %d byte long).\n", $sess_hash, $data_len);
-			delete $self->{'sessions'}->{$sess_hash};
-		}
-
-		$self->{'msg_count'}++;
-	} while ($data_len > 0);
-
-	return 0;
-}
-
 ##
 # @param	$pg_msg: a hash ref where data parsed will be set
 # @param	$from_backend: does this data come from the Backend or the Frontend (0/1) ?
@@ -1074,22 +1073,22 @@ sub parse_v2 {
 		my @field_notnull;
 		my $msg;
 
-		## compute message length and check if we have enough data in the buffer ##
 		my $msg_len = 1 + $num_bytes;
 
 		$pg_msg->{'num_values'} = $curr_sess->{'num_fields'};
 
 		# DataRow message are really prone to be splitted between multi network packets
-		return 0 if ($data_len < $msg_len);
+		return 0 if $data_len < $msg_len;
 
 		@field_notnull = split(//, unpack("xB$num_bits", $raw_data));
 
+		# check if we have enough data in the buffer
 		for (my $i=0; $i < $pg_msg->{'num_values'}; $i++) {
 			if ($field_notnull[$i] eq '1') {
 				if ($msg_len+4 <= $data_len) {
 					my $val_len = unpack("x${msg_len}N", $raw_data);
 					$msg_len += $val_len;
-					return 0 unless ($msg_len <= $data_len);
+					return 0 if $msg_len > $data_len;
 				}
 				else { return 0; }
 			}
@@ -1185,9 +1184,16 @@ sub parse_v2 {
 	#   type=char
 	#   name=String
 	elsif ($from_backend and $pg_msg->{'type'} eq 'C') {
+		my $msg_len;
+
 		$pg_msg->{'command'} = unpack('xZ*', $raw_data);
 		$pg_msg->{'type'} = 'CommandComplete';
-		return length($pg_msg->{'command'})+2; # add type + null terminated String
+
+		# add type + null terminated String
+		$msg_len = length($pg_msg->{'command'})+2;
+
+		return 0 if $msg_len > $data_len;
+		return $msg_len;
 	}
 
 	# message: B or F "CopyDataRows"
@@ -1227,9 +1233,16 @@ sub parse_v2 {
 
 	# message: B(P) "CursorResponse"
 	elsif ($from_backend and $pg_msg->{'type'} eq 'P') {
+		my $msg_len;
+
 		$pg_msg->{'name'} = unpack('xZ*', $raw_data);
 		$pg_msg->{'type'} = 'CursorResponse';
-		return length($pg_msg->{'name'}) +2; # add type + null terminated String
+
+		# add type + null terminated String
+		$msg_len = length($pg_msg->{'name'}) +2;
+
+		return 0 if $msg_len > $data_len;
+		return $msg_len;
 	}
 
 	# message: B(I) "EmptyQueryResponse"
@@ -1243,12 +1256,19 @@ sub parse_v2 {
 	#   M => String
 	# TODO: NOT TESTED yet
 	elsif ($from_backend and $pg_msg->{'type'} eq 'E') {
+		my $msg_len;
+
 		$pg_msg->{'fields'} = {
 			'M' => unpack('xZ*', $raw_data)
 		};
 
 		$pg_msg->{'type'} = 'ErrorResponse';
-		return length($pg_msg->{'fields'}->{'M'})+2; # add type + null terminated String
+
+		# add type + null terminated String
+		$msg_len = length($pg_msg->{'fields'}->{'M'})+2;
+
+		return 0 if $msg_len > $data_len;
+		return $msg_len;
 	}
 
 	# message: F(F) "FunctionCall"
@@ -1300,6 +1320,7 @@ sub parse_v2 {
 	# TODO: NOT TESTED yet
 	elsif ($from_backend and $pg_msg->{'type'} eq 'V') {
 		my $status = unpack('xA', $raw_data);
+		my $msg_len;
 		$pg_msg->{'type'} = 'FunctionCallResponse';
 
 		if ($status eq '0') {
@@ -1311,7 +1332,10 @@ sub parse_v2 {
 		$pg_msg->{'len'} = unpack('xxN', $raw_data);
 		$pg_msg->{'value'} = substr($raw_data, 6, $pg_msg->{'len'});
 
-		return $pg_msg->{'len'}+6;
+		$msg_len = $pg_msg->{'len'}+6;
+
+		return 0 if $msg_len > $data_len;
+		return $msg_len;
 	}
 
 	# message: B(N) "NoticeResponse"
@@ -1319,12 +1343,19 @@ sub parse_v2 {
 	#   M => String
 	# TODO: NOT TESTED yet
 	elsif ($from_backend and $pg_msg->{'type'} eq 'N') {
+		my $msg_len;
+
 		$pg_msg->{'fields'} = {
 			'M' => unpack('xZ*', $raw_data)
 		};
 
 		$pg_msg->{'type'} = 'NoticeResponse';
-		return length($pg_msg->{'fields'}->{'M'})+2; # add type + null terminated String
+
+		# add type + null terminated String
+		$msg_len = length($pg_msg->{'fields'}->{'M'})+2;
+
+		return 0 if $msg_len > $data_len;
+		return $msg_len;
 	}
 
 	# message: B(A) "NotificationResponse"
@@ -1334,27 +1365,44 @@ sub parse_v2 {
 	#   payload=undef (NOT in protocol v2!)
 	# TODO: NOT TESTED yet
 	elsif ($from_backend and $pg_msg->{'type'} eq 'A') {
+		my $msg_len;
+
 		($pg_msg->{'pid'}, $pg_msg->{'channel'}) = unpack('xNZ*', $raw_data);
 		$pg_msg->{'payload'} = undef;
 		$pg_msg->{'type'} = 'NotificationResponse';
-		return length($pg_msg->{'channel'})+6; # add type + pid + null terminated String
+
+		# add type + pid + null terminated String
+		$msg_len = length($pg_msg->{'channel'})+6;
+
+		return 0 if $msg_len > $data_len;
+		return $msg_len;
 	}
 
 	# message: F "PasswordMessage"
 	#    password=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'PasswordMessage') {
-		my $len;
-		($len, $pg_msg->{'password'}) = unpack('NZ*', $raw_data);
+		my $msg_len;
+
+		($msg_len, $pg_msg->{'password'}) = unpack('NZ*', $raw_data);
 		$pg_msg->{'type'} = 'PasswordMessage';
-		return $len;
+
+		return 0 if $msg_len > $data_len;
+		return $msg_len;
 	}
 
 	# message: F(Q) "Query"
 	#    query=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'Q') {
+		my $msg_len;
+
 		($pg_msg->{'query'}) = unpack('xZ*', $raw_data);
 		$pg_msg->{'type'} = 'Query';
-		return length($pg_msg->{'query'})+2; # add type + null terminated String
+
+		# add type + null terminated String
+		$msg_len = length($pg_msg->{'query'})+2;
+
+		return 0 if $msg_len > $data_len;
+		return $msg_len;
 	}
 
 	# message: B(Z) "ReadyForQuery"
@@ -1453,53 +1501,6 @@ sub parse_v2 {
 
 	return -1;
 	### $curr_sess
-}
-
-sub process_message_v2 {
-	my $self = shift;
-	my $pg_msg_orig = shift;
-	my $sess_hash = $pg_msg_orig->{'sess_hash'};
-	my $from_backend = $pg_msg_orig->{'from_backend'};
-
-	my $curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
-
-	# buffer length. It helps tracking if we have enough data in session's
-	# buffer to process the current message
-	my $data_len = length $curr_sess->{'data'};
-
-	# each packet processed might have one or more pgsql message.
-	do {
-
-		# copy base message properties hash for this new message
-		my $pg_msg = { %$pg_msg_orig };
-
-		# the message current total length
-		my $msg_len = pgShark::parse_v2($pg_msg, $from_backend, $curr_sess->{'data'}, $curr_sess);
-
-		debug(2, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
-			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
-		);
-
-		return $msg_len if $msg_len < 1;  # the function probably miss some bytes or returned an error
-		return 0 if $msg_len > $data_len; # ... or have fragmentation
-
-		$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
-		$self->{$pg_msg->{'type'}}->($pg_msg) if defined $self->{$pg_msg->{'type'}};
-
-		### end of processing, remove processed data
-		$curr_sess->{'data'} = substr($curr_sess->{'data'}, $msg_len);
-		$data_len -= $msg_len;
-
-		# if the message was Terminate, destroy the session
-		if ($pg_msg->{'type'} eq 'Terminate') {
-			debug(3, "PGSQL: destroying session %s (remaining buffer was %d byte long).\n", $sess_hash, $data_len);
-			delete $self->{'sessions'}->{$sess_hash};
-		}
-
-		$self->{'msg_count'}++;
-	} while ($data_len > 0);
-
-	return 0;
 }
 
 DESTROY {
