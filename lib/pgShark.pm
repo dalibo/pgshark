@@ -1,12 +1,12 @@
 ##
-# This program is open source, licensed under the simplified BSD license.  For license terms, see the LICENSE file.
+# This program is open source, licensed under the simplified BSD license.  For
+# license terms, see the LICENSE file.
 ##
 package pgShark;
 
 use strict;
 use warnings;
 use Net::Pcap qw(:functions);
-# use Net::Pcap::Reassemble;
 use Data::Dumper;
 use pgShark::Utils;
 
@@ -16,20 +16,33 @@ our @ISA = ('Exporter');
 our @EXPORT = qw/parse_v2 parse_v3/;
 our @EXPORT_OK = qw/parse_v2 parse_v3/;
 
-## Constructor
-# @param $args a hash ref of settings:
-# {
-#   'host' => IP address of the server
-#   'port' => Port of the PostgreSQL server
-#   'procs' => {
-#	   # Hash of callbacks for each messages.
-#      'message name' => \&function_to_call
-#      ...
-#   }
-# }
-# See the following link about available message name:
-#   http://www.postgresql.org/docs/8.4/static/protocol-message-formats.html
-# TODO add check about mandatory option 'procs' => {}
+=TODO
+  * catch INT/KILL signals to interrupt live capture
+  * optionally allow use of Net::Pcap::Reassemble, see sub process_all
+  * handling TCP seq counter overflow
+=cut
+
+=Constructor
+@param $args a hash ref of settings:
+	{
+		'host' => IP address of the server
+		'port' => Port of the PostgreSQL server
+		'procs' => {
+			# Hash of callbacks for each messages.
+			'message name' => \&function_to_call
+			...
+		}
+     }
+
+pgShark is not able to detect in a network dump which IP address is the backend
+and on which port it is listening. Defaults are PostgreSQL's ones, ie.
+127.0.0.1:5432.
+
+See the following link about available message name:
+  http://www.postgresql.org/docs/current/static/protocol-message-formats.html
+
+@TODO add check about mandatory option 'procs' => {}
+=cut
 sub new {
 	my $class = shift;
 	my $args = shift;
@@ -45,10 +58,12 @@ sub new {
 	};
 
 
-	# dot2dec the host
+	# Converts the dot'ed IPADDR of the host to decimal
+	# to dirct compare with address given from libpcap
 	my ($na, $nb, $nc, $nd) = split /\./, $self->{'host'};
 	$self->{'host'} = ($na << 24) + ($nb << 16) + ($nc << 8) + ($nd);
 
+	# register callbacks for given pgsql messages
 	foreach my $func (keys %{ $args->{'procs'} } ) {
 		$self->{$func} = $args->{'procs'}->{$func};
 	}
@@ -65,8 +80,10 @@ sub new {
 	return bless($self, $class);
 }
 
-## Set the pcap filter. See pcap-filter(7)
-# @param $filter the filter to apply
+=setFilter
+Set the pcap filter to apply to the pcap stream. See pcap-filter(7)
+@param $filter the filter to apply
+=cut
 sub setFilter {
 	my $self = shift;
 	my $filter = shift;
@@ -78,10 +95,12 @@ sub setFilter {
 	}
 }
 
-## Open a live capture on given interface
-# @param $interface the interface to listen on
-# @param $err a reference to a string. It will be filled with the error message if the function fail.
-# @returns 0 on success, 1 on failure
+=live
+Open a live capture on given interface
+@param $interface the interface to listen on
+@param $err a reference to a string. It will be filled with the error message if the function fail.
+@returns 0 on success, 1 on failure
+=cut
 sub live {
 	my $self = shift;
 	my $interface = shift;
@@ -92,10 +111,12 @@ sub live {
 	return 0;
 }
 
-## Open a pcap file
-# @param $file the pcap file to open
-# @param $err a reference to a string. It will be filled with the error message if the function fail.
-# @returns 0 on success, 1 on failure
+=open
+Open a pcap file
+@param $file the pcap file to open
+@param $err a reference to a string. It will be filled with the error message if the function fail.
+@returns 0 on success, 1 on failure
+=cut
 sub open {
 	my $self = shift;
 	my $file = shift;
@@ -106,7 +127,9 @@ sub open {
 	return 0;
 }
 
-## Close the current pcap handle
+=close
+Close the current pcap handle
+=cut
 sub close {
 	my $self = shift;
 	pcap_close($self->{'pcap'}) if $self->{'pcap'};
@@ -114,9 +137,12 @@ sub close {
 	$self->{'pcap'} = undef;
 }
 
-## Loop over all available packets from the pcap handle
+=process_all
+Loop over all available packets from the pcap handle
+=cut
 sub process_all {
 	my $self = shift;
+
 	# Net::Pcap::Reassemble::loop($self->{'pcap'}, -1, \&process_packet, $self)
 	# 	if $self->{'pcap'};
 
@@ -124,10 +150,24 @@ sub process_all {
 	pcap_loop($self->{'pcap'}, -1, \&process_packet, $self) if $self->{'pcap'};
 }
 
-## Main callback called to dissect a network packet
-# It dissects the given network packet looking for PostgreSQL data.
-# If one or more PostgreSQL message is found, call the appropriate callback (from $self)
-# for each messages.
+=process_packet
+Main callback called to dissect a network packet called from "pcap_loop" in sub
+process_all.
+
+It dissects the given network packet looking for PostgreSQL data. If some pgsql
+payload is found in TCP data, it dissects the buffer calling
+"self->pgsql_dissect()".
+
+Code to dissect IP and TCP fileds was inspired from perl NetPacket library and
+optimzed to speed up the parsing, fetching only usefull information. Moreover,
+one pgShark's rule is to rely on very few non-core libraries.
+
+TCP dialogs are tracked in a hash table. Each dialog is referenced by a key
+composed by the IP and port of the remote client. A dialog is an array with
+backend data in first position and frontend ones in second.
+
+Data payloads are reconstructed based on TCP seq/ack sequences.
+=cut
 sub process_packet {
 	my($self, $pckt_hdr, $pckt) = @_;
 	my ($sess_hash, $curr_sess, $from_backend);
@@ -251,8 +291,8 @@ sub process_packet {
 			debug(3, "TCP/IP: %s-%d: segment in the past.\n", $sess_hash, $from_backend);
 			splice @{ $curr_sess->{'segs'} }, $i, 1;
 		}
+		# tcp's in the future, we keep it in the segment buffer
 		else {
-			# tcp's in the future, we keep it in the segment buffer
 			debug(3, "TCP/IP: %s-%d:  tcp's in the future, next_seq: %d, seq: %d-%d.\n",
 				$sess_hash, $from_backend, $curr_sess->{'next_seq'}, $segment->{'seq'}, $segment->{'seq'} + $segment->{'len'}
 			);
@@ -260,7 +300,7 @@ sub process_packet {
 		$i++;
 	}
 
-	# hash about message informations
+	# message informations hash
 	my $pg_msg = {
 		# tcp/ip properties
 		'tcpip' => {
@@ -281,8 +321,8 @@ sub process_packet {
 		## other fields specifics to each messages are added bellow
 	};
 
-	# if processing the message fails, reset the data for this half-part of a session
-	if ($self->process_message($pg_msg) != 0) {
+	# if dissecting the buffer fails, reset the data for this half-part of a session
+	if ($self->pgsql_dissect($pg_msg) != 0) {
 		$self->{'sessions'}->{$sess_hash}->[$from_backend] = {
 			'data' => '', # raw tcp data
 			'next_seq' => -1,
@@ -291,8 +331,14 @@ sub process_packet {
 	}
 }
 
+=pgsql_dissect
+Loop on data from a session monologue (tcp payload from backend or frontend)
+to parse each pgsql messages in it.
 
-sub process_message {
+@param pg_msg_orig	The hash's skeleton to use to construct a pgsql hash message.
+					It already contains tcp and other global infos.
+=cut
+sub pgsql_dissect {
 	my $self = shift;
 	my $pg_msg_orig = shift;
 	my $sess_hash = $pg_msg_orig->{'sess_hash'};
@@ -300,16 +346,15 @@ sub process_message {
 
 	my $curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
 
-	# buffer length. It helps tracking if we have enough data in session's
-	# buffer to process the current message
 	my $data_len = length $curr_sess->{'data'};
 
-	# each packet processed might have one or more pgsql message.
+	# each packet processed from backend or frontend might have one or more
+	# pgsql messages. We loop on the data until we lack data in it.
 	do {
 		# copy base message properties hash for this new message
 		my $pg_msg = { %$pg_msg_orig };
 
-		# the message current total length
+		# Parsing the message returns the current message total length
 		my $msg_len = $self->{'parser'}->($pg_msg, $from_backend, $curr_sess->{'data'}, $curr_sess);
 
 		# we don't have enough data for the current message (0)
@@ -320,10 +365,13 @@ sub process_message {
 			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
 		);
 
+		# extract the message data from the buffer
 		$pg_msg->{'data'} = substr($curr_sess->{'data'}, 0, $msg_len);
+
+		# call the callback for the message type if defined.
 		$self->{$pg_msg->{'type'}}->($pg_msg) if defined $self->{$pg_msg->{'type'}};
 
-		### end of processing, remove processed data
+		# remove processed data from the buffer
 		$curr_sess->{'data'} = substr($curr_sess->{'data'}, $msg_len);
 		$data_len -= $msg_len;
 
@@ -339,14 +387,27 @@ sub process_message {
 	return 0;
 }
 
-##
-# @param	$pg_msg: a hash ref where data parsed will be set
-# @param	$from_backend: does this data come from the Backend or the Frontend (1/0) ?
-# @param	$raw_data: the raw data to parse
-#
-# @return 	the total size of the message in the given raw_data.
-# 			0 means we lack some data to process the current message.
-# 		 	-1 on error
+=parse_v3
+Parse and dissect a buffer, looking for a valid pgsql v3 message, and set the
+given hashref with the message properties.
+
+This method must knows who sent the  given data to be able to parse them:
+the backend or the frontend.
+
+Properties set in the given hashref depend on the message type. See the method
+code comments for more information about them.
+
+This method is static, so it can be used outside of the class for any other
+purpose.
+
+@param	$pg_msg: a hash ref where data parsed will be set
+@param	$from_backend: does this data come from the Backend or the Frontend (1/0) ?
+@param	$raw_data: the raw data to parse
+
+@return	the total size of the message in the given raw_data.
+		0 means lack of data to process the current message.
+		-1 on error
+=cut
 sub parse_v3 {
 	my $pg_msg = shift;
 	my $from_backend = shift;
@@ -409,42 +470,52 @@ sub parse_v3 {
 		($len, $pg_msg->{'code'}) = unpack('xNN', $raw_data);
 
 		# AuthenticationOk
+		#   code=int32
 		if ($pg_msg->{'code'} == 0) {
 			$pg_msg->{'type'} = 'AuthenticationOk';
 			return 9;
 		}
 		# AuthenticationKerberosV5
+		#   code=int32
 		elsif ($pg_msg->{'code'} == 2) {
 			$pg_msg->{'type'} = 'AuthenticationKerberosV5';
 			return 9;
 		}
 		# AuthenticationCleartextPassword
+		#   code=int32
 		elsif ($pg_msg->{'code'} == 3) {
 			$pg_msg->{'type'} = 'AuthenticationCleartextPassword';
 			return 9;
 		}
 		# AuthenticationMD5Password
+		#   code=int32
+		#   salt=Char[4]
 		elsif ($pg_msg->{'code'} == 5) {
 			$pg_msg->{'salt'} = substr($raw_data, 9, 4);
 			$pg_msg->{'type'} = 'AuthenticationMD5Password';
 			return 13;
 		}
 		# AuthenticationSCMCredential
+		#   code=int32
 		elsif ($pg_msg->{'code'} == 6) {
 			$pg_msg->{'type'} = 'AuthenticationSCMCredential';
 			return 9;
 		}
 		# AuthenticationGSS
+		#   code=int32
 		elsif ($pg_msg->{'code'} == 7) {
 			$pg_msg->{'type'} = 'AuthenticationGSS';
 			return 9;
 		}
 		# AuthenticationSSPI
+		#   code=int32
 		elsif ($pg_msg->{'code'} == 9) {
 			$pg_msg->{'type'} = 'AuthenticationSSPI';
 			return 9;
 		}
 		# GSSAPI or SSPI authentication data
+		#   code=int32
+		#   auth_data=String
 		elsif ($pg_msg->{'code'} == 8) {
 			$pg_msg->{'auth_data'} = substr($raw_data, 9, $len - 8);
 			$pg_msg->{'type'} = 'AuthenticationGSSContinue';
@@ -455,6 +526,8 @@ sub parse_v3 {
 	}
 
 	# message: B(K) "BackendKeyData"
+	#   pid=int32
+	#   key=int32
 	elsif ($from_backend and $pg_msg->{'type'} eq 'K') {
 		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x5NN', $raw_data);
 		$pg_msg->{'type'} = 'BackendKeyData';
@@ -521,7 +594,8 @@ sub parse_v3 {
 	}
 
 	# message: CancelRequest (F)
-	#   status=Char
+	#   pid=int32
+	#   key=int32
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'CancelRequest') {
 		($pg_msg->{'pid'}, $pg_msg->{'key'}) = unpack('x8NN', $raw_data);
 		$pg_msg->{'type'} = 'CancelRequest';
@@ -553,7 +627,7 @@ sub parse_v3 {
 	}
 
 	# message: B(d) or F(d) "CopyData"
-	#   data=Byte[n]
+	#   row=Byte[n]
 	elsif ($pg_msg->{'type'} eq 'd') {
 		$len = unpack('xN', $raw_data);
 		$pg_msg->{'row'} = substr($raw_data, 5, $len-4);
@@ -647,7 +721,7 @@ sub parse_v3 {
 	}
 
 	# message: F(D) "Describe"
-	#   type=char
+	#   kind=char
 	#   name=String
 	elsif (not $from_backend and $pg_msg->{'type'} eq 'D') {
 		($len, $pg_msg->{'kind'}, $pg_msg->{'name'}) = unpack('xNAZ*', $raw_data);
@@ -979,29 +1053,49 @@ sub parse_v3 {
 	return 1;
 }
 
-##
-# @param	$pg_msg: a hash ref where data parsed will be set
-# @param	$from_backend: does this data come from the Backend or the Frontend (0/1) ?
-# @param	$raw_data: the raw data to parse
-# @param	$curr_sess: a hash ref where session related states will be saved. Some
-#			messages need state from previous pgsql messages. Given hash ref here should
-#			concern the ONLY current session (Frontend/Backend couple) data are parsed for.
-#
-# @return 	the total size of the message in the given raw_data.
-# 			0 means we lack some data to process the current message.
-# 		 	-1 on error
-#
-# Here is how message are mapped between v2 and v3:
-# "AsciiRow"               => "DataRow"
-# "BinaryRow"              => "DataRow"
-# "CompletedResponse"      => "CommandComplete"
-# "CopyDataRows"           => "CopyData"
-# "FunctionResultResponse" => "FunctionCallResponse"
-# "FunctionVoidResponse"   => "FunctionCallResponse"
-# "StartupPacket"          => "StartupMessage"
-#
-# message "CursorResponse" is protocol v2 only !
-##
+=parse_v3
+Parse and dissect a buffer, looking for a valid pgsql v2 message, and set the
+given hashref with the message properties.
+
+This method must knows who sent the given data to be able to parse them:
+the backend or the frontend.
+
+Properties set in the given hashref depend on the message type. See the method
+code comments for more information about them.
+
+This method is static, so it can be used outside of the class for any other
+purpose.
+
+The method tries to keep some compatibility with messages type returned from the
+v3 parser. Here is how message are mapped between v2 and v3:
+"AsciiRow"               => "DataRow"
+"BinaryRow"              => "DataRow"
+"CompletedResponse"      => "CommandComplete"
+"CopyDataRows"           => "CopyData"
+"FunctionResultResponse" => "FunctionCallResponse"
+"FunctionVoidResponse"   => "FunctionCallResponse"
+"StartupPacket"          => "StartupMessage"
+
+Caution: message "CursorResponse" is protocol v2 only !
+
+Caution: this parser hadn't been tested enough to be considered stable. We need
+some scenario !
+
+@param	$pg_msg: a hash ref where data parsed will be set
+@param	$from_backend: does this data come from the Backend or the Frontend (1/0) ?
+@param	$raw_data: the raw data to parse
+@param	$curr_sess: a hash ref where session related states will be saved.
+		Protocol v2 of pgsql is statefull, implying that some messages need
+		some state from previous pgsql messages. Given hashref here should
+		concern the ONLY current session (Frontend/Backend couple) data are
+		parsed for.
+		This parameter does not exists in the protocol v3 version of this
+		method, v3 is a stateless protocol.
+
+@return	the total size of the message in the given raw_data.
+		0 means lack of data to process the current message.
+		-1 on error
+=cut
 sub parse_v2 {
 	my $pg_msg = shift;
 	my $from_backend = shift;
@@ -1496,11 +1590,10 @@ sub parse_v2 {
 		return 1;
 	}
 
-	# we metched nothing known
+	# we matched nothing known
 	debug(3, "PGSQL: not implemented message type: %s(%s)\n", ($from_backend?'B':'F'), $pg_msg->{'type'});
 
 	return -1;
-	### $curr_sess
 }
 
 DESTROY {
