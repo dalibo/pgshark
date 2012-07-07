@@ -16,11 +16,10 @@ our @ISA = ('Exporter');
 our @EXPORT = qw/parse_v2 parse_v3/;
 our @EXPORT_OK = qw/parse_v2 parse_v3/;
 
-=TODO
-  * catch INT/KILL signals to interrupt live capture
-  * optionally allow use of Net::Pcap::Reassemble, see sub process_all
-  * handling TCP seq counter overflow
-=cut
+#TODO
+#  * catch INT/KILL signals to interrupt live capture
+#  * optionally allow use of Net::Pcap::Reassemble, see sub process_all
+#  * handling TCP seq counter overflow
 
 # "static" unique id over all created object
 my $id = 0;
@@ -35,27 +34,26 @@ sigaction SIGINT, new POSIX::SigAction(sub {
 }, undef, &POSIX::SA_RESETHAND & &POSIX::SA_RESTART)
 	or die "Error setting SIGINT handler: $!\n";
 
-=Constructor
-@param $args a hash ref of settings:
-	{
-		'host' => IP address of the server
-		'port' => Port of the PostgreSQL server
-		'procs' => {
-			# Hash of callbacks for each messages.
-			'message name' => \&function_to_call
-			...
-		}
-     }
-
-pgShark is not able to detect in a network dump which IP address is the backend
-and on which port it is listening. Defaults are PostgreSQL's ones, ie.
-127.0.0.1:5432.
-
-See the following link about available message name:
-  http://www.postgresql.org/docs/current/static/protocol-message-formats.html
-
-@TODO add check about mandatory option 'procs' => {}
-=cut
+#Constructor
+# @param $args a hash ref of settings:
+# 	{
+# 		'host' => IP address of the server
+# 		'port' => Port of the PostgreSQL server
+# 		'procs' => {
+# 			# Hash of callbacks for each messages.
+# 			'message name' => \&function_to_call
+# 			...
+# 		}
+#      }
+#
+# pgShark is not able to detect in a network dump which IP address is the backend
+# and on which port it is listening. Defaults are PostgreSQL's ones, ie.
+# 127.0.0.1:5432.
+#
+# See the following link about available message name:
+#   http://www.postgresql.org/docs/current/static/protocol-message-formats.html
+#
+# @TODO add check about mandatory option 'procs' => {}
 sub new {
 	my $class = shift;
 	my $args = shift;
@@ -94,10 +92,9 @@ sub new {
 	return bless($self, $class);
 }
 
-=setFilter
-Set the pcap filter to apply to the pcap stream. See pcap-filter(7)
-@param $filter the filter to apply
-=cut
+#setFilter
+# Set the pcap filter to apply to the pcap stream. See pcap-filter(7)
+# @param $filter the filter to apply
 sub setFilter {
 	my $self = shift;
 	my $filter = shift;
@@ -109,12 +106,11 @@ sub setFilter {
 	}
 }
 
-=live
-Open a live capture on given interface
-@param $interface the interface to listen on
-@param $err a reference to a string. It will be filled with the error message if the function fail.
-@returns 0 on success, 1 on failure
-=cut
+#live
+# Open a live capture on given interface
+# @param $interface the interface to listen on
+# @param $err a reference to a string. It will be filled with the error message if the function fail.
+# @returns 0 on success, 1 on failure
 sub live {
 	my $self = shift;
 	my $interface = shift;
@@ -125,12 +121,11 @@ sub live {
 	return 0;
 }
 
-=open
-Open a pcap file
-@param $file the pcap file to open
-@param $err a reference to a string. It will be filled with the error message if the function fail.
-@returns 0 on success, 1 on failure
-=cut
+#open
+# Open a pcap file
+# @param $file the pcap file to open
+# @param $err a reference to a string. It will be filled with the error message if the function fail.
+# @returns 0 on success, 1 on failure
 sub open {
 	my $self = shift;
 	my $file = shift;
@@ -141,9 +136,8 @@ sub open {
 	return 0;
 }
 
-=close
-Close the current pcap handle
-=cut
+#close
+# Close the current pcap handle
 sub close {
 	my $self = shift;
 
@@ -152,9 +146,8 @@ sub close {
 	delete $pcaps{$self->{'id'}};
 }
 
-=process_all
-Loop over all available packets from the pcap handle
-=cut
+#process_all
+# Loop over all available packets from the pcap handle
 sub process_all {
 	my $self = shift;
 
@@ -166,24 +159,23 @@ sub process_all {
 		if exists $pcaps{$self->{'id'}};
 }
 
-=process_packet
-Main callback called to dissect a network packet called from "pcap_loop" in sub
-process_all.
-
-It dissects the given network packet looking for PostgreSQL data. If some pgsql
-payload is found in TCP data, it dissects the buffer calling
-"self->pgsql_dissect()".
-
-Code to dissect IP and TCP fileds was inspired from perl NetPacket library and
-optimzed to speed up the parsing, fetching only usefull information. Moreover,
-one pgShark's rule is to rely on very few non-core libraries.
-
-TCP dialogs are tracked in a hash table. Each dialog is referenced by a key
-composed by the IP and port of the remote client. A dialog is an array with
-backend data in first position and frontend ones in second.
-
-Data payloads are reconstructed based on TCP seq/ack sequences.
-=cut
+#process_packet
+# Main callback called to dissect a network packet called from "pcap_loop" in sub
+# process_all.
+#
+# It dissects the given network packet looking for PostgreSQL data. If some pgsql
+# payload is found in TCP data, it dissects the buffer calling
+# "self->pgsql_dissect()".
+#
+# Code to dissect IP and TCP fileds was inspired from perl NetPacket library and
+# optimzed to speed up the parsing, fetching only usefull information. Moreover,
+# one pgShark's rule is to rely on very few non-core libraries.
+#
+# TCP dialogs are tracked in a hash table. Each dialog is referenced by a key
+# composed by the IP and port of the remote client. A dialog is an array with
+# backend data in first position and frontend ones in second.
+#
+# Data payloads are reconstructed based on TCP seq/ack sequences.
 sub process_packet {
 	my($self, $pckt_hdr, $pckt) = @_;
 	my ($sess_hash, $curr_sess, $from_backend);
@@ -347,13 +339,12 @@ sub process_packet {
 	}
 }
 
-=pgsql_dissect
-Loop on data from a session monologue (tcp payload from backend or frontend)
-to parse each pgsql messages in it.
-
-@param pg_msg_orig	The hash's skeleton to use to construct a pgsql hash message.
-					It already contains tcp and other global infos.
-=cut
+#pgsql_dissect
+# Loop on data from a session monologue (tcp payload from backend or frontend)
+# to parse each pgsql messages in it.
+#
+# @param pg_msg_orig	The hash's skeleton to use to construct a pgsql hash message.
+# 					It already contains tcp and other global infos.
 sub pgsql_dissect {
 	my $self = shift;
 	my $pg_msg_orig = shift;
@@ -403,27 +394,26 @@ sub pgsql_dissect {
 	return 0;
 }
 
-=parse_v3
-Parse and dissect a buffer, looking for a valid pgsql v3 message, and set the
-given hashref with the message properties.
-
-This method must knows who sent the  given data to be able to parse them:
-the backend or the frontend.
-
-Properties set in the given hashref depend on the message type. See the method
-code comments for more information about them.
-
-This method is static, so it can be used outside of the class for any other
-purpose.
-
-@param	$pg_msg: a hash ref where data parsed will be set
-@param	$from_backend: does this data come from the Backend or the Frontend (1/0) ?
-@param	$raw_data: the raw data to parse
-
-@return	the total size of the message in the given raw_data.
-		0 means lack of data to process the current message.
-		-1 on error
-=cut
+#parse_v3
+# Parse and dissect a buffer, looking for a valid pgsql v3 message, and set the
+# given hashref with the message properties.
+#
+# This method must knows who sent the  given data to be able to parse them:
+# the backend or the frontend.
+#
+# Properties set in the given hashref depend on the message type. See the method
+# code comments for more information about them.
+#
+# This method is static, so it can be used outside of the class for any other
+# purpose.
+#
+# @param	$pg_msg: a hash ref where data parsed will be set
+# @param	$from_backend: does this data come from the Backend or the Frontend (1/0) ?
+# @param	$raw_data: the raw data to parse
+#
+# @return	the total size of the message in the given raw_data.
+# 		0 means lack of data to process the current message.
+# 		-1 on error
 sub parse_v3 {
 	my $pg_msg = shift;
 	my $from_backend = shift;
@@ -1069,49 +1059,48 @@ sub parse_v3 {
 	return 1;
 }
 
-=parse_v3
-Parse and dissect a buffer, looking for a valid pgsql v2 message, and set the
-given hashref with the message properties.
-
-This method must knows who sent the given data to be able to parse them:
-the backend or the frontend.
-
-Properties set in the given hashref depend on the message type. See the method
-code comments for more information about them.
-
-This method is static, so it can be used outside of the class for any other
-purpose.
-
-The method tries to keep some compatibility with messages type returned from the
-v3 parser. Here is how message are mapped between v2 and v3:
-"AsciiRow"               => "DataRow"
-"BinaryRow"              => "DataRow"
-"CompletedResponse"      => "CommandComplete"
-"CopyDataRows"           => "CopyData"
-"FunctionResultResponse" => "FunctionCallResponse"
-"FunctionVoidResponse"   => "FunctionCallResponse"
-"StartupPacket"          => "StartupMessage"
-
-Caution: message "CursorResponse" is protocol v2 only !
-
-Caution: this parser hadn't been tested enough to be considered stable. We need
-some scenario !
-
-@param	$pg_msg: a hash ref where data parsed will be set
-@param	$from_backend: does this data come from the Backend or the Frontend (1/0) ?
-@param	$raw_data: the raw data to parse
-@param	$curr_sess: a hash ref where session related states will be saved.
-		Protocol v2 of pgsql is statefull, implying that some messages need
-		some state from previous pgsql messages. Given hashref here should
-		concern the ONLY current session (Frontend/Backend couple) data are
-		parsed for.
-		This parameter does not exists in the protocol v3 version of this
-		method, v3 is a stateless protocol.
-
-@return	the total size of the message in the given raw_data.
-		0 means lack of data to process the current message.
-		-1 on error
-=cut
+#parse_v3
+# Parse and dissect a buffer, looking for a valid pgsql v2 message, and set the
+# given hashref with the message properties.
+#
+# This method must knows who sent the given data to be able to parse them:
+# the backend or the frontend.
+#
+# Properties set in the given hashref depend on the message type. See the method
+# code comments for more information about them.
+#
+# This method is static, so it can be used outside of the class for any other
+# purpose.
+#
+# The method tries to keep some compatibility with messages type returned from the
+# v3 parser. Here is how message are mapped between v2 and v3:
+# "AsciiRow"               => "DataRow"
+# "BinaryRow"              => "DataRow"
+# "CompletedResponse"      => "CommandComplete"
+# "CopyDataRows"           => "CopyData"
+# "FunctionResultResponse" => "FunctionCallResponse"
+# "FunctionVoidResponse"   => "FunctionCallResponse"
+# "StartupPacket"          => "StartupMessage"
+#
+# Caution: message "CursorResponse" is protocol v2 only !
+#
+# Caution: this parser hadn't been tested enough to be considered stable. We need
+# some scenario !
+#
+# @param	$pg_msg: a hash ref where data parsed will be set
+# @param	$from_backend: does this data come from the Backend or the Frontend (1/0) ?
+# @param	$raw_data: the raw data to parse
+# @param	$curr_sess: a hash ref where session related states will be saved.
+# 		Protocol v2 of pgsql is statefull, implying that some messages need
+# 		some state from previous pgsql messages. Given hashref here should
+# 		concern the ONLY current session (Frontend/Backend couple) data are
+# 		parsed for.
+# 		This parameter does not exists in the protocol v3 version of this
+# 		method, v3 is a stateless protocol.
+#
+# @return	the total size of the message in the given raw_data.
+# 		0 means lack of data to process the current message.
+# 		-1 on error
 sub parse_v2 {
 	my $pg_msg = shift;
 	my $from_backend = shift;
