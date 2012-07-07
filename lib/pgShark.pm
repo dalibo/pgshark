@@ -1,6 +1,11 @@
 # This program is open source, licensed under the simplified BSD license.  For
 # license terms, see the LICENSE file.
 
+#TODO
+#  * catch INT/KILL signals to interrupt live capture
+#  * optionally allow use of Net::Pcap::Reassemble, see sub process_all
+#  * handling TCP seq counter overflow
+
 package pgShark;
 
 use strict;
@@ -16,10 +21,8 @@ our @ISA = ('Exporter');
 our @EXPORT = qw/parse_v2 parse_v3/;
 our @EXPORT_OK = qw/parse_v2 parse_v3/;
 
-#TODO
-#  * catch INT/KILL signals to interrupt live capture
-#  * optionally allow use of Net::Pcap::Reassemble, see sub process_all
-#  * handling TCP seq counter overflow
+use constant DEFAULT_FILTER => "(tcp and port %d)
+		and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)";
 
 # "static" unique id over all created object
 my $id = 0;
@@ -100,6 +103,8 @@ sub setFilter {
 	my $filter = shift;
 	my $c_filter = undef;
 
+	debug(2, "setFilter: set filter to:\n  %s", $filter);
+
 	if ($filter) {
 		pcap_compile($pcaps{$self->{'id'}}, \$c_filter, $filter, 0, 0);
 		pcap_setfilter($pcaps{$self->{'id'}}, $c_filter);
@@ -108,15 +113,19 @@ sub setFilter {
 
 #live
 # Open a live capture on given interface
-# @param $interface the interface to listen on
-# @param $err a reference to a string. It will be filled with the error message if the function fail.
+# @param $interface	the interface to listen on
+# @param $err a reference to a string. It will be filled with the error
+#				message if the function fail.
 # @returns 0 on success, 1 on failure
 sub live {
 	my $self = shift;
 	my $interface = shift;
 	my $err = shift;
 
-	return 1 unless $pcaps{$self->{'id'}} = pcap_open_live($interface, 65535, 0, 0, $err);
+	return 1 unless
+		$pcaps{$self->{'id'}} = pcap_open_live($interface, 65535, 0, 0, $err);
+
+	$self->setFilter(sprintf(DEFAULT_FILTER, $self->{'port'}));
 
 	return 0;
 }
@@ -124,7 +133,8 @@ sub live {
 #open
 # Open a pcap file
 # @param $file the pcap file to open
-# @param $err a reference to a string. It will be filled with the error message if the function fail.
+# @param $err a reference to a string. It will be filled with the error message
+#				if the function fail.
 # @returns 0 on success, 1 on failure
 sub open {
 	my $self = shift;
@@ -132,6 +142,8 @@ sub open {
 	my $err = shift;
 
 	return 1 unless $pcaps{$self->{'id'}} = pcap_open_offline($file, \$err);
+
+	$self->setFilter(sprintf(DEFAULT_FILTER, $self->{'port'}));
 
 	return 0;
 }
