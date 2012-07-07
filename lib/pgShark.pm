@@ -1,7 +1,6 @@
-##
 # This program is open source, licensed under the simplified BSD license.  For
 # license terms, see the LICENSE file.
-##
+
 package pgShark;
 
 use strict;
@@ -9,6 +8,7 @@ use warnings;
 use Net::Pcap qw(:functions);
 use Data::Dumper;
 use pgShark::Utils;
+use POSIX ':signal_h';
 
 use Exporter;
 our $VERSION = 0.1;
@@ -21,6 +21,19 @@ our @EXPORT_OK = qw/parse_v2 parse_v3/;
   * optionally allow use of Net::Pcap::Reassemble, see sub process_all
   * handling TCP seq counter overflow
 =cut
+
+# "static" unique id over all created object
+my $id = 0;
+# "static" hash holding the pcap file descs of all objects.
+my %pcaps;
+
+# Catch SIGINT to stop immediatly pcap_loop amongs all pgShark objects.
+sigaction SIGINT, new POSIX::SigAction(sub {
+	foreach my $i (keys %pcaps) {
+		pcap_breakloop($pcaps{$i});
+	}
+}, undef, &POSIX::SA_RESETHAND & &POSIX::SA_RESTART)
+	or die "Error setting SIGINT handler: $!\n";
 
 =Constructor
 @param $args a hash ref of settings:
@@ -47,16 +60,17 @@ sub new {
 	my $class = shift;
 	my $args = shift;
 
+	$id++;
+
 	my $self = {
 		'host' => defined($args->{'host'}) ? $args->{'host'} : '127.0.0.1',
-		'pcap' => undef,
+		'id' => $id,
 		'pckt_count' => 0,
 		'port' => defined($args->{'port'}) ? $args->{'port'} : '5432',
 		'msg_count' => 0,
 		'protocol' => defined($args->{'protocol'}) ? $args->{'protocol'} : '3',
 		'sessions' => {}
 	};
-
 
 	# Converts the dot'ed IPADDR of the host to decimal
 	# to dirct compare with address given from libpcap
@@ -90,8 +104,8 @@ sub setFilter {
 	my $c_filter = undef;
 
 	if ($filter) {
-		pcap_compile($self->{'pcap'}, \$c_filter, $filter, 0, 0);
-		pcap_setfilter($self->{'pcap'}, $c_filter);
+		pcap_compile($pcaps{$self->{'id'}}, \$c_filter, $filter, 0, 0);
+		pcap_setfilter($pcaps{$self->{'id'}}, $c_filter);
 	}
 }
 
@@ -106,7 +120,7 @@ sub live {
 	my $interface = shift;
 	my $err = shift;
 
-	return 1 unless $self->{'pcap'} = pcap_open_live($interface, 65535, 0, 0, $err);
+	return 1 unless $pcaps{$self->{'id'}} = pcap_open_live($interface, 65535, 0, 0, $err);
 
 	return 0;
 }
@@ -122,7 +136,7 @@ sub open {
 	my $file = shift;
 	my $err = shift;
 
-	return 1 unless $self->{'pcap'} = pcap_open_offline($file, \$err);
+	return 1 unless $pcaps{$self->{'id'}} = pcap_open_offline($file, \$err);
 
 	return 0;
 }
@@ -132,9 +146,10 @@ Close the current pcap handle
 =cut
 sub close {
 	my $self = shift;
-	pcap_close($self->{'pcap'}) if $self->{'pcap'};
 
-	$self->{'pcap'} = undef;
+	pcap_close($pcaps{$self->{'id'}}) if exists $pcaps{$self->{'id'}};
+
+	delete $pcaps{$self->{'id'}};
 }
 
 =process_all
@@ -147,7 +162,8 @@ sub process_all {
 	# 	if $self->{'pcap'};
 
 	## slightly better perfs without Net::Pcap::Reassemble
-	pcap_loop($self->{'pcap'}, -1, \&process_packet, $self) if $self->{'pcap'};
+	pcap_loop($pcaps{$self->{'id'}}, -1, \&process_packet, $self)
+		if exists $pcaps{$self->{'id'}};
 }
 
 =process_packet
@@ -1598,6 +1614,11 @@ sub parse_v2 {
 
 DESTROY {
 	my $self = shift;
+
+	if (exists $pcaps{$self->{'id'}}) {
+		$self->close();
+	}
+
 	debug(1, "-- Core: Total number of messages processed: $self->{'msg_count'}\n");
 	debug(1, "-- bye.\n");
 }
