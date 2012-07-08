@@ -32,6 +32,7 @@ sub debug {
 	my $lvl = shift;
 	my $frmt = shift;
 	my @from = caller(1);
+	$from[2] = (caller(0))[2];
 	printf(STDERR "[%d] in %s:%d, %s:\n  $frmt\n", $lvl, $from[1], $from[2], $from[3], @_) if $debug_lvl >= $lvl;
 }
 
