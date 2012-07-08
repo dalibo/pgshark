@@ -22,7 +22,7 @@ our @EXPORT = qw/parse_v2 parse_v3/;
 our @EXPORT_OK = qw/parse_v2 parse_v3/;
 
 use constant DEFAULT_FILTER => "(tcp and port %d)
-		and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)";
+	and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)";
 
 # "static" unique id over all created object
 my $id = 0;
@@ -90,7 +90,9 @@ sub new {
 		$self->{'parser'} = \&parse_v3;
 	}
 
-	debug(1, "Core: loaded.\n");
+	set_debug($args->{'debug'}) if defined($args->{'debug'});
+
+	debug(1, "A shark is borned.\n");
 
 	return bless($self, $class);
 }
@@ -103,7 +105,7 @@ sub setFilter {
 	my $filter = shift;
 	my $c_filter = undef;
 
-	debug(2, "setFilter: set filter to:\n  %s", $filter);
+	debug(2, "set filter to: %s\n", $filter);
 
 	if ($filter) {
 		pcap_compile($pcaps{$self->{'id'}}, \$c_filter, $filter, 0, 0);
@@ -154,6 +156,8 @@ sub close {
 	my $self = shift;
 
 	pcap_close($pcaps{$self->{'id'}}) if exists $pcaps{$self->{'id'}};
+
+	debug(2, "pcap stream closed.");
 
 	delete $pcaps{$self->{'id'}};
 }
@@ -206,7 +210,7 @@ sub process_packet {
 
 	# ignore non-TCP packets
 	unless ($ip_proto == 6) {
-		debug(2, "IP: not TCP\n");
+		debug(4, "IP: not TCP\n");
 		return;
 	}
 
@@ -225,17 +229,17 @@ sub process_packet {
 
 	$data = substr($data, $tcp_hlen);
 
-	debug(2, "packet: #=%d len=%s, caplen=%s\n", $self->{'pckt_count'}, $pckt_hdr->{'len'}, $pckt_hdr->{'caplen'});
+	debug(4, "packet: #=%d len=%s, caplen=%s\n", $self->{'pckt_count'}, $pckt_hdr->{'len'}, $pckt_hdr->{'caplen'});
 
 	$tcp_len = length($data);
 
 	# ignore tcp without data
 	unless ($tcp_len) {
-		debug(2, "TCP: no data\n");
+		debug(4, "TCP: no data\n");
 		return;
 	}
 
-	debug(2, "IP:TCP %s:%d -> %s:%d, seqnum: %d, acknum: %d, len: %d\n",
+	debug(4, "IP:TCP %s:%d -> %s:%d, seqnum: %d, acknum: %d, len: %d\n",
 		$src_ip, $src_port, $dest_ip, $dest_port, $seqnum, $acknum, $tcp_len
 	);
 
@@ -279,7 +283,7 @@ sub process_packet {
 		'data' => $data
 	});
 
-	debug(3, "TCP/IP: %s-%d: segment in the buff: %d\n", $sess_hash, $from_backend, scalar @{ $curr_sess->{'segs'} });
+	debug(5, "TCP/IP: %s-%d: segment in the buff: %d\n", $sess_hash, $from_backend, scalar @{ $curr_sess->{'segs'} });
 
 	# we loop over existing tcp segments trying to find the best one to reconstruct the data
 	my $i=0;
@@ -287,7 +291,7 @@ sub process_packet {
 		# normal
 		if ($curr_sess->{'next_seq'} == $segment->{'seq'}) {
 
-			debug(3, "TCP/IP: %s-%d: perfect sequence\n", $sess_hash, $from_backend);
+			debug(5, "TCP/IP: %s-%d: perfect sequence\n", $sess_hash, $from_backend);
 			# add data to the current session's buffer
 			$curr_sess->{'data'} .= $segment->{'data'};
 			$curr_sess->{'next_seq'} = $curr_sess->{'next_seq'} + $segment->{'len'};
@@ -298,7 +302,7 @@ sub process_packet {
 		elsif (($curr_sess->{'next_seq'} >= $segment->{'seq'})
 			and ($curr_sess->{'next_seq'} < $segment->{'seq'} + $segment->{'len'})
 		) {
-			debug(3, "TCP/IP: %s-%d: segment start in the past but complete data\n", $sess_hash, $from_backend);
+			debug(5, "TCP/IP: %s-%d: segment start in the past but complete data\n", $sess_hash, $from_backend);
 			my $offset = $curr_sess->{'next_seq'} - $segment->{'seq'};
 			# add data to the current session's buffer
 			$curr_sess->{'data'} .= substr($segment->{'data'}, $offset);
@@ -308,12 +312,12 @@ sub process_packet {
 		}
 		# tcp segment already done, drop it
 		elsif ($curr_sess->{'next_seq'} >= $segment->{'seq'} + $segment->{'len'}) {
-			debug(3, "TCP/IP: %s-%d: segment in the past.\n", $sess_hash, $from_backend);
+			debug(5, "TCP/IP: %s-%d: segment in the past.\n", $sess_hash, $from_backend);
 			splice @{ $curr_sess->{'segs'} }, $i, 1;
 		}
 		# tcp's in the future, we keep it in the segment buffer
 		else {
-			debug(3, "TCP/IP: %s-%d:  tcp's in the future, next_seq: %d, seq: %d-%d.\n",
+			debug(5, "TCP/IP: %s-%d:  tcp's in the future, next_seq: %d, seq: %d-%d.\n",
 				$sess_hash, $from_backend, $curr_sess->{'next_seq'}, $segment->{'seq'}, $segment->{'seq'} + $segment->{'len'}
 			);
 		}
@@ -380,7 +384,7 @@ sub pgsql_dissect {
 		# or an error occured (<0)
 		return $msg_len if $msg_len < 1;
 
-		debug(2, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
+		debug(3, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
 			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
 		);
 
@@ -443,7 +447,7 @@ sub parse_v3 {
 
 		if ($data_len < $msg_len + 1) { # we add the type byte
 			# we don't have the full message, waiting for more bits
-			debug(2, "NOTICE: message fragmented (data available: %d, total message length: %d), waiting for more bits.\n", $data_len, $msg_len+1);
+			debug(3, "NOTICE: message fragmented (data available: %d, total message length: %d), waiting for more bits.\n", $data_len, $msg_len+1);
 			return 0;
 		}
 	}
@@ -466,9 +470,9 @@ sub parse_v3 {
 			# my $maj = $code/65536; # == 3
 		}
 		else {
-			if (get_debug_lvl()) {
+			if (get_debug_lvl() > 2) {
 				$raw_data =~ tr/\x00-\x1F\x7F-\xFF/./;
-				debug(1, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
+				debug(3, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
 					$pg_msg->{'timestamp'}, $raw_data
 				);
 			}
@@ -476,10 +480,10 @@ sub parse_v3 {
 		}
 	}
 	else {
-		debug(4, "NOTICE: buffer full of junk or empty (data available: %d)...waiting for more bits.\n", $data_len);
+		debug(3, "NOTICE: buffer full of junk or empty (data available: %d)...waiting for more bits.\n", $data_len);
 		my $d = $raw_data;
 		$d =~ tr/\x00-\x1F\x7F-\xFF/./;
-		debug(4, "HINT: data are: «%s»\n", $d);
+		debug(3, "HINT: data are: «%s»\n", $d);
 		return 0;
 	}
 
@@ -1156,9 +1160,9 @@ sub parse_v2 {
 			$pg_msg->{'type'} = 'CopyDataRows';
 		}
 		else {
-			if (get_debug_lvl()) {
+			if (get_debug_lvl() > 2) {
 				$raw_data =~ tr/\x00-\x1F\x7F-\xFF/./;
-				debug(1, "WARNING: dropped alien packet (from_backend: %d) I was unable to mess with at timestamp %s:\n'%s'\n",
+				debug(3, "WARNING: dropped alien packet (from_backend: %d) I was unable to mess with at timestamp %s:\n'%s'\n",
 					$from_backend, $pg_msg->{'timestamp'}, $raw_data
 				);
 			}
@@ -1170,7 +1174,7 @@ sub parse_v2 {
 		if ($data_len) {
 			my $d = $raw_data;
 			$d =~ tr/\x00-\x1F\x7F-\xFF/./;
-			debug(3, "NOTICE: %s\n", $d);
+			debug(3, "HINT: %s\n", $d);
 		}
 		return 0;
 	}
@@ -1620,8 +1624,8 @@ DESTROY {
 		$self->close();
 	}
 
-	debug(1, "-- Core: Total number of messages processed: $self->{'msg_count'}\n");
-	debug(1, "-- bye.\n");
+	debug(1, "Total number of messages processed: %d\n", $self->{'msg_count'});
+	debug(1, "bye.\n");
 }
 
 1

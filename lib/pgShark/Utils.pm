@@ -30,13 +30,13 @@ sub set_debug {
 
 sub debug {
 	my $lvl = shift;
-	my $format = shift;
-	printf(STDERR "debug(%d): $format", $lvl, @_) if $debug_lvl >= $lvl;
+	my $frmt = shift;
+	my @from = caller(1);
+	printf(STDERR "[%d] in %s:%d, %s:\n  $frmt\n", $lvl, $from[1], $from[2], $from[3], @_) if $debug_lvl >= $lvl;
 }
 
-##
 #normalize query
-#@return the normalized query
+# @return the normalized query
 sub normalize_query {
 	my $query = shift;
 
