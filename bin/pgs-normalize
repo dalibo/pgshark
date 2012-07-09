@@ -1,0 +1,263 @@
+#!/usr/bin/perl
+# This program is open source, licensed under the simplified BSD license.
+# For license terms, see the LICENSE file.
+
+#TODO
+# * support parameters in extended protocol
+# * add some option to control what we want to catch:
+#   * queries ? prepd stmt ? portals ? ALL (deallocate as instance ?) ??
+#   * support $str$strings here$str$ notation
+
+use strict;
+use warnings;
+
+use File::Basename 'dirname';
+use File::Spec;
+use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+
+use pgShark;
+use pgShark::Utils;
+use Getopt::Long;
+use Digest::MD5 qw(md5_base64);
+use Pod::Usage;
+
+my $normalized = {};
+my $OUT_NORM;
+my $OUT_RAW = undef;
+my $shark;
+my %args = (
+	'help' => 0,
+	'debug' => 0,
+	'interface' => '',
+	'host' => '127.0.0.1',
+	'port' => 5432,
+	'read' => '',
+	'output-queries' => undef,
+	'output-norm' => undef,
+	'2' => 0,
+	'3' => 0
+);
+
+sub usage {
+	my $msg = shift;
+	print "$msg\n" if defined $msg and $msg ne '';
+	pod2usage(-exitval => 1);
+}
+
+sub longusage {
+	pod2usage(-verbose => 2, -exitval => 1);
+}
+
+#normalize 
+# normalize query and record them in the $normalized hash
+# @return the hash of the query
+sub normalize {
+	my $query = shift;
+
+	$query = normalize_query($query);
+
+	my $query_hash = md5_base64($query);
+
+	if (not defined $normalized->{$query_hash}) {
+		$normalized->{$query_hash} = {
+			'query' => $query,
+			'count' => 1
+		};
+	}
+	else {
+		$normalized->{$query_hash}->{count}++;
+	}
+
+	return $query_hash;
+}
+
+sub Parse {
+	# maybe we should do something fancier ?
+	my $pg_msg = shift;
+
+	my $query_hash = normalize($pg_msg->{query});
+
+	if ($normalized->{$query_hash}->{count} == 1) {
+		print $OUT_NORM "PREPARE xxx(...) AS $normalized->{$query_hash}->{query}\n\n";
+		print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
+	}
+}
+
+sub Query {
+	my $pg_msg = shift;
+
+	my $query_hash = normalize($pg_msg->{query});
+
+	if ($normalized->{$query_hash}->{count} == 1) {
+		print $OUT_NORM "$normalized->{$query_hash}->{query}\n\n";
+		print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
+	}
+}
+
+Getopt::Long::Configure('bundling');
+GetOptions(\%args, qw{
+	help
+	debug|d+
+	interface|i=s
+	host|h=s
+	port|p=s
+	read|r=s
+	output-queries|Q=s
+	output-norm|N=s
+	2+
+	3+
+});
+
+longusage() if ($args{'help'});
+
+usage("Arguments --interface and --read are incompatible.\n"
+		."Either listen from the network or open a pcap file.\n")
+	if $args{'interface'} ne '' and $args{'read'} ne '';
+
+usage("Options -2 and -3 are mutal exclusives.\n") if $args{'2'} and $args{'3'};
+
+$args{'protocol'} = $args{'2'}? 2 : 3;
+
+if (defined $args{'output-norm'}) {
+
+	$args{'output-norm'} = '&STDOUT' if $args{'output-norm'} eq '-';
+
+	open($OUT_NORM, ">$args{'output-norm'}")
+		or die("Can not open file $args{'output-norm'}: $!");
+}
+else {
+	open($OUT_NORM, '>&STDOUT');
+}
+
+if (defined $args{'output-queries'}) {
+
+	$args{'output-queries'} = '&STDOUT' if $args{'output-queries'} eq '-';
+
+	open($OUT_RAW, ">$args{'output-queries'}")
+		or die("Can not open file $args{'output-queries'}: $!");
+}
+
+$SIG{'__WARN__'} = sub {
+	warn $_[0] if $args{'debug'};
+};
+
+$shark = pgShark->new({
+	'procs' => {
+		'Parse' => \&Parse,
+		'Query' => \&Query
+	},
+	'host' => $args{'host'},
+	'port' => $args{'port'},
+	'protocol' => $args{'protocol'}
+});
+
+# open a live capture on given interface
+if ($args{'interface'} ne '') {
+	my $err = '';
+
+	($shark->live($args{'interface'}, \$err) == 0)
+		or die ("Can not open interface '$args{'interface'}':\n$err");
+}
+# we have no interface to listen on,
+# either open given pcap file or start reading from stdin
+else {
+	my $err = '';
+	# read from stdin if no pcap file given
+	$args{'read'} = '-' if $args{'read'} eq '';
+
+	($shark->open($args{'read'}, \$err) == 0) 
+		or die ("Can not read from file '$args{'read'}':\n$err");
+}
+
+$shark->process_all();
+
+$shark->close();
+
+# we could do something funnier like this trivial report...
+# 	print "$normalized->{$_}->{count} :\n$normalized->{$_}->{query}\n\n"
+# 		foreach (keys %{ $normalized });
+warn "-- Number of normalized queries found: ". scalar(keys %{ $normalized }) ."\n";
+
+exit 0;
+
+__END__
+
+=head1 pgs-normalize
+
+pgs-normalize - Normalize queries and prepared queries from pgsql messages
+
+Belongs to the pgShark scripts collection.
+
+=head1 SYNOPSIS
+
+=over 2
+
+=item pgs-normalize --help
+
+=item pgs-normalize [-2|-3] [--read file|--interface DEV] [--host IPADDR] [--port PORT] [--output-queries FILE] [--output-norm FILE]
+
+=back
+
+=head1 DESCRIPTION
+
+B<pgs-normalize> parse and normalize all queries and prepared queries found in a
+pcap stream and write them on stdout by default.
+
+Its purpose is to give you a list of unique queries, whatever the number of time
+they have been sent by clients and whatever their parameters were.
+
+The network dump could be live or from a pcap file (using tcpdump for instance).
+
+=over 2
+
+=item B<--help>
+
+Show this help message and exit.
+
+=item B<-h>, B<--host> <ip address>
+
+Gives the IP address of the PostgreSQL server. By default, set to 127.0.0.1.
+
+=item B<-p>, B<--port> <port>
+
+Gives the port the PostgreSQL backend is listening on. By default, set to 5432
+
+=item B<-i>, B<--interface> <interface name>
+
+Capture PostgreSQL traffic directly from the given network interface. Conflict with B<--read>.
+By default, B<pgs-normalize> will read from stdin if neither B<--read> or B<--interface> are given.
+
+=item B<-r>, B<--read> <path to file>
+
+Read PostgreSQL traffic from given pcap file. Conflict with B<--interface>.
+By default, B<pgs-normalize> will read from stdin if neither B<--read> or B<--interface> are given.
+
+=item B<-Q>, B<--output-queries> <path to file>
+
+Write one real query per normalized queries to the given file. When file is '-',
+outputs to STDOUT. 
+
+=item B<-N>, B<--output-norm> <path to file>
+
+Write normalized queries to the given file. When file is '-', outputs to STDOUT.
+
+=back
+
+=head1 AUTHORS
+
+Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
+
+Dalibo's team.
+
+http://www.dalibo.org
+
+=head1 SEE ALSO
+
+The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
+
+=head1 LICENSING
+
+This program is open source, licensed under the simplified BSD license. For license terms, see the LICENSE provided
+with the sources.
+
+=cut
