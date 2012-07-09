@@ -157,7 +157,7 @@ sub close {
 
 	pcap_close($pcaps{$self->{'id'}}) if exists $pcaps{$self->{'id'}};
 
-	debug(2, "pcap stream closed.");
+	debug(2, "pcap stream closed.\n");
 
 	delete $pcaps{$self->{'id'}};
 }
