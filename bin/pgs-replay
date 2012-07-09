@@ -1,0 +1,417 @@
+#!/usr/bin/perl
+# This program is open source, licensed under the simplified BSD license.
+# For license terms, see the LICENSE file.
+
+#TODO
+# still a lot...
+
+use strict;
+use warnings;
+
+use File::Basename 'dirname';
+use File::Spec;
+use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+
+use pgShark;
+use Getopt::Long;
+use Pod::Usage;
+use IO::Socket;
+use IO::Select;
+
+use constant READMAX => 2048;
+use constant FROM_BACKEND => 1;
+
+my %sessions;
+my $selects = new IO::Select();
+my $shark;
+my %args = (
+	'help' => 0,
+	'debug' => 0,
+	'interface' => '',
+	'host' => '127.0.0.1',
+	'port' => 5432,
+	'read' => '',
+	'rhost' => undef,
+	'rport' => undef,
+	'role' => undef,
+	'timeout' => 5,
+);
+
+sub usage {
+	my $msg = shift;
+	print "$msg\n" if defined $msg and $msg ne '';
+	pod2usage(-exitval => 1);
+}
+
+sub longusage {
+	pod2usage(-verbose => 2, -exitval => 1);
+}
+
+#readFromBackend
+# @param $sess_hash Session hash to listen on
+# @returns 0 when ready, 1 when nothing happened
+sub readFromBackend {
+	my $sess_hash = shift;
+	my $session = $sessions{$sess_hash};
+	my $sock = $session->{'sock'};
+	my $timeout = $args{'timeout'};
+	my $count = READMAX;
+	my $buff = '';
+	my @ready;
+
+	warn "readFromBackend: on session $sess_hash.";
+
+	# TODO: better timeout handling
+	TIMELOOP:while ($timeout) {
+		@ready = $selects->can_read(1);
+
+		foreach my $fh (@ready) {
+			# our socket is ready to be readed
+			last TIMELOOP if($fh == $sock);
+		}
+		warn "socket not ready ($timeout).";
+		sleep 1;
+		$timeout--;
+	}
+
+	return 1 unless $timeout > 0;
+
+	while($count == READMAX) {
+		$count = sysread($sock, $buff, READMAX);
+		if (defined $count) {
+			warn "  $count bytes readed.";
+			$session->{'data'} .= $buff;
+		}
+		# TODO must handle error on $count not defined
+	}
+
+	return 0;
+}
+
+#nextMessage
+# @param $sess_hash Session hash to read next message from
+# @return next message
+sub nextMessage {
+	my $sess_hash = shift;
+	my $session = $sessions{$sess_hash};
+	my $buff = '';
+	my $count = 0;
+	my $pg_msg = {
+		'type' => ''
+	};
+
+	$count = pgShark::parse_v3($pg_msg, FROM_BACKEND, $session->{'data'})
+		unless $session->{'data'} eq '';
+
+	return undef if $count == -1;
+
+	if ($count == 0) {
+		return undef if readFromBackend($sess_hash) == 1;
+
+		$count = pgShark::parse_v3($pg_msg, FROM_BACKEND, $session->{'data'});
+	}
+
+	$session->{'data'} = substr($session->{'data'}, $count);
+	warn "Seen a $pg_msg->{'type'} as answer to $sess_hash.";
+
+	return $pg_msg;
+}
+
+sub pg_connect {
+	my $sess_hash = shift;
+	my $sock = $sessions{$sess_hash}{'sock'};
+	my $pg_msg;
+
+	warn "session $sess_hash\n";
+
+	## authentication
+	my $msg = "user\0$args{'role'}\0database\0$sessions{$sess_hash}{'database'}\0\0";
+	# TODO support protocol 2 ?
+	$msg = pack("NNZ*Z*Z*Z*Z*", 8 + length($msg), 196608, "user", $args{'role'}, 
+		"database", $sessions{$sess_hash}{'database'}, ""
+	);
+	$sock->send($msg);
+
+	$pg_msg = nextMessage($sess_hash);
+
+	return 1 if not defined $pg_msg
+		or $pg_msg->{'type'} ne 'AuthenticationOk';
+
+	do {
+		$pg_msg = nextMessage($sess_hash);
+	} while $pg_msg->{'type'} ne 'ReadyForQuery';
+
+	return 0;
+}
+
+sub StartupMessage {
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	warn "StartupMessage: session $sess_hash.";
+	
+	$sessions{$sess_hash}{'database'} = $pg_msg->{'params'}->{'database'};
+}
+
+## handle command B(R)
+# @param $pg_msg hash with pg message properties
+sub openSocket {
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	warn "openSocket: session $sess_hash";
+
+	# if we don't have information about the session opening, ignore it
+	return unless defined $sessions{$sess_hash};
+
+	if (substr($args{'rhost'}, 0, 1) eq '/') {
+		my $sock_path = "$args{'rhost'}/.s.PGSQL.$args{'rport'}";
+
+		warn "  opening unix socket : «$sock_path»";
+		$sessions{$sess_hash}{'sock'} = IO::Socket::UNIX->new (
+			'Type' => SOCK_STREAM,
+			'Peer' => $sock_path
+		);
+	}
+	else {
+		warn "  opening inet socket : «tcp://$args{'rhost'}:$args{'rport'}»";
+		$sessions{$sess_hash}{'sock'} = IO::Socket::INET->new (
+			'PeerAddr' => $args{'rhost'},
+			'PeerPort' => $args{'rport'},
+			'Proto' => 'tcp',
+			'Blocking' => 0
+		);
+	}
+
+	if (not $sessions{$sess_hash}{'sock'}) {
+		warn "  could not open socket for session $sess_hash. $!";
+		delete $sessions{$sess_hash};
+		return;
+	}
+	
+	warn "  socket for session $sess_hash.";
+
+	$selects->add($sessions{$sess_hash}{'sock'});
+
+	$sessions{$sess_hash}{'data'} = '';
+	
+	if (pg_connect($sess_hash)) {
+		warn "  could not open pgsql session for $sess_hash.";
+		delete $sessions{$sess_hash};
+		return;
+	}
+}
+
+#Replay
+# replay any kind of message
+# @param $pg_msg hash with pg message properties
+sub Replay {
+	my $pg_msg = shift;
+	my $pg_ans = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	return unless defined $sessions{$sess_hash};
+
+	warn "Replay: replaying a '$pg_msg->{'type'}' for session $sess_hash.";
+
+	my $sock = $sessions{$sess_hash}{'sock'};
+
+	print $sock $pg_msg->{'data'};
+	$sock->flush;
+
+	do {
+		$pg_ans = nextMessage($sess_hash);
+	} while defined $pg_ans and $pg_ans->{'type'} ne 'ReadyForQuery';
+}
+
+#ReplayCopy
+# special callback to filter message availables for F OR B 
+sub ReplayCopy {
+	my $pg_msg = shift;
+	
+	return if $pg_msg->{'from_backend'};
+
+	Replay($pg_msg);
+}
+
+sub Terminate {
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	return unless defined $sessions{$sess_hash};
+
+	my $sock = $sessions{$sess_hash}{'sock'};
+
+	warn "Terminate: session $sess_hash.";
+
+	print $sock $pg_msg->{'data'};
+	$selects->remove($sock);
+	$sock->close();
+	delete $sessions{$sess_hash};
+}
+
+Getopt::Long::Configure('bundling');
+GetOptions(\%args, qw{
+	help
+	debug|d+
+	interface|i=s
+	host|h=s
+	port|p=s
+	read|r=s
+	rhost|rh=s
+	rport|rp=s
+	role|U=s
+	timeout|t=s
+});
+
+longusage() if ($args{'help'});
+
+usage("Arguments --rhost, --rport and --role are mandatory") unless
+	defined $args{'rhost'}
+	and defined $args{'rport'}
+	and defined $args{'role'};
+
+usage("Arguments --interface and --read are incompatible.\n"
+		."Either listen from the network or open a pcap file.\n")
+	if $args{'interface'} ne '' and $args{'read'} ne '';
+
+$args{'rhost'} = '/tmp' if $args{'rhost'} eq '';
+
+$SIG{'__WARN__'} = sub {
+	warn $_[0] if $args{'debug'};
+};
+
+$shark = pgShark->new({
+	'procs' => {
+		'AuthenticationOk' => \&openSocket,
+		'Bind' => \&Replay,
+		'CancelRequest' => \&Replay,
+		'Close' => \&Replay,
+		'CopyData' => \&ReplayCopy,
+		'CopyDone' => \&ReplayCopy,
+		'CopyFail' => \&Replay,
+		'Describe' => \&Replay,
+		'Execute' => \&Replay,
+		'Flush' => \&Replay,
+		'FunctionCall' => \&Replay,
+		'Parse' => \&Replay,
+		'Query' => \&Replay,
+		'StartupMessage' => \&StartupMessage,
+		'Sync' => \&Replay,
+		'Terminate' => \&Terminate
+	},
+	'host' => $args{'host'},
+	'port' => $args{'port'},
+});
+
+# open a live capture on given interface
+if ($args{'interface'} ne '') {
+	my $err = '';
+
+	($shark->live($args{'interface'}, \$err) == 0)
+		or die ("Can not open interface '$args{'interface'}':\n$err");
+}
+# we have no interface to listen on,
+# either open given pcap file or start reading from stdin
+else {
+	my $err = '';
+	# read from stdin if no pcap file given
+	$args{'read'} = '-' if $args{'read'} eq '';
+
+	($shark->open($args{'read'}, \$err) == 0) 
+		or die ("Can not read from file '$args{'read'}':\n$err");
+}
+
+$shark->process_all();
+
+$shark->close();
+
+exit 0;
+
+__END__
+
+=head1 pgs-replay
+
+pgs-replay - Replays pgsql messages
+
+Belongs to the pgShark scripts collection.
+
+=head1 SYNOPSIS
+
+=over 2
+
+=item pgs-replay --help
+
+=item pgs-replay --rhost IPADDR --rport PORT --role ROLE [--read file|--interface DEV] [--host IPADDR] [--port PORT]
+
+=back
+
+=head1 DESCRIPTION
+
+B<pgs-replay> send the PostgreSQL messages to a given PostgreSQL cluster. The
+network dump could be live or from a pcap file (using tcpdump for instance).
+
+This script only supports protocol v3, making it compatilible with versions 7.4
+to 9.2 of PostgreSQL.
+
+This script currently does not support any kind of authentication on the remote PostgreSQL
+cluster where messages are send. Make sure it can connect using ident, peer or
+trust.
+
+=over 2
+
+=item B<--help>
+
+Show this help message and exit.
+
+=item B<-h>, B<--host> <ip address>
+
+Gives the IP address of the PostgreSQL server. By default, set to 127.0.0.1.
+
+=item B<-p>, B<--port> <port>
+
+Gives the port the PostgreSQL backend is listening on. By default, set to 5432
+
+=item B<-rh>, B<--rhost> <ip address>
+
+Mandatory. Gives the IP address of the remote PostgreSQL server to send the
+messages.
+
+=item B<-rp>, B<--rport> <port>
+
+Mandatory. Gives the port of the remote PostgreSQL.
+
+=item B<-U>, B<--role> <role>
+
+Mandatory. Gives the role of the remote PostgreSQL.
+
+=item B<-i>, B<--interface> <interface name>
+
+Capture PostgreSQL traffic directly from the given network interface. Conflict with B<--read>.
+By default, B<pgs-replay> will read from stdin if neither B<--read> or B<--interface> are given.
+
+=item B<-r>, B<--read> <path to file>
+
+Read PostgreSQL traffic from given pcap file. Conflict with B<--interface>.
+By default, B<pgs-replay> will read from stdin if neither B<--read> or B<--interface> are given.
+
+=back
+
+=head1 AUTHORS
+
+Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
+
+Dalibo's team.
+
+http://www.dalibo.org
+
+=head1 SEE ALSO
+
+The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
+
+=head1 LICENSING
+
+This program is open source, licensed under the simplified BSD license. For license terms, see the LICENSE provided
+with the sources.
+
+=cut
