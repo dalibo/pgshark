@@ -1,0 +1,531 @@
+#!/usr/bin/perl
+# This program is open source, licensed under the simplified BSD license.
+# For license terms, see the LICENSE file.
+
+#TODO
+#  * support cursors ?
+#  * add support for COPY
+#  * add support of an optional parameterizable line prefix
+
+use strict;
+use warnings;
+
+use File::Basename 'dirname';
+use File::Spec;
+use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+
+use pgShark;
+use pgShark::Utils;
+use Getopt::Long;
+use Pod::Usage;
+use POSIX;
+
+my $prefix = '';
+my @prefix_keys;
+my $shark;
+my %args = (
+	'help' => 0,
+	'debug' => 0,
+	'line_prefix' => '',
+	'interface' => '',
+	'host' => '127.0.0.1',
+	'port' => 5432,
+	'read' => '',
+	'2' => 0,
+	'3' => 0
+);
+
+#Hash for sessions properties
+# $sess = {
+#   $session hash$ => {
+#     'user' => username,
+#     'database' => database
+# }}
+my %sess;
+
+#Hash of prepared stmt
+# $prepd = {
+#   $session hash$ => {
+#     $prepared name$ => {
+#       'query' => SQL query
+#       'portals' => {
+#         $portal name$ = @params
+#       }
+#   }
+# }
+my $prepd = {};
+
+#Hash of portals
+# either cursors or binded prepd stmt
+# $portals = {
+#   $session hash$ => {
+#     $portal name$ => the name of the associated prepd stmt
+#   }
+# }
+my $portals = {};
+
+sub usage {
+	my $msg = shift;
+	print "$msg\n" if defined $msg and $msg ne '';
+	pod2usage(-exitval => 1);
+}
+
+sub longusage {
+	pod2usage(-verbose => 2, -exitval => 1);
+}
+
+#printf_prefix
+# behave like printf.
+# Computes and prints the line prefix using $pg_msg followed by the given $frmt
+# @param $frmt
+# @param $pg_msg
+# @params vars, ...
+sub printf_prefix {
+	my $frmt = shift;
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+	my $prefix_frmt = $prefix;
+
+	unless ($prefix eq '') {
+		foreach my $sub (@prefix_keys) {
+			$sub->(\$prefix_frmt, $pg_msg) 
+		}
+		print $prefix_frmt;
+	}
+
+	printf $frmt, @_;
+}
+
+sub deallocate {
+	my $pg_msg = shift;
+	printf_prefix "DEALLOCATE %s;\n", $pg_msg, shift;
+}
+
+#prep_name
+# We cannot use unnamed prepd stmt in SQL.
+# As we cannot have more than one unnamed prepd stmt per session, we create a
+# name for them based on their session properties
+sub prep_name {
+	my ($name, $hash) = @_;
+	return ($name eq '') ? "anon$hash" : $name;
+}
+
+# handle command B
+# @param $pg_msg hash with pg message properties
+sub Bind {
+	my $pg_msg = shift;
+	my @params;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	debug(2, "SQL: call process_bind\n");
+
+	my $prepname = prep_name($pg_msg->{'name'}, $sess_hash);
+	my $portalname = prep_name($pg_msg->{'portal'}, $sess_hash);
+
+	# we might be trying to bind to a prepd stmt parsed before the network dump started
+	# we should probably send some debug message about it...
+	return unless defined $prepd->{$sess_hash}->{$prepname};
+
+	# We need to wait until the first BIND to know the number of params before actually issue a PREPARE
+	# query. If understood correctly from the doc, even prepd stmt without args must be binded,
+	# so this piece of code will be executed for all prepd stmt.
+	# If never binded, there's no portals, so execute the PREPARE stmt as it wasn't prepd yet
+	if (not scalar(keys %{$prepd->{$sess_hash}->{$prepname}->{'portals'} })) {
+
+		printf_prefix "PREPARE %s ", $pg_msg, $prepname;
+
+		# print parameters: we use "unknown" as we can not know
+		# args types
+		printf '(%s) ', substr('unknown,'x$pg_msg->{'num_params'},0,-1)
+			if ($pg_msg->{'num_params'});
+
+		printf "AS %s;\n", $prepd->{$sess_hash}->{$prepname}->{'query'};
+	}
+
+	## TODO
+	# mess with text/binary format !
+	# cf. @params_formats and http://www.postgresql.org/docs/9.0/interactive/protocol-message-formats.html
+	# @ Bind (F) :
+	# [...]
+	# Int16
+	#
+	# The number of parameter format codes that follow (denoted C below). This can be zero to indicate that there are
+	# no parameters or that the parameters all use the default format (text); or one, in which case the
+	# specified format code is applied to all parameters; or it can equal the actual number of parameters.
+	#
+	# Int16[C]
+	#
+	# The parameter format codes. Each must presently be zero (text) or one (binary).
+
+	## escape params
+	# copy the params array instead of direct using the reference
+
+	foreach my $param (@{$pg_msg->{'params'}}) {
+		if (defined $param) {
+			$param =~ s/'/''/g;
+			push @params, "'$param'";
+		}
+		else {
+			push @params, 'NULL';
+		}
+	}
+
+	$portals->{$sess_hash}->{$portalname} = $prepname;
+	$prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} = [ @params ];
+}
+
+# handle command C
+# @param $pg_msg hash with pg message properties
+sub Close {
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	debug(2, "SQL: call process_close\n");
+
+	my $prepname = prep_name($pg_msg->{'name'}, $sess_hash);
+
+	# we ignore closing portals as it doesn't make sense in SQL
+	return unless $pg_msg->{'kind'} eq 'S';
+
+	deallocate($pg_msg, $prepname);
+	foreach my $portal (keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} }) {
+		delete $portals->{$sess_hash}->{$portal};
+	}
+	delete $prepd->{$sess_hash}->{$prepname};
+}
+
+# handle command E
+# @param $pg_msg hash with pg message properties
+#
+# Here, we can saftly ignore nb_rows as there's no way to use
+# portals in SQL but with the simple query protocol
+sub Execute {
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	debug(2, "SQL: call process_execute\n");
+
+	my $portalname = prep_name($pg_msg->{'name'}, $sess_hash);
+
+	# we might be trying to execute a prepd stmt parsed before the network dump
+	# we should probably send some debug message about it...
+	return unless defined $portals->{$sess_hash}->{$portalname};
+	
+	my $prepname = $portals->{$sess_hash}->{$portalname};
+	printf_prefix "EXECUTE %s", $pg_msg, $prepname;
+	printf "(%s)", join (',', @{ $prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} })
+		if (scalar(@{ $prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} }));
+	printf ";\n";
+}
+
+# handle P command
+# @param $pg_msg hash with pg message properties
+sub Parse {
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	debug(2, "SQL: call process_parse (name, query) = ('$pg_msg->{'name'}', $pg_msg->{'query'})\n");
+
+	my $prepname = prep_name($pg_msg->{'name'}, $sess_hash);
+
+	# we can only have one anonymous prepd stmt per session, deallocate previous anonym xact
+	# note: trying to parse using an existing name shoudl rise an error. We doesn't test
+	# this case here as if the session did it, it received an error as well.
+	if (($pg_msg->{'name'} eq '') and (defined $portals->{$sess_hash}->{$prepname})) {
+		deallocate($pg_msg, $prepname);
+		foreach my $portal (keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} }) {
+			delete $portals->{$sess_hash}->{$portal};
+		}
+		delete $prepd->{$sess_hash}->{$prepname};
+	}
+
+	# save the prepd stmt for this session
+	$prepd->{$sess_hash}->{$prepname}->{'query'} = $pg_msg->{'query'};
+}
+
+# handle command Q
+# @param $pg_msg hash with pg message properties
+sub Query {
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	debug(2, "SQL: call process_query\n");
+
+	printf_prefix "%s;\n", $pg_msg, $pg_msg->{'query'};
+}
+
+# handle command StartupMessage (F)
+# @param $pg_msg hash with pg message properties
+sub StartupMessage {
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	$sess{$sess_hash}{'user'} = $pg_msg->{'params'}->{'user'};
+	$sess{$sess_hash}{'database'} = $pg_msg->{'params'}->{'database'};
+	$sess{$sess_hash}{'application_name'} = $pg_msg->{'params'}->{'application_name'}
+		if defined $pg_msg->{'params'}->{'application_name'};
+}
+
+# handle command X
+# @param $pg_msg hash with pg message properties
+sub Terminate {
+	# release all prepd stmt
+
+	my $pg_msg = shift;
+	my $sess_hash = $pg_msg->{'sess_hash'};
+
+	debug(2, "SQL: call process_disconnect\n");
+
+	delete $prepd->{$sess_hash};
+}
+
+Getopt::Long::Configure('bundling');
+GetOptions(\%args, qw{
+	help
+	debug|d+
+	line_prefix=s
+	interface|i=s
+	host|h=s
+	port|p=s
+	read|r=s
+	2+
+	3+
+});
+
+longusage() if ($args{'help'});
+
+usage("Arguments --interface and --read are incompatible.\n"
+		."Either listen from the network or open a pcap file.\n")
+	if $args{'interface'} ne '' and $args{'read'} ne '';
+
+usage("Options -2 and -3 are mutal exclusives.\n") if $args{'2'} and $args{'3'};
+
+$args{'protocol'} = $args{'2'}? 2 : 3;
+
+$SIG{'__WARN__'} = sub {
+	warn $_[0] if $args{'debug'};
+};
+
+$shark = pgShark->new({
+	'procs' => {
+		'Bind' => \&Bind,
+		'Close' => \&Close,
+		'Execute' => \&Execute,
+		'Parse' => \&Parse,
+		'Query' => \&Query,
+		'StartupMessage' => \&StartupMessage,
+		'Terminate' => \&Terminate
+	},
+	'host' => $args{'host'},
+	'port' => $args{'port'},
+	'protocol' => $args{'protocol'},
+	'debug' => $args{'debug'}
+});
+
+# prepare/compile line prefix
+if ($args{'line_prefix'} ne '') {
+
+	my $re_a = qr/%a/;
+	my $re_d = qr/%d/;
+	my $re_H = qr/%H/;
+	my $re_h = qr/%h/;
+	my $re_k = qr/%k/;
+	my $re_R = qr/%R/;
+	my $re_r = qr/%r/;
+	my $re_T = qr/%T/;
+	my $re_t = qr/%t/;
+	my $re_u = qr/%u/;
+	
+	$prefix = $args{'line_prefix'};
+
+	push @prefix_keys, sub {
+		my $session = $sess{$_[1]->{'sess_hash'}};
+		return ${$_[0]} =~ s/$re_a/?/g unless defined $session->{'application_name'};
+		${$_[0]} =~ s/$re_a/$session->{'application_name'}/g;
+	} if ($prefix =~ $re_a);
+
+	push @prefix_keys, sub {
+		my $session = $sess{$_[1]->{'sess_hash'}};
+		return ${$_[0]} =~ s/$re_d/?/g unless defined $session->{'database'};
+		${$_[0]} =~ s/$re_d/$session->{'database'}/g;
+	} if ($prefix =~ $re_d);
+
+	push @prefix_keys, sub {
+		#print Dumper($_[0]);
+		my $src_ip = dec2dot($_[1]->{'tcpip'}->{'src_ip'});
+		${$_[0]} =~ s/$re_H/$src_ip/g;
+	} if ($prefix =~ $re_H);
+
+	push @prefix_keys, sub {
+		my $dest_ip = dec2dot($_[1]->{'tcpip'}->{'dest_ip'});
+		${$_[0]} =~ s/$re_h/$dest_ip/g;
+	} if ($prefix =~ $re_h);
+
+	push @prefix_keys, sub {
+		${$_[0]} =~ s/$re_k/$_[1]->{'sess_hash'}/g;
+	} if ($prefix =~ $re_k);
+
+	push @prefix_keys, sub {
+	 	my $src_ip = dec2dot($_[1]->{'tcpip'}->{'src_ip'});
+	 	my $src_port = $_[1]->{'tcpip'}->{'src_port'};
+	 	${$_[0]} =~ s/$re_R/$src_ip:$src_port/g;
+	} if ($prefix =~ $re_R);
+
+	push @prefix_keys, sub {
+	 	my $dest_ip = dec2dot($_[1]->{'tcpip'}->{'dest_ip'});
+	 	my $dest_port = $_[1]->{'tcpip'}->{'dest_port'};
+	 	${$_[0]} =~ s/$re_r/$dest_ip:$dest_port/g;
+	} if ($prefix =~ $re_r);
+
+	push @prefix_keys, sub {
+		${$_[0]} =~ s/$re_T/$_[1]->{'timestamp'}/g;
+	} if ($prefix =~ $re_T);
+	
+	push @prefix_keys, sub {
+		${$_[0]} =~ s/$re_t/strftime('%Y-%m-%d %H:%M:%S %Z', localtime $_[1]->{'timestamp'})/ge;
+	} if ($prefix =~ $re_t);
+
+	push @prefix_keys, sub {
+		my $session = $sess{$_[1]->{'sess_hash'}};
+		return ${$_[0]} =~ s/$re_u/?/g unless defined $session->{'user'};
+		${$_[0]} =~ s/$re_u/$session->{'user'}/g;
+	} if ($prefix =~ $re_u);
+}
+
+# open a live capture on given interface
+if ($args{'interface'} ne '') {
+	my $err = '';
+
+	($shark->live($args{'interface'}, \$err) == 0)
+		or die ("Can not open interface '$args{'interface'}':\n$err");
+}
+# we have no interface to listen on,
+# either open given pcap file or start reading from stdin
+else {
+	my $err = '';
+	# read from stdin if no pcap file given
+	$args{'read'} = '-' if $args{'read'} eq '';
+
+	($shark->open($args{'read'}, \$err) == 0) 
+		or die ("Can not read from file '$args{'read'}':\n$err");
+}
+
+$shark->process_all();
+
+$shark->close();
+
+exit 0;
+
+__END__
+
+=head1 pgs-sql
+
+pgs-sql - Build SQL output from pgsql messages when possible
+
+Belongs to the pgShark scripts collection.
+
+=head1 SYNOPSIS
+
+=over 2
+
+=item pgs-sql --help
+
+=item pgs-sql [-2|-3] [--read file|--interface DEV] [--host IPADDR] [--port PORT] [--line_prefix STRING]
+
+=back
+
+=head1 DESCRIPTION
+
+B<pgs-sql> extract activity from pgsql network dumps and tries to export it as
+SQL when possible.
+
+Because of the SQL language doesn't support non-named prepared statement,
+B<pgs-sql> tries to name them. Presently, it doesn't support cursors nor COPY
+messages.
+
+The network dump could be live or from a pcap file (using tcpdump for instance).
+
+=over 2
+
+=item B<--help>
+
+Show this help message and exit.
+
+=item B<-h>, B<--host> <ip address>
+
+Gives the IP address of the PostgreSQL server. By default, set to 127.0.0.1.
+
+=item B<-p>, B<--port> <port>
+
+Gives the port the PostgreSQL backend is listening on. By default, set to 5432
+
+=item B<-i>, B<--interface> <interface name>
+
+Capture PostgreSQL traffic directly from the given network interface. Conflict with B<--read>.
+By default, B<pgs-normalize> will read from stdin if neither B<--read> or B<--interface> are given.
+
+=item B<-r>, B<--read> <path to file>
+
+Read PostgreSQL traffic from given pcap file. Conflict with B<--interface>.
+By default, B<pgs-normalize> will read from stdin if neither B<--read> or B<--interface> are given.
+
+=item B<--line_prefix> <prefix string>
+
+This is a printf-style string that is output at the beginning of each line. % characters begin "escape sequences" that
+are replaced with status information as outlined below. Unrecognized escapes are ignored.
+Other characters are copied straight to the log line. Some escapes might not be available depending on the context.
+
+=over 3
+
+=item B<%a>
+Application name
+
+=item B<%d>
+Database name
+
+=item B<%H>
+Source host
+
+=item B<%h>
+Destination host
+
+=item B<%k>
+Hash key of the session (src ip and src port concatenated)
+
+=item B<%R>
+Source host and port
+
+=item B<%r>
+Destination host and port
+
+=item B<%T>
+Raw timestamp
+
+=item B<%t>
+Human readable timestamp
+
+=item B<%u>
+User name
+
+=back
+
+=back
+
+=head1 AUTHORS
+
+Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
+
+Dalibo's team.
+
+http://www.dalibo.org
+
+=head1 SEE ALSO
+
+The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
+
+=head1 LICENSING
+
+This program is open source, licensed under the simplified BSD license. For license terms, see the LICENSE provided
+with the sources.
+
+=cut
