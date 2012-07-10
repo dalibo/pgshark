@@ -141,6 +141,8 @@ sub pg_connect {
 		$pg_msg = nextMessage($sess_hash);
 	} while $pg_msg->{'type'} ne 'ReadyForQuery';
 
+	$sessions{$sess_hash}{'msg_ts'} = 0;
+
 	return 0;
 }
 
@@ -212,6 +214,14 @@ sub Replay {
 
 	return unless defined $sessions{$sess_hash};
 
+	if ($sessions{$sess_hash}{'msg_ts'} and $sessions{$sess_hash}{'msg_ts'} != $pg_msg->{'timestamp'}) {
+		do {
+			$pg_ans = nextMessage($sess_hash);
+		} while defined $pg_ans and $pg_ans->{'type'} ne 'ReadyForQuery';
+
+		$sessions{$sess_hash}{'msg_ts'} = $pg_msg->{'timestamp'};
+	}
+
 	warn "Replay: replaying a '$pg_msg->{'type'}' for session $sess_hash.";
 
 	my $sock = $sessions{$sess_hash}{'sock'};
@@ -219,9 +229,7 @@ sub Replay {
 	print $sock $pg_msg->{'data'};
 	$sock->flush;
 
-	do {
-		$pg_ans = nextMessage($sess_hash);
-	} while defined $pg_ans and $pg_ans->{'type'} ne 'ReadyForQuery';
+
 }
 
 #ReplayCopy
