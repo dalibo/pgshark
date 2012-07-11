@@ -285,6 +285,11 @@ sub process_packet {
 		];
 	}
 
+	if ($self->{'sessions'}->{$sess_hash} eq 'SSL' ) {
+		debug(3, "PGSQL: session %s encrytped, ignore.\n", $sess_hash);
+		return;
+	}
+
 	$curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
 
 	$curr_sess->{'next_seq'} = $seqnum;
@@ -391,13 +396,13 @@ sub pgsql_dissect {
 
 		# Parsing the message returns the current message total length
 		my $msg_len = $self->{'parser'}->($pg_msg, $from_backend, $curr_sess->{'data'}, $curr_sess);
-
 		# we don't have enough data for the current message (0)
 		# or an error occured (<0)
 		return $msg_len if $msg_len < 1;
 
 		debug(3, "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d\n",
-			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash, $pg_msg->{'type'}, $msg_len, $data_len
+			$self->{'pckt_count'}, $pg_msg->{'timestamp'}, $sess_hash,
+			$pg_msg->{'type'}, $msg_len, $data_len
 		);
 
 		# extract the message data from the buffer
@@ -412,9 +417,20 @@ sub pgsql_dissect {
 
 		# if the message was Terminate, destroy the session
 		if ($pg_msg->{'type'} eq 'Terminate') {
-			debug(3, "PGSQL: destroying session %s (remaining buffer was %d byte long).\n", $sess_hash, $data_len);
+			debug(3, "PGSQL: destroying session %s (remaining buffer was %d byte long).\n",
+				$sess_hash, $data_len);
 			delete $self->{'sessions'}->{$sess_hash};
 			$curr_sess = undef;
+			return 0;
+		}
+
+		if ($pg_msg->{'type'} eq 'SSLAnswer'
+		and $pg_msg->{'ssl_answer'} eq 'S') {
+			debug(3, "PGSQL: session %s will be encrypted so we ignore it.\n",
+				$sess_hash);
+			delete $self->{'sessions'}->{$sess_hash};
+			$curr_sess = undef;
+			$self->{'sessions'}->{$sess_hash} = 'SSL';
 			return 0;
 		}
 
@@ -1031,6 +1047,7 @@ sub parse_v3 {
 	elsif ($from_backend and $pg_msg->{'type'} eq 'SSLAnswer') {
 		$pg_msg->{'ssl_answer'} = substr($raw_data, 0, 1);
 		$pg_msg->{'type'} = 'SSLAnswer';
+
 		return 1;
 	}
 
