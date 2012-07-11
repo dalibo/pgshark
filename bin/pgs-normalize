@@ -148,7 +148,8 @@ $shark = pgShark->new({
 	},
 	'host' => $args{'host'},
 	'port' => $args{'port'},
-	'protocol' => $args{'protocol'}
+	'protocol' => $args{'protocol'},
+	'debug' => $args{'debug'}
 });
 
 # open a live capture on given interface

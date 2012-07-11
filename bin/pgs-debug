@@ -19,6 +19,7 @@ use constant FROM_BACKEND => 1;
 my $shark;
 my %args = (
 	'help' => 0,
+	'debug' => 0,
 	'interface' => '',
 	'host' => '127.0.0.1',
 	'port' => 5432,
@@ -471,6 +472,7 @@ sub Terminate {
 Getopt::Long::Configure('bundling');
 GetOptions(\%args, qw{
 	help
+	debug|d+
 	interface|i=s
 	host|h=s
 	port|p=s
@@ -539,7 +541,8 @@ $shark = pgShark->new({
 	},
 	'host' => $args{'host'},
 	'port' => $args{'port'},
-	'protocol' => $args{'protocol'}
+	'protocol' => $args{'protocol'},
+	'debug' => $args{'debug'}
 });
 
 # open a live capture on given interface
