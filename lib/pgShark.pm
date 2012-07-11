@@ -483,22 +483,23 @@ sub parse_v3 {
 			# my $min = $code%65536; # == 0
 			# my $maj = $code/65536; # == 3
 		}
-		else {
-			if (get_debug_lvl() > 2) {
-				$raw_data =~ tr/\x00-\x1F\x7F-\xFF/./;
-				debug(3, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
-					$pg_msg->{'timestamp'}, $raw_data
-				);
-			}
-			return -1;
-		}
 	}
-	else {
+	elsif ($from_backend and $data_len < 5) {
 		debug(3, "NOTICE: buffer full of junk or empty (data available: %d)...waiting for more bits.\n", $data_len);
 		my $d = $raw_data;
 		$d =~ tr/\x00-\x1F\x7F-\xFF/./;
 		debug(3, "HINT: data are: «%s»\n", $d);
 		return 0;
+	}
+
+	if (not defined $pg_msg->{'type'}) {
+		if (get_debug_lvl() > 2) {
+			$raw_data =~ tr/\x00-\x1F\x7F-\xFF/./;
+			debug(3, "WARNING: dropped alien packet I was unable to mess with at timestamp %s:\n'%s'\n",
+				$pg_msg->{'timestamp'}, $raw_data
+			);
+		}
+		return -1;
 	}
 
 	# message: B(R) "Authentication*"
@@ -1145,8 +1146,8 @@ sub parse_v2 {
 		$pg_msg->{'type'} = 'SSLAnswer';
 	}
 	elsif (
-		(not $from_backend and $raw_data =~ /^[FQX]/s)
-		or ($from_backend and $raw_data =~ /^[DRKBCGHPIEVNAZT]/s)
+		(not $from_backend and $raw_data =~ /^[FQX]/)
+		or ($from_backend and $raw_data =~ /^[DRKBCGHPIEVNAZT]/)
 	) {
 		# the message has a type byte
 		$pg_msg->{'type'} = substr($raw_data, 0, 1);
@@ -1173,24 +1174,16 @@ sub parse_v2 {
 		elsif (defined $curr_sess->{'copy_mode'}) {
 			$pg_msg->{'type'} = 'CopyDataRows';
 		}
-		else {
-			if (get_debug_lvl() > 2) {
-				$raw_data =~ tr/\x00-\x1F\x7F-\xFF/./;
-				debug(3, "WARNING: dropped alien packet (from_backend: %d) I was unable to mess with at timestamp %s:\n'%s'\n",
-					$from_backend, $pg_msg->{'timestamp'}, $raw_data
-				);
-			}
-			return -1;
-		}
 	}
-	else {
-		debug(3, "NOTICE: incomplette header or buffer empty (data available: %d)...\n", $data_len);
-		if ($data_len) {
-			my $d = $raw_data;
-			$d =~ tr/\x00-\x1F\x7F-\xFF/./;
-			debug(3, "HINT: %s\n", $d);
+
+	if (not defined $pg_msg->{'type'}) {
+		if (get_debug_lvl() > 2) {
+			$raw_data =~ tr/\x00-\x1F\x7F-\xFF/./;
+			debug(3, "WARNING: dropped alien packet (from_backend: %d) I was unable to mess with at timestamp %s:\n'%s'\n",
+				$from_backend, $pg_msg->{'timestamp'}, $raw_data
+			);
 		}
-		return 0;
+		return -1;
 	}
 
 	# message: B(D) "AsciiRow" or B(B) "BinaryRow"
