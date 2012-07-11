@@ -21,9 +21,6 @@ our @ISA = ('Exporter');
 our @EXPORT = qw/parse_v2 parse_v3/;
 our @EXPORT_OK = qw/parse_v2 parse_v3/;
 
-use constant DEFAULT_FILTER => "(tcp and port %d)
-	and (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)";
-
 # "static" unique id over all created object
 my $id = 0;
 # "static" hash holding the pcap file descs of all objects.
@@ -97,20 +94,24 @@ sub new {
 	return bless($self, $class);
 }
 
-#setFilter
+#_setFilter
 # Set the pcap filter to apply to the pcap stream. See pcap-filter(7)
-# @param $filter the filter to apply
-sub setFilter {
+sub _setFilter {
 	my $self = shift;
-	my $filter = shift;
 	my $c_filter = undef;
+	my $filter = "(tcp and port $self->{'port'}) and (
+		(((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)
+		or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0)
+		)";
 
 	debug(2, "set filter to: %s\n", $filter);
 
-	if ($filter) {
-		pcap_compile($pcaps{$self->{'id'}}, \$c_filter, $filter, 0, 0);
-		pcap_setfilter($pcaps{$self->{'id'}}, $c_filter);
-	}
+	return 1 unless defined $pcaps{$self->{'id'}} and $filter;
+
+	pcap_compile($pcaps{$self->{'id'}}, \$c_filter, $filter, 0, 0);
+	pcap_setfilter($pcaps{$self->{'id'}}, $c_filter);
+
+	return 0;
 }
 
 #live
@@ -127,7 +128,7 @@ sub live {
 	return 1 unless
 		$pcaps{$self->{'id'}} = pcap_open_live($interface, 65535, 0, 0, $err);
 
-	$self->setFilter(sprintf(DEFAULT_FILTER, $self->{'port'}));
+	$self->_setFilter();
 
 	return 0;
 }
@@ -145,7 +146,7 @@ sub open {
 
 	return 1 unless $pcaps{$self->{'id'}} = pcap_open_offline($file, \$err);
 
-	$self->setFilter(sprintf(DEFAULT_FILTER, $self->{'port'}));
+	$self->_setFilter();
 
 	return 0;
 }
@@ -194,7 +195,7 @@ sub process_all {
 # Data payloads are reconstructed based on TCP seq/ack sequences.
 sub process_packet {
 	my($self, $pckt_hdr, $pckt) = @_;
-	my ($sess_hash, $curr_sess, $from_backend);
+	my ($sess_hash, $curr_sess, $from_backend, $is_fin);
 
 	$self->{'pckt_count'}++;
 
@@ -221,26 +222,31 @@ sub process_packet {
 
 	# decode the TCP payload
 	my ($src_port, $dest_port, $seqnum, $acknum, $tcp_hlen, $tcp_len);
-	($src_port, $dest_port, $seqnum, $acknum, $tcp_hlen, $data) = unpack("nnNNnx6a*", $data);
+	($src_port, $dest_port, $seqnum, $acknum, $tcp_hlen, $data)
+		= unpack("nnNNnx6a*", $data);
 
 	# Extract flags
+	# Flags closing connexion (FIN/RST)
+	$is_fin = ($tcp_hlen & 0x0005);
 	$tcp_hlen = ((($tcp_hlen & 0xf000) >> 12) - 5) * 4;
 	$tcp_hlen = 0 if $tcp_hlen < 0;  # Check for bad hlen
 
 	$data = substr($data, $tcp_hlen);
 
-	debug(4, "packet: #=%d len=%s, caplen=%s\n", $self->{'pckt_count'}, $pckt_hdr->{'len'}, $pckt_hdr->{'caplen'});
+	debug(4, "packet: #=%d len=%s, caplen=%s\n", $self->{'pckt_count'},
+		$pckt_hdr->{'len'}, $pckt_hdr->{'caplen'});
 
 	$tcp_len = length($data);
 
-	# ignore tcp without data
-	unless ($tcp_len) {
+	# ignore tcp without data or that are not a FIN
+	unless ($tcp_len or $is_fin) {
 		debug(4, "TCP: no data\n");
 		return;
 	}
 
-	debug(4, "IP:TCP %s:%d -> %s:%d, seqnum: %d, acknum: %d, len: %d\n",
-		$src_ip, $src_port, $dest_ip, $dest_port, $seqnum, $acknum, $tcp_len
+	debug(4, "IP:TCP %s:%d->%s:%d, seqnum: %d, acknum: %d, len: %d, FIN: %b\n",
+		$src_ip, $src_port, $dest_ip, $dest_port,
+		$seqnum, $acknum, $tcp_len, $is_fin
 	);
 
 	# pgShark must track every sessions to be able to dissect their data without
@@ -255,6 +261,12 @@ sub process_packet {
 	else {
 		$from_backend = 0;
 		$sess_hash = $src_ip . $src_port;
+	}
+
+	if ($is_fin) {
+		delete $self->{'sessions'}->{$sess_hash};
+		debug(4, "TCP session finished (FIN or RST). Pgsql session dropped.\n");
+		return;
 	}
 
 	if (not defined($self->{'sessions'}->{$sess_hash})) {
