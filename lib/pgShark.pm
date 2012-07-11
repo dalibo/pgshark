@@ -414,6 +414,8 @@ sub pgsql_dissect {
 		if ($pg_msg->{'type'} eq 'Terminate') {
 			debug(3, "PGSQL: destroying session %s (remaining buffer was %d byte long).\n", $sess_hash, $data_len);
 			delete $self->{'sessions'}->{$sess_hash};
+			$curr_sess = undef;
+			return 0;
 		}
 
 		$self->{'msg_count'}++;
