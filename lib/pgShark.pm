@@ -21,6 +21,11 @@ our @ISA = ('Exporter');
 our @EXPORT = qw/parse_v2 parse_v3/;
 our @EXPORT_OK = qw/parse_v2 parse_v3/;
 
+use constant PCAP_FILTER_TEMPLATE => '(tcp and port %s) and (
+    (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)
+    or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0)
+)';
+
 # "static" unique id over all created object
 my $id = 0;
 # "static" hash holding the pcap file descs of all objects.
@@ -61,12 +66,13 @@ sub new {
 	$id++;
 
 	my $self = {
-		'host' => defined($args->{'host'}) ? $args->{'host'} : '127.0.0.1',
+		'host' => defined $args->{'host'} ? $args->{'host'} : '127.0.0.1',
 		'id' => $id,
 		'pckt_count' => 0,
-		'port' => defined($args->{'port'}) ? $args->{'port'} : '5432',
+		'port' => defined $args->{'port'} ? $args->{'port'} : '5432',
 		'msg_count' => 0,
-		'protocol' => defined($args->{'protocol'}) ? $args->{'protocol'} : '3',
+		'protocol' => defined $args->{'protocol'} ?
+			$args->{'protocol'} : '3',
 		'sessions' => {}
 	};
 
@@ -99,10 +105,7 @@ sub new {
 sub _setFilter {
 	my $self = shift;
 	my $c_filter = undef;
-	my $filter = "(tcp and port $self->{'port'}) and (
-		(((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)
-		or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0)
-		)";
+	my $filter = sprintf(PCAP_FILTER_TEMPLATE, $self->{'port'});
 
 	debug(2, "set filter to: %s\n", $filter);
 
