@@ -129,7 +129,7 @@ sub live {
 	my $err = shift;
 
 	return 1 unless
-		$pcaps{$self->{'id'}} = pcap_open_live($interface, 65535, 0, 0, $err);
+		$pcaps{$self->{'id'}} = pcap_open_live($interface, 65535, 0, 0, \$err);
 
 	$self->_setFilter();
 
