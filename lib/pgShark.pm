@@ -21,10 +21,11 @@ our @ISA = ('Exporter');
 our @EXPORT = qw/parse_v2 parse_v3 PCAP_FILTER_TEMPLATE/;
 our @EXPORT_OK = qw/parse_v2 parse_v3 PCAP_FILTER_TEMPLATE/;
 
-use constant PCAP_FILTER_TEMPLATE => '(tcp and port %s) and (
-    (((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0)
-    or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0)
-)';
+# see tcpdump(8) section 'EXAMPLES'
+use constant PCAP_FILTER_TEMPLATE => '(tcp and port %s) and ( ' # catch TCP traffic with given port 
+	. '(((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0) ' # ignore packet with no data...
+	. 'or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0) ' # ...but the one with FIN or RST flags
+	. ')';
 
 # "static" unique id over all created object
 my $id = 0;
