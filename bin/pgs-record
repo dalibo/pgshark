@@ -1,0 +1,237 @@
+#!/usr/bin/perl
+# This program is open source, licensed under the simplified BSD license.
+# For license terms, see the LICENSE file.
+
+use strict;
+use warnings;
+
+use File::Basename 'dirname';
+use File::Spec;
+use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+
+use pgShark 'PCAP_FILTER_TEMPLATE';
+use Net::Pcap qw(:functions);
+use Getopt::Long;
+use Pod::Usage;
+use POSIX ':signal_h';
+
+my $pcap;
+my $fd_pcap;
+my $c_filter = undef;
+my $read_err = '';
+my $filter = '';
+my %pcap_stats;
+my %args = (
+	'help' => 0,
+	'debug' => 0,
+	'interface' => '',
+	'port' => 5432,
+	'read' => '',
+	'write' => '-',
+	'buffer' => 32*1024
+);
+
+# Catch SIGINT to stop immediatly pcap_loop amongs all pgShark objects.
+sigaction SIGINT, new POSIX::SigAction(sub {
+   pcap_breakloop($pcap);
+
+}, undef, &POSIX::SA_RESETHAND & &POSIX::SA_RESTART)
+	or die "Error setting SIGINT handler: $!\n";
+
+sub usage {
+	my $msg = shift;
+	print "$msg\n" if defined $msg and $msg ne '';
+	pod2usage(-exitval => 1);
+}
+
+sub longusage {
+	pod2usage(-verbose => 2, -exitval => 1);
+}
+
+Getopt::Long::Configure('bundling');
+GetOptions(\%args, qw{
+	help
+	debug|d+
+	interface|i=s
+	port|p=i
+	read|r=s
+	write|w=s
+	buffer|B=i
+});
+
+longusage() if ($args{'help'});
+
+usage("Arguments --interface and --read are incompatible.\n"
+		."Either listen from the network or open a pcap file.\n")
+	if $args{'interface'} ne '' and $args{'read'} ne '';
+
+$SIG{'__WARN__'} = sub {
+	warn $_[0] if $args{'debug'};
+};
+
+$filter = sprintf(pgShark::PCAP_FILTER_TEMPLATE, $args{'port'});
+
+system 'tcpdump -c 0 2>/dev/null';
+
+$? = $? >> 8;
+if ($? == 1) {
+	my @tcpdump_args = ('tcpdump', '-w', $args{'write'}, '-B', $args{'buffer'});
+	push @tcpdump_args, ('-i', $args{'interface'}) if $args{'interface'};
+	push @tcpdump_args, ('-r', $args{'read'}) if $args{'read'};
+	push @tcpdump_args, "$filter";
+	warn join ' ', @tcpdump_args;
+	system @tcpdump_args;
+
+	$? = $? >> 8;
+	exit $?;
+}
+
+print "Couldn't find `tcpdump` tool. Fallback on Net::Pcap module. We may loose some packets!\nConsider installing
+'tcpdump' on your system.\n";
+
+print "Argument '--buffer' is ignored when tcpdump is not available!\n" if $args{'buffer'};
+
+# open a live capture on given interface
+if ($args{'interface'} ne '') {
+	 $pcap = pcap_open_live($args{'interface'}, 65535, 0, 0, \$read_err)
+		or die ("Can not open interface '$args{'interface'}':\n$read_err");
+}
+# we have no interface to listen on,
+# either open given pcap file or start reading from stdin
+else {
+	# read from stdin if no pcap file given
+	$args{'read'} = '-' if $args{'read'} eq '';
+
+	$pcap = pcap_open_offline($args{'read'}, \$read_err)
+		or die ("Can not read from file '$args{'read'}':\n$read_err");
+}
+
+pcap_compile($pcap, \$c_filter, $filter, 0, 0);
+pcap_setfilter($pcap, $c_filter);
+
+$fd_pcap = pcap_dump_open($pcap, $args{'write'})
+	or die pcap_geterr($pcap);
+
+pcap_loop($pcap, -1, \&pcap_dump, $fd_pcap);
+
+pcap_stats($pcap, \%pcap_stats);
+
+printf STDERR 
+	"\n%d packets captured\n%d packets dropped by libpcap\n%d packets dropped by kernel\n",
+	$pcap_stats{'ps_recv'},
+	$pcap_stats{'ps_drop'},
+	$pcap_stats{'ps_ifdrop'};
+
+pcap_dump_close($fd_pcap);
+
+pcap_close($pcap);
+
+exit 0;
+
+__END__
+
+=head1 pgs-record
+
+pgs-record - Create a pcap dump for offline use with pgShark tools.
+
+Belongs to the pgShark scripts collection.
+
+=head1 SYNOPSIS
+
+=over 2
+
+=item pgs-record --help
+
+=item pgs-record [--read FILE|--interface DEV] [--port PORT] [--write FILE] [--buffer KSIZE]
+
+=back
+
+=head1 DESCRIPTION
+
+B<pgs-record> is able to filter network traffic and dump PostgreSQL related activity to a pcap file. The pcap file can
+then be processed with all available pgShark tools.
+
+B<pgs-record> rely on perl B<Net::Pcap> module. Unlike B<Net::Pcap>, B<tcpdump> is able to set a bigger capture buffer
+using recent libpcap. Default buffer size is often too small to be able to dump all tcp datagram quickly enough.
+Because of this buffer size (1MB), on high loaded systems, you might loose some packets. Therefor, by default,
+B<pgs-record> will try to act as a wrapper around B<tcpdump> if it is available on the system and set the buffer to
+32M.
+
+=over 2
+
+=item B<--help>
+
+Show this help message and exit.
+
+=item B<-p>, B<--port> <port>
+
+Gives the port the PostgreSQL backend is listening on. It helps filtering network traffic, making the resulting file
+smaller. By default, set to 5432
+
+=item B<-i>, B<--interface> <interface name>
+
+Capture PostgreSQL traffic directly from the given network interface. Conflict with B<--read>.
+By default, B<pgs-record> will read from STDIN if neither B<--read> or B<--interface> are given.
+
+=item B<-r>, B<--read> <path to file>
+
+Read PostgreSQL traffic from given pcap file. Conflict with B<--interface>. Reading TCP traffic from an existing pcap
+file could be useful to filter it.
+By default, B<pgs-record> will read from STDIN if neither B<--read> or B<--interface> are given.
+
+=item B<-w>, B<--write> <path to file>
+
+Write captured data to the given file. Special file '-' redirect to STDOUT. By default, write to STDOUT.
+
+=item B<-B>, B<--buffer> <SIZE>
+
+Set the capture buffer size. B<IGNORED if tcpdump is not available>.
+
+=back
+
+=head1 EXAMPLE
+
+Capture traffic with a PostgreSQL cluster listening on port 5433 on interface 'eth0':
+
+=over 2
+
+C<pgs-record --port 5433 --interface eth0 E<gt> /tmp/traffic-5433.pcap>
+
+=back
+
+Capture traffic with a PostgreSQL cluster listening on port 5432 (default) on interface 'lo' (default), writing to
+file '/tmp/traffic-5432.pcap' with a capture buffer of 65MB:
+
+=over 2
+
+C<pgs-record -w /tmp/traffic-5432.pcap -B 65535>
+
+=back
+
+Capture traffic with a PostgreSQL cluster listening on port 5491 on interface 'eth0', sending captured data to
+B<pgs-debug>:
+
+=over 2
+
+C<pgs-record -p 5491 -i eth0 | pgs-debug -p 5491 | less>
+
+=back
+
+=head1 AUTHORS
+
+Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
+
+Dalibo's team.
+
+http://www.dalibo.org
+
+=head1 SEE ALSO
+
+The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
+
+=head1 LICENSING
+
+This program is open source, licensed under the simplified BSD license. For license terms, see the LICENSE provided
+with the sources.
+
+=cut
