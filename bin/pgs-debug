@@ -627,17 +627,25 @@ By default, B<pgs-debug> will read from stdin if neither B<--read> or B<--interf
 
 =back
 
-=item The following example shows how to work with a server that is B<NOT> listening on localhost and the default 5432 port. (1)
+=head1 EXAMPLE
+
+Listening on interface C<eth0>, debugging PostgreSQL messages with a cluster reachable on 192.168.42.5 :
+
+=over 2
+
+=item C<pgs-debug --host 192.168.42.5 -i eth0>
+
+=back
+
+The following example shows how to work with a server that is B<NOT> listening on localhost and the default 5432 port. (1)
 dump from C<eth0> every packets from/to the port 5490. C<-s 0> is requiered on some older version of tcpdump to dump
 the whole packets. (2) Here C<--host> and C<--port> are B<important> to notify pgshark who is the PostgreSQL server in the network dump and its working port.
 
-=over 3
+=over 2
 
 =item C<tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490'> (1)
 
 =item C<pgs-debug --port 5490 --host 192.168.42.5 -r /tmp/tcp_5490.pcap> (2)
-
-=back
 
 =back
 
