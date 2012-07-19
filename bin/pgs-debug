@@ -629,11 +629,11 @@ By default, B<pgs-debug> will read from stdin if neither B<--read> or B<--interf
 
 =head1 EXAMPLE
 
-Listening on interface C<eth0>, debugging PostgreSQL messages with a cluster reachable on 192.168.42.5 :
+Listening on interface C<eth0>, debugging PostgreSQL messages with a cluster reachable on '192.168.42.5':
 
 =over 2
 
-=item C<pgs-debug --host 192.168.42.5 -i eth0>
+C<pgs-debug --host 192.168.42.5 -i eth0>
 
 =back
 
@@ -643,9 +643,9 @@ the whole packets. (2) Here C<--host> and C<--port> are B<important> to notify p
 
 =over 2
 
-=item C<tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490'> (1)
+C<tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490'> (1)
 
-=item C<pgs-debug --port 5490 --host 192.168.42.5 -r /tmp/tcp_5490.pcap> (2)
+C<pgs-debug --port 5490 --host 192.168.42.5 -r /tmp/tcp_5490.pcap> (2)
 
 =back
 
