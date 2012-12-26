@@ -153,9 +153,13 @@ then be processed with all available pgShark tools.
 
 B<pgs-record> rely on perl B<Net::Pcap> module. Unlike B<Net::Pcap>, B<tcpdump> is able to set a bigger capture buffer
 using recent libpcap. Default buffer size is often too small to be able to dump all tcp datagram quickly enough.
-Because of this buffer size (1MB), on high loaded systems, you might loose some packets. Therefor, by default,
+Because of this buffer size (1MB), on high loaded systems, you might loose packets. Therefor, by default,
 B<pgs-record> will try to act as a wrapper around B<tcpdump> if it is available on the system and set the buffer to
 32M.
+
+
+Capturing high throughput traffic, make sure your CPU, disks and memory are good enough to deal with the amount of data.
+You might want to set the capture buffer to 256MB or more and redirect directly to a file for future use.
 
 =over 2
 
@@ -189,7 +193,7 @@ Set the capture buffer size. B<IGNORED if tcpdump is not available>.
 
 =back
 
-=head1 EXAMPLE
+=head1 EXAMPLES
 
 Capture traffic with a PostgreSQL cluster listening on port 5433 on interface 'eth0':
 
@@ -200,11 +204,11 @@ C<pgs-record --port 5433 --interface eth0 E<gt> /tmp/traffic-5433.pcap>
 =back
 
 Capture traffic with a PostgreSQL cluster listening on port 5432 (default) on interface 'lo' (default), writing to
-file '/tmp/traffic-5432.pcap' with a capture buffer of 65MB:
+file '/tmp/traffic-5432.pcap' with a capture buffer of 256MB:
 
 =over 2
 
-C<pgs-record -w /tmp/traffic-5432.pcap -B 65535>
+C<pgs-record -w /tmp/traffic-5432.pcap -B $((256*1024))>
 
 =back
 
