@@ -1,5 +1,5 @@
 pgShark
-    pgShark - pgShark is a Perm module messing with PostgreSQL network traffic
+    pgShark - pgShark is a Perl module messing with PostgreSQL network traffic
 
 DESCRIPTION
     This Perl module is able to study PostgreSQL traffic captured from a
