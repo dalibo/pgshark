@@ -1767,12 +1767,13 @@ sub parse_v2 {
 }
 
 DESTROY {
+	my $self = shift;
 
-	foreach my $i (keys %pcaps) {
-		pcap_close($pcaps{$i})
+	if (exists $pcaps{$self->{'id'}}) {
+		$self->close();
 	}
 
-	debug(1, "[%u] Total number of messages processed: %d\n", $self->{'id'}, $self->{'msg_count'});
+	debug(1, "Total number of messages processed: %d\n", $self->{'msg_count'});
 }
 
 1
