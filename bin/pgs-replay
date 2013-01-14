@@ -37,16 +37,6 @@ my %args = (
 	'timeout' => 5,
 );
 
-sub usage {
-	my $msg = shift;
-	print "$msg\n" if defined $msg and $msg ne '';
-	pod2usage(-exitval => 1);
-}
-
-sub longusage {
-	pod2usage(-verbose => 2, -exitval => 1);
-}
-
 #readFromBackend
 # @param $sess_hash Session hash to listen on
 # @returns 0 when ready, 1 when nothing happened
@@ -260,7 +250,7 @@ sub Terminate {
 
 Getopt::Long::Configure('bundling');
 GetOptions(\%args, qw{
-	help
+	help|?!
 	debug|d+
 	interface|i=s
 	host|h=s
@@ -270,18 +260,25 @@ GetOptions(\%args, qw{
 	rport|rp=s
 	role|U=s
 	timeout|t=s
-});
+}) or pod2usage(
+    -exitval => 2
+);
 
-longusage() if ($args{'help'});
+pod2usage(-verbose => 2) if $args{'help'};
 
-usage("Arguments --rhost, --rport and --role are mandatory") unless
+pod2usage(
+    -message => "Arguments --rhost, --rport and --role are mandatory",
+    -exitval => 1
+) unless
 	defined $args{'rhost'}
 	and defined $args{'rport'}
 	and defined $args{'role'};
 
-usage("Arguments --interface and --read are incompatible.\n"
-		."Either listen from the network or open a pcap file.\n")
-	if $args{'interface'} ne '' and $args{'read'} ne '';
+pod2usage(
+    -message => "Arguments --interface and --read are incompatible.\n"
+		."Either listen from the network or open a pcap file.",
+    -exitval => 1
+) if $args{'interface'} ne '' and $args{'read'} ne '';
 
 $args{'rhost'} = '/tmp' if $args{'rhost'} eq '';
 

@@ -64,16 +64,6 @@ my $prepd = {};
 # }
 my $portals = {};
 
-sub usage {
-	my $msg = shift;
-	print "$msg\n" if defined $msg and $msg ne '';
-	pod2usage(-exitval => 1);
-}
-
-sub longusage {
-	pod2usage(-verbose => 2, -exitval => 1);
-}
-
 #printf_prefix
 # behave like printf.
 # Computes and prints the line prefix using $pg_msg followed by the given $frmt
@@ -281,7 +271,7 @@ sub Terminate {
 
 Getopt::Long::Configure('bundling');
 GetOptions(\%args, qw{
-	help
+	help|?!
 	debug|d+
 	line_prefix=s
 	interface|i=s
@@ -290,15 +280,22 @@ GetOptions(\%args, qw{
 	read|r=s
 	2+
 	3+
-});
+}) or pod2usage(
+    -exitval => 2
+);
 
-longusage() if ($args{'help'});
+pod2usage(-verbose => 2) if $args{'help'};
 
-usage("Arguments --interface and --read are incompatible.\n"
-		."Either listen from the network or open a pcap file.\n")
-	if $args{'interface'} ne '' and $args{'read'} ne '';
+pod2usage(
+    -message => "Arguments --interface and --read are incompatible.\n"
+		."Either listen from the network or open a pcap file.",
+    -exitval => 1
+) if $args{'interface'} ne '' and $args{'read'} ne '';
 
-usage("Options -2 and -3 are mutal exclusives.\n") if $args{'2'} and $args{'3'};
+pod2usage(
+    -message => "Options -2 and -3 are mutal exclusives.",
+    -exitval => 1
+) if $args{'2'} and $args{'3'};
 
 $args{'protocol'} = $args{'2'}? 2 : 3;
 

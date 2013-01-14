@@ -1914,6 +1914,8 @@ __END__
 
 =head1 BINARIES
 
+For details, see the output of parameter C<--help> for each of them.
+
 =over
 
 =item *
