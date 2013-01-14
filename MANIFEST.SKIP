@@ -1,0 +1,22 @@
+# Avoid version control files.
+\B\.git\b
+
+# Avoid Makemaker generated and utility files.
+^MANIFEST\.SKIP$
+
+# Avoid Module::Build generated and utility files.
+\bBuild$
+\b_build
+\bcover_db
+
+# Avoid temp and backup files.
+~$
+^ignore\b
+\.tmp$
+\.old$
+\.bak$
+\#$
+\b\.#
+^\.gitignore$
+^MYMETA\.yml$
+^MYMETA\.json$

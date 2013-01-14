@@ -1,49 +1,256 @@
 pgShark
     pgShark - pgShark is a Perl module messing with PostgreSQL network traffic
 
+SYNOPSIS
+    A simple exemple to count the number of connections and disconnections
+    on localhost, live version:
+
+            use pgShark;
+        
+            my ($cnx, $dcnx) = (0, 0);
+            my $dev = 'lo';
+            my $err;
+        
+            $shark = pgShark->new({
+                    'procs' => {
+                            'AuthenticationOk' => sub {$cnx++},
+                            'Terminate' => sub {$dcnx++},
+                    },
+                    'host' => '127.0.0.1',
+                    'port' => 5432
+            });
+        
+            die "Can not open interface $dev:\n$err" if $shark->live($dev, \$err);
+        
+            # on live capture, a ctrl-c interrupt the loop
+            $shark->process_all();
+        
+            $shark->close();
+        
+            printf "Number of connections/disconnections: %u/%u\n", $cnx, $dcnx;
+
 DESCRIPTION
     This Perl module is able to study PostgreSQL traffic captured from a
-    network interface and call various functions for each messages of the 
-    protocol. The network dump could be live or from a pcap file (using 
-    tcpdump for instance).
+    network interface and call various functions for each messages of the
+    protocol. The network dump could be live or from a pcap file (using
+    tcpdump as instance).
 
     pgShark comes with various sample scripts able to do various things with
-    these network dumps. See help page of each of them for more informations.
+    these network dumps. See help page of each of them for more
+    informations.
+
+METHODS
+    *   new (\%settings)
+
+        Static method.
+
+        Creates a new pgShark object and returns it. It takes a hash as
+        parameter with the following settings:
+
+                {
+                        'host' => IP address of the server
+                        'port' => Port of the PostgreSQL server
+                        'protocol' => the protocol version, ie. 2 or 3
+                        'procs' => {
+                                # Hash of callbacks for each messages.
+                                'message name' => \&callback
+                                ...
+                        }
+                }
+
+        pgShark is not able to detect in a network dump which IP address is
+        the server and on which port it is listening. Defaults are
+        PostgreSQL's ones, ie. 127.0.0.1:5432. Make sure to always set the
+        proper host/port or pgShark will not be able to decode your
+        PostgreSQL traffic.
+
+        If not defined, the protocol version by default is 3.
+
+        The 'procs' hash associate a callback to each messages of the
+        PostgreSQL protocol you are interested in. See the following link
+        about available message names and definitions:
+
+          http://www.postgresql.org/docs/current/static/protocol-message-formats.html
+
+        Some more messages type has been added to catch those that are not
+        defined explicitly in the protocol.
+
+        In protocol v3: CancelRequest, SSLRequest, SSLAnswer and
+        StartupMessage In protocol v2: CancelRequest, SSLRequest, SSLAnswer,
+        StartupMessage, PasswordPacket, CopyDataRows
+
+        See section PROTOCOL for details about messages.
+
+    *   live ($interface, \$err)
+
+        Open a live capture on given interface from first parameter. The
+        second parameter is a reference to a string. It will be filled with
+        the error message if the method fails.
+
+        Returns 0 on success, 1 on failure
+
+    *   open ($file, \$err)
+
+        Open a given pcap file from first parameter. The second parameter is
+        a reference to a string. It will be filled with the error message if
+        the method fails.
+
+        Returns 0 on success, 1 on failure.
+
+    *   close ()
+
+        Close the pcap handle previously opened with this object using
+        either pgShark::live() or pgShark::open() methods.
+
+    *   process_all ()
+
+        Loop over all available packets from the previously opened pcap
+        handle.
+
+    *   parse_v3 (\%pg_msg, $from_backend, $data)
+
+        Static method.
+
+        Parse and dissect a buffer, looking for a valid pgsql v3 message,
+        and set the given hashref as first parameter with the message
+        properties. Properties set in the given hashref depend on the
+        message type. See the method code comments for more information
+        about them.
+
+        The second parameter tells the method who sent the given data so it
+        is able to parse them properly: the backend (1) or the frontend (0).
+
+        The data to parsed are given in the third parameter.
+
+        This method is static, so it can be used outside of the class for
+        any other purpose.
+
+        CAUTION: This function MUST returns the total length of the parsed
+        message so it can be removed from the TCP monolog buffer. 0 means
+        lack of data to process the current message. On error, returns -1
+
+    *   parse_v2 (\%pg_msg, $from_backend, $data, \%state)
+
+        Static method.
+
+        Parse and dissect a buffer, looking for a valid pgsql v2 message,
+        and set the given hashref as first parameter with the message
+        properties. Properties set in the given hashref depend on the
+        message type. See the method code comments for more information
+        about them.
+
+        The second parameter tells the method who sent the given data so it
+        is able to parse them properly: the backend (1) or the frontend (0).
+
+        The data to parsed are given in the third parameter.
+
+        Unlike the protocole version 3, version 2 is stateful. Because of
+        this, this is the responsability of the caller to keep track of the
+        state of each sessions by giving a hashref as fourth parameter. This
+        hashref **MUST** concern the ONLY current session (Frontend/Backend
+        couple) data are parsed for. This fourth parameter does not exists
+        in the protocol v3 version of this method as v3 is a stateless
+        protocol.
+
+        This method is static, so it can be used outside of the class for
+        any other purpose.
+
+        The method tries to keep some compatibility with messages type
+        returned from the v3 parser. Here is how messages are mapped between
+        v2 and v3:
+
+          "AsciiRow"               => "DataRow"
+          "BinaryRow"              => "DataRow"
+          "CompletedResponse"      => "CommandComplete"
+          "CopyDataRows"           => "CopyData"
+          "FunctionResultResponse" => "FunctionCallResponse"
+          "FunctionVoidResponse"   => "FunctionCallResponse"
+          "StartupPacket"          => "StartupMessage"
+
+        CAUTION: message "CursorResponse" is protocol v2 only !
+
+        CAUTION: This function MUST returns the total length of the parsed
+        message so it can be removed from the TCP monolog buffer. 0 means
+        lack of data to process the current message. On error, returns -1
+
+        Caution: this parser hadn't been tested enough to be considered
+        stable. We need some pcap file to make some tests !
 
 BINARIES
+    *   pgs-debug
 
-  pgs-debug
-    Outputs the PostgreSQL messages in human readable format. Useful to 
-    analyze what is in a network dump before using pgshark on some other 
-    duties.
+        Outputs the PostgreSQL messages in human readable format. Useful to
+        analyze what is in a network dump before using pgshark on some other
+        duties.
 
-  pgs-sql
-    Writes captured queries on stdout. Because of the SQL
-    language doesn't support unnamed prepared statement, this script
-    actually try to names them. Presently, this script doesn't support
-    cursors nor COPY messages.
+    *   pgs-normalize
 
-  pgs-normalize
-    The normalize script will try to normalize queries and prepared queries
-    and output them to stdout. Its purpose is to give you a list of unique
-    queries, whatever the number of time they have been sent by clients and
-    whatever their parameters were.
+        The "pgs-normalize" script tries to normalize queries and prepared
+        statements and output them to stdout. Its purpose is to give you a
+        list of unique queries, whatever the number of time they have been
+        sent by clients and whatever their parameters were.
 
-API
+    *   "pgs-record" filters network traffic and dump PostgreSQL related
+        activity to a pcap file. The pcap file can then be processed with
+        all available pgShark tools.
 
-  TODO 
+        "pgs-record" rely on perl Net::Pcap module. However, unlike
+        Net::Pcap, "tcpdump" is able to set a bigger capture buffer using
+        recent libpcap. Default buffer size is often too small to be able to
+        dump all tcp datagram quickly enough. Because of this buffer size
+        (1MB), on high loaded systems, you might loose packets. Therefor, by
+        default, "pgs-record" will try to act as a wrapper around c<tcpdump>
+        if it is available on the system and set the buffer to "32M".
 
-AUTHORS
-    Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
+        Capturing high throughput traffic, make sure your CPU, disks and
+        memory are good enough to deal with the amount of data. You might
+        want to set the capture buffer to 256MB or more and redirect
+        directly to a file for future use.
 
-    Dalibo's team.
+    *   pgs-replay
 
-    http://www.dalibo.org
+        <pgs-replay> send the PostgreSQL messages to a given PostgreSQL
+        cluster. The network dump could be live or from a pcap file (using
+        tcpdump for instance).
 
-SEE ALSO
-    The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
+        This script only supports protocol v3, making it compatilible with
+        versions 7.4 to 9.2 of PostgreSQL.
+
+        This script currently does not support any kind of authentication on
+        the remote PostgreSQL cluster where messages are send. Make sure it
+        can connect using ident, peer or trust.
+
+    *   pgs-sql
+
+        Writes captured queries on stdout. Because of the SQL language
+        doesn't support unnamed prepared statement, this script actually try
+        to names them. Presently, this script doesn't support cursors nor
+        COPY messages.
+
+    *   pgs-stats
+
+        This script analyse the pcap traffics and outputs various statistics
+        about what was found in PostgreSQL protocol.
+
+        The report contains most popular queries, slowest cumulated ones,
+        slowest queries ever, classification of queries by type, sessions
+        time, number of connexion, errors, notices, etc.
+
+        The network dump could be live or from a pcap file (using tcpdump
+        for instance).
 
 LICENSING
     This program is open source, licensed under the simplified BSD license.
     For license terms, see the LICENSE provided with the sources.
+
+AUTHORS
+    Authors:
+
+      * Jehan-Guillaume de Rorthais
+      * Nicolas Thauvin
+
+    Copyright: (C) 2012-2013 Jehan-Guillaume de Rorthais - All rights
+    reserved.
+
+    Dalibo's team. http://www.dalibo.org
 

@@ -2,10 +2,11 @@
 abstract: 'Messing with PostgreSQL network traffic'
 author:
   - 'Jehan-Guillaume (ioguix) de Rorthais <jgdr@dalibo.com>'
+build_requires: {}
 configure_requires:
-  Module::Build: 0.36
-dynamic_config: 0
-generated_by: 'Module::Build version 0.3603'
+  Module::Build: 0.38
+dynamic_config: 1
+generated_by: 'Module::Build version 0.38, CPAN::Meta::Converter version 2.110440'
 license: bsd
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -14,17 +15,6 @@ name: pgShark
 provides:
   pgShark:
     file: lib/pgShark.pm
-  pgShark::Output::Debug:
-    file: lib/pgShark/Output/Debug.pm
-    version: 0.1
-  pgShark::Output::Fouine:
-    file: lib/pgShark/Output/Fouine.pm
-    version: 0.1
-  pgShark::Output::Normalize:
-    file: lib/pgShark/Output/Normalize.pm
-    version: 0.1
-  pgShark::Output::Sql:
-    file: lib/pgShark/Output/Sql.pm
     version: 0.1
   pgShark::Utils:
     file: lib/pgShark/Utils.pm
@@ -35,4 +25,4 @@ requires:
   perl: v5.8.0
 resources:
   license: http://opensource.org/licenses/bsd-license.php
-version: 0.001
+version: 0.1
