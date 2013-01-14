@@ -51,7 +51,7 @@ use warnings;
 
 use File::Basename 'dirname';
 use File::Spec;
-use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+use lib join '/', File::Spec->splitdir( dirname(__FILE__) ), '../lib';
 
 use Data::Dumper;
 
@@ -62,518 +62,587 @@ use Pod::Usage;
 use Digest::MD5 qw(md5_base64);
 
 my $shark;
-my $sessions = {}; # sessions activities and stats
-my $prepd_stats = {}; # prepd stmt statistics
-my $query_stats = {}; # queries statistics
-my %args = (
-	'help' => 0,
-	'debug' => 0,
-	'interface' => '',
-	'host' => '127.0.0.1',
-	'port' => 5432,
-	'read' => '',
-	'2' => 0,
-	'3' => 0
+my $sessions    = {};    # sessions activities and stats
+my $prepd_stats = {};    # prepd stmt statistics
+my $query_stats = {};    # queries statistics
+my %args        = (
+    'help'      => 0,
+    'debug'     => 0,
+    'interface' => '',
+    'host'      => '127.0.0.1',
+    'port'      => 5432,
+    'read'      => '',
+    '2'         => 0,
+    '3'         => 0
 );
-my $stats = { # global statistics
-	'first_message' => 0,
-	'last_message' => 0,
-	'total_notices' => 0,
-	'total_errors' => 0,
-	'total_cancels' => 0,
-	'total_queries' => 0,
-	'errors' => {},
-	'notices' => {},
-	'total_sessions' => 0, # total sessions seen
-	'total_cnx' => 0, # number of connexions seen
-	'total_discnx' => 0 # number of disconnexions seen
+my $stats = {            # global statistics
+    'first_message'  => 0,
+    'last_message'   => 0,
+    'total_notices'  => 0,
+    'total_errors'   => 0,
+    'total_cancels'  => 0,
+    'total_queries'  => 0,
+    'errors'         => {},
+    'notices'        => {},
+    'total_sessions' => 0,    # total sessions seen
+    'total_cnx'      => 0,    # number of connexions seen
+    'total_discnx'   => 0     # number of disconnexions seen
 };
-my $qtype_stats = { # query types statistics
-	'SELECT' => 0,
-	'INSERT' => 0,
-	'UPDATE' => 0,
-	'DELETE' => 0,
-	'BEGIN' => 0,
-	'COMMIT' => 0,
-	'ROLLBACK' => 0,
-	'MOVE' => 0,
-	'FETCH' => 0,
-	'COPY' => 0,
-	'VACUUM' => 0,
-	'TRUNCATE' => 0,
-	'DECLARE' => 0,
-	'CLOSE' => 0,
-	'PREPARE' => 0,
-	'BIND' => 0,
-	'DEALOCATE' => 0,
-	'others' => 0
+my $qtype_stats = {           # query types statistics
+    'SELECT'    => 0,
+    'INSERT'    => 0,
+    'UPDATE'    => 0,
+    'DELETE'    => 0,
+    'BEGIN'     => 0,
+    'COMMIT'    => 0,
+    'ROLLBACK'  => 0,
+    'MOVE'      => 0,
+    'FETCH'     => 0,
+    'COPY'      => 0,
+    'VACUUM'    => 0,
+    'TRUNCATE'  => 0,
+    'DECLARE'   => 0,
+    'CLOSE'     => 0,
+    'PREPARE'   => 0,
+    'BIND'      => 0,
+    'DEALOCATE' => 0,
+    'others'    => 0
 };
-my $sess_stats = { # sessions statistics
-	# notices stats
-	'min_notices' => 9**9**9, # min notices seen per session
-	'max_notices' => 0, # max notices seen per session
+my $sess_stats = {    # sessions statistics
+                      # notices stats
+    'min_notices' => 9**9**9,    # min notices seen per session
+    'max_notices' => 0,          # max notices seen per session
 
-	# errors stats
-	'min_errors' => 9**9**9, # min errors seen per session
-	'max_errors' => 0, # max errors seen per session
+    # errors stats
+    'min_errors' => 9**9**9,     # min errors seen per session
+    'max_errors' => 0,           # max errors seen per session
 
-	# session length stats
-	'min_sess_time' => 9**9**9,
-	'avg_sess_time' => 0,
-	'max_sess_time' => 0,
-	'total_sess_time' => 0,
-	'total_busy_time' => 0,
+    # session length stats
+    'min_sess_time'   => 9**9**9,
+    'avg_sess_time'   => 0,
+    'max_sess_time'   => 0,
+    'total_sess_time' => 0,
+    'total_busy_time' => 0,
 
-	# auth time
-	'auth_min_time' => 9**9**9,
-	'auth_avg_time' => 0,
-	'auth_max_time' => 0,
+    # auth time
+    'auth_min_time' => 9**9**9,
+    'auth_avg_time' => 0,
+    'auth_max_time' => 0,
 
-	# stats about queries per session
-	'min_queries' => 9**9**9,
-	'avg_queries' => 0,
-	'max_queries' => 0,
+    # stats about queries per session
+    'min_queries' => 9**9**9,
+    'avg_queries' => 0,
+    'max_queries' => 0,
 
-	# stats about rows per session
-	'min_rows' => 9**9**9,
-	'avg_rows' => 0,
-	'max_rows' => 0,
-	'total_rows' => 0,
+    # stats about rows per session
+    'min_rows'   => 9**9**9,
+    'avg_rows'   => 0,
+    'max_rows'   => 0,
+    'total_rows' => 0,
 
-	# stats about fields per query
-	'min_fields' => 9**9**9,
-	'avg_fields' => 0,
-	'max_fields' => 0
+    # stats about fields per query
+    'min_fields' => 9**9**9,
+    'avg_fields' => 0,
+    'max_fields' => 0
 };
 
 sub get_session {
-	my $pg_msg = shift;
-	my $hash = $pg_msg->{'sess_hash'};
+    my $pg_msg = shift;
+    my $hash   = $pg_msg->{'sess_hash'};
 
-	if (not defined $sessions->{$hash}) {
-		$sessions->{$hash} = {
-			'stats' => {
-				'ts_start' => $pg_msg->{'timestamp'},
-				'busy_time' => 0,
-				'queries_count' => 0,
-				'notices_count' => 0,
-				'errors_count' => 0,
-				'rows_count' => 0,
-				'min_fields' => 9**9**9,
-				'max_fields' => 0,
-				'fields_count' => 0,
-			}
-		};
+    if ( not defined $sessions->{$hash} ) {
+        $sessions->{$hash} = {
+            'stats' => {
+                'ts_start'      => $pg_msg->{'timestamp'},
+                'busy_time'     => 0,
+                'queries_count' => 0,
+                'notices_count' => 0,
+                'errors_count'  => 0,
+                'rows_count'    => 0,
+                'min_fields'    => 9**9**9,
+                'max_fields'    => 0,
+                'fields_count'  => 0,
+            }
+        };
 
-		$stats->{'total_sessions'}++;
-	}
+        $stats->{'total_sessions'}++;
+    }
 
-	$stats->{'first_message'} = $pg_msg->{'timestamp'}
-		unless $stats->{'first_message'};
+    $stats->{'first_message'} = $pg_msg->{'timestamp'}
+        unless $stats->{'first_message'};
 
-	$stats->{'last_message'} = $pg_msg->{'timestamp'};
+    $stats->{'last_message'} = $pg_msg->{'timestamp'};
 
-	return $sessions->{$hash};
+    return $sessions->{$hash};
 }
 
 sub record_session_stats {
-	my $session = shift;
-	my $interval;
+    my $session = shift;
+    my $interval;
 
-	$stats->{'total_queries'} += $session->{'stats'}->{'queries_count'};
-	$stats->{'total_notices'} += $session->{'stats'}->{'notices_count'};
-	$stats->{'total_errors'} += $session->{'stats'}->{'errors_count'};
+    $stats->{'total_queries'} += $session->{'stats'}->{'queries_count'};
+    $stats->{'total_notices'} += $session->{'stats'}->{'notices_count'};
+    $stats->{'total_errors'}  += $session->{'stats'}->{'errors_count'};
 
-	$interval = $session->{'stats'}->{'ts_end'} - $session->{'stats'}->{'ts_start'};
+    $interval
+        = $session->{'stats'}->{'ts_end'} - $session->{'stats'}->{'ts_start'};
 
-	$sess_stats->{'total_sess_time'} += $interval;
-	$sess_stats->{'min_sess_time'}    = $interval if $sess_stats->{'min_sess_time'} > $interval;
-	$sess_stats->{'max_sess_time'}    = $interval if $sess_stats->{'max_sess_time'} < $interval;
-	$sess_stats->{'avg_sess_time'}    = (($sess_stats->{'avg_sess_time'} * ($stats->{'total_sessions'} - 1)) + $interval) / $stats->{'total_sessions'};
-	$sess_stats->{'total_busy_time'} += $session->{'stats'}->{'busy_time'};
+    $sess_stats->{'total_sess_time'} += $interval;
+    $sess_stats->{'min_sess_time'} = $interval
+        if $sess_stats->{'min_sess_time'} > $interval;
+    $sess_stats->{'max_sess_time'} = $interval
+        if $sess_stats->{'max_sess_time'} < $interval;
+    $sess_stats->{'avg_sess_time'} = (
+        (   $sess_stats->{'avg_sess_time'}
+                * ( $stats->{'total_sessions'} - 1 )
+        ) + $interval
+    ) / $stats->{'total_sessions'};
+    $sess_stats->{'total_busy_time'} += $session->{'stats'}->{'busy_time'};
 
-	$sess_stats->{'min_queries'} = $session->{'stats'}->{'queries_count'} if $sess_stats->{'min_queries'} > $session->{'stats'}->{'queries_count'};
-	$sess_stats->{'max_queries'} = $session->{'stats'}->{'queries_count'} if $sess_stats->{'max_queries'} < $session->{'stats'}->{'queries_count'};
-	$sess_stats->{'avg_queries'} = (($sess_stats->{'avg_queries'} * ($stats->{'total_sessions'} - 1)) + $session->{'stats'}->{'queries_count'}) / $stats->{'total_sessions'};
+    $sess_stats->{'min_queries'} = $session->{'stats'}->{'queries_count'}
+        if $sess_stats->{'min_queries'}
+            > $session->{'stats'}->{'queries_count'};
+    $sess_stats->{'max_queries'} = $session->{'stats'}->{'queries_count'}
+        if $sess_stats->{'max_queries'}
+            < $session->{'stats'}->{'queries_count'};
+    $sess_stats->{'avg_queries'}
+        = (
+        ( $sess_stats->{'avg_queries'} * ( $stats->{'total_sessions'} - 1 ) )
+        + $session->{'stats'}->{'queries_count'} )
+        / $stats->{'total_sessions'};
 
-	$sess_stats->{'min_rows'} = $session->{'stats'}->{'rows_count'} if $sess_stats->{'min_rows'} > $session->{'stats'}->{'rows_count'};
-	$sess_stats->{'max_rows'} = $session->{'stats'}->{'rows_count'} if $sess_stats->{'max_rows'} < $session->{'stats'}->{'rows_count'};
-	$sess_stats->{'avg_rows'} = (($sess_stats->{'avg_rows'} * ($stats->{'total_sessions'} - 1)) + $session->{'stats'}->{'rows_count'}) / $stats->{'total_sessions'};
-	$sess_stats->{'total_rows'} += $session->{'stats'}->{'rows_count'};
+    $sess_stats->{'min_rows'} = $session->{'stats'}->{'rows_count'}
+        if $sess_stats->{'min_rows'} > $session->{'stats'}->{'rows_count'};
+    $sess_stats->{'max_rows'} = $session->{'stats'}->{'rows_count'}
+        if $sess_stats->{'max_rows'} < $session->{'stats'}->{'rows_count'};
+    $sess_stats->{'avg_rows'}
+        = ( ( $sess_stats->{'avg_rows'} * ( $stats->{'total_sessions'} - 1 ) )
+        + $session->{'stats'}->{'rows_count'} ) / $stats->{'total_sessions'};
+    $sess_stats->{'total_rows'} += $session->{'stats'}->{'rows_count'};
 
-	$sess_stats->{'min_fields'} = $session->{'stats'}->{'min_fields'} if $sess_stats->{'min_fields'} > $session->{'stats'}->{'min_fields'};
-	$sess_stats->{'max_fields'} = $session->{'stats'}->{'max_fields'} if $sess_stats->{'max_fields'} < $session->{'stats'}->{'max_fields'};
-	$sess_stats->{'avg_fields'} = (($sess_stats->{'avg_fields'} * ($stats->{'total_sessions'} - 1)) + $session->{'stats'}->{'fields_count'}) / $stats->{'total_sessions'};
+    $sess_stats->{'min_fields'} = $session->{'stats'}->{'min_fields'}
+        if $sess_stats->{'min_fields'} > $session->{'stats'}->{'min_fields'};
+    $sess_stats->{'max_fields'} = $session->{'stats'}->{'max_fields'}
+        if $sess_stats->{'max_fields'} < $session->{'stats'}->{'max_fields'};
+    $sess_stats->{'avg_fields'}
+        = (
+        ( $sess_stats->{'avg_fields'} * ( $stats->{'total_sessions'} - 1 ) )
+        + $session->{'stats'}->{'fields_count'} )
+        / $stats->{'total_sessions'};
 
-	$sess_stats->{'min_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} < $sess_stats->{'min_notices'};
-	$sess_stats->{'max_notices'} = $session->{'stats'}->{'notices_count'} if $session->{'stats'}->{'notices_count'} > $sess_stats->{'max_notices'};
-	$sess_stats->{'min_errors'} = $session->{'stats'}->{'errors_count'} if $sess_stats->{'min_errors'} > $session->{'stats'}->{'errors_count'};
-	$sess_stats->{'max_errors'} = $session->{'stats'}->{'errors_count'} if $sess_stats->{'max_errors'} < $session->{'stats'}->{'errors_count'};
+    $sess_stats->{'min_notices'} = $session->{'stats'}->{'notices_count'}
+        if $session->{'stats'}->{'notices_count'}
+            < $sess_stats->{'min_notices'};
+    $sess_stats->{'max_notices'} = $session->{'stats'}->{'notices_count'}
+        if $session->{'stats'}->{'notices_count'}
+            > $sess_stats->{'max_notices'};
+    $sess_stats->{'min_errors'} = $session->{'stats'}->{'errors_count'}
+        if $sess_stats->{'min_errors'}
+            > $session->{'stats'}->{'errors_count'};
+    $sess_stats->{'max_errors'} = $session->{'stats'}->{'errors_count'}
+        if $sess_stats->{'max_errors'}
+            < $session->{'stats'}->{'errors_count'};
 }
 
 ## handle command F(B) (Bind)
 # @param $pg_msg hash with pg message properties
 sub Bind {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $session = get_session($pg_msg);
+    my $session = get_session($pg_msg);
 
-	if (defined $session->{'prepd'}->{$pg_msg->{'name'}}) {
-		my $query_hash = $session->{'prepd'}->{$pg_msg->{'name'}};
+    if ( defined $session->{'prepd'}->{ $pg_msg->{'name'} } ) {
+        my $query_hash = $session->{'prepd'}->{ $pg_msg->{'name'} };
 
-		$session->{'portals'}->{$pg_msg->{'portal'}} = $session->{'prepd'}->{$pg_msg->{'name'}};
+        $session->{'portals'}->{ $pg_msg->{'portal'} }
+            = $session->{'prepd'}->{ $pg_msg->{'name'} };
 
-		$session->{'running'}->{'bind'} = {
-			'ts_start' => $pg_msg->{'timestamp'},
-			'query_stat' => $prepd_stats->{$query_hash}
-		};
-	}
+        $session->{'running'}->{'bind'} = {
+            'ts_start'   => $pg_msg->{'timestamp'},
+            'query_stat' => $prepd_stats->{$query_hash}
+        };
+    }
 }
 
 ## handle command B(2) (BindComplete)
 # @param $pg_msg hash with pg message properties
 sub BindComplete {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $session = get_session($pg_msg);
+    my $session = get_session($pg_msg);
 
-	if (defined $session->{'running'}->{'bind'}) {
-		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'bind'}->{'ts_start'};
-		my $prep_stat = $session->{'running'}->{'bind'}->{'query_stat'};
+    if ( defined $session->{'running'}->{'bind'} ) {
+        my $interval = $pg_msg->{'timestamp'}
+            - $session->{'running'}->{'bind'}->{'ts_start'};
+        my $prep_stat = $session->{'running'}->{'bind'}->{'query_stat'};
 
-		$prep_stat->{'bind_count'}++;
-		$prep_stat->{'bind_min_time'} = $interval if ($prep_stat->{'bind_min_time'} > $interval);
-		$prep_stat->{'bind_max_time'} = $interval if ($prep_stat->{'bind_max_time'} < $interval);
-		$prep_stat->{'bind_avg_time'} = (($prep_stat->{'bind_avg_time'} * ($prep_stat->{'bind_count'} - 1)) + $interval) / $prep_stat->{'bind_count'};
-		$prep_stat->{'bind_total'} += $interval;
-		$prep_stat->{'bind_disp'} += abs($prep_stat->{'bind_avg_time'} - $interval)/$prep_stat->{'bind_count'};
+        $prep_stat->{'bind_count'}++;
+        $prep_stat->{'bind_min_time'} = $interval
+            if ( $prep_stat->{'bind_min_time'} > $interval );
+        $prep_stat->{'bind_max_time'} = $interval
+            if ( $prep_stat->{'bind_max_time'} < $interval );
+        $prep_stat->{'bind_avg_time'} = (
+            (   $prep_stat->{'bind_avg_time'}
+                    * ( $prep_stat->{'bind_count'} - 1 )
+            ) + $interval
+        ) / $prep_stat->{'bind_count'};
+        $prep_stat->{'bind_total'} += $interval;
+        $prep_stat->{'bind_disp'}
+            += abs( $prep_stat->{'bind_avg_time'} - $interval )
+            / $prep_stat->{'bind_count'};
 
-		delete $session->{'running'}->{'bind'};
+        delete $session->{'running'}->{'bind'};
 
-		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
-		$session->{'stats'}->{'queries_count'}++;
+        $session->{'stats'}->{'busy_time'} += $interval
+            if ( not keys %{ $session->{'running'} } );
+        $session->{'stats'}->{'queries_count'}++;
 
-		$qtype_stats->{'BIND'}++;
-	}
+        $qtype_stats->{'BIND'}++;
+    }
 }
 
 ## handle command CancelRequest (F)
 # @param $pg_msg hash with pg message properties
 sub CancelRequest {
-	my $pg_msg = shift;
-	my $session = get_session($pg_msg);
+    my $pg_msg  = shift;
+    my $session = get_session($pg_msg);
 
-	$stats->{'cancels_count'}++;
+    $stats->{'cancels_count'}++;
 }
-
 
 ## handle command F(C)
 # @param $pg_msg hash with pg message properties
 sub Close {
-	my $pg_msg = shift;
-	my $session = get_session($pg_msg);
+    my $pg_msg  = shift;
+    my $session = get_session($pg_msg);
 
-	# TODO support stat for closing a portal or a prep stmt
-	# Presently we just set it for busy time
-	# we don't need to check if the prep stmt/portal exists for this stat as
-	# "It is not an error to issue Close against a nonexistent statement or portal name."
-	$session->{'running'}->{'close'} = {
-		'ts_start' => $pg_msg->{'timestamp'},
-	}
+# TODO support stat for closing a portal or a prep stmt
+# Presently we just set it for busy time
+# we don't need to check if the prep stmt/portal exists for this stat as
+# "It is not an error to issue Close against a nonexistent statement or portal name."
+    $session->{'running'}->{'close'}
+        = { 'ts_start' => $pg_msg->{'timestamp'}, };
 }
 
 ## handle command B(3)
 # @param $pg_msg hash with pg message properties
 sub CloseComplete {
-	my $pg_msg = shift;
-	my $session = get_session($pg_msg);
+    my $pg_msg  = shift;
+    my $session = get_session($pg_msg);
 
-	if (defined $session->{'running'}->{'close'}) {
-		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'bind'}->{'ts_start'};
+    if ( defined $session->{'running'}->{'close'} ) {
+        my $interval = $pg_msg->{'timestamp'}
+            - $session->{'running'}->{'bind'}->{'ts_start'};
 
-		delete $session->{'running'}->{'close'};
+        delete $session->{'running'}->{'close'};
 
-		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
+        $session->{'stats'}->{'busy_time'} += $interval
+            if ( not keys %{ $session->{'running'} } );
 
-		$qtype_stats->{'DEALLOCATE'}++;
-	}
+        $qtype_stats->{'DEALLOCATE'}++;
+    }
 }
 
 ## handle command B(C) (CommandComplete)
 # @param $pg_msg hash with pg message properties
 sub CommandComplete {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $session = get_session($pg_msg);
-	my @command = split(' ', $pg_msg->{'command'});
+    my $session = get_session($pg_msg);
+    my @command = split( ' ', $pg_msg->{'command'} );
 
-	if (defined $qtype_stats->{$command[0]}) {
-		$qtype_stats->{$command[0]}++;
-	}
-	else {
-		debug(1, "Unknown command complete answer: %s\n", $command[0]);
-		$qtype_stats->{'others'}++;
-	}
+    if ( defined $qtype_stats->{ $command[0] } ) {
+        $qtype_stats->{ $command[0] }++;
+    }
+    else {
+        debug( 1, "Unknown command complete answer: %s\n", $command[0] );
+        $qtype_stats->{'others'}++;
+    }
 
-	if (defined $session->{'running'}->{'exec'}) {
-		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'exec'}->{'ts_start'};
-		my $query_stat = $session->{'running'}->{'exec'}->{'query_stat'};
+    if ( defined $session->{'running'}->{'exec'} ) {
+        my $interval = $pg_msg->{'timestamp'}
+            - $session->{'running'}->{'exec'}->{'ts_start'};
+        my $query_stat = $session->{'running'}->{'exec'}->{'query_stat'};
 
-		$query_stat->{'count'}++;
-		$query_stat->{'min_time'} = $interval if ($query_stat->{'min_time'} > $interval);
-		$query_stat->{'max_time'} = $interval if ($query_stat->{'max_time'} < $interval);
-		$query_stat->{'avg_time'} = (($query_stat->{'avg_time'} * ($query_stat->{'count'} - 1)) + $interval) / $query_stat->{'count'};
-		$query_stat->{'total_time'} += $interval;
-		$query_stat->{'disp'} += abs($query_stat->{'avg_time'} - $interval)/$query_stat->{'count'};
+        $query_stat->{'count'}++;
+        $query_stat->{'min_time'} = $interval
+            if ( $query_stat->{'min_time'} > $interval );
+        $query_stat->{'max_time'} = $interval
+            if ( $query_stat->{'max_time'} < $interval );
+        $query_stat->{'avg_time'}
+            = ( ( $query_stat->{'avg_time'} * ( $query_stat->{'count'} - 1 ) )
+            + $interval ) / $query_stat->{'count'};
+        $query_stat->{'total_time'} += $interval;
+        $query_stat->{'disp'} += abs( $query_stat->{'avg_time'} - $interval )
+            / $query_stat->{'count'};
 
-		delete $session->{'running'}->{'exec'};
+        delete $session->{'running'}->{'exec'};
 
-		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
+        $session->{'stats'}->{'busy_time'} += $interval
+            if ( not keys %{ $session->{'running'} } );
 
-		$session->{'stats'}->{'queries_count'}++;
-	}
-	else {
-		# we complete smth that was executed earlier ??
-		$stats->{'total_queries'}++;
-	}
+        $session->{'stats'}->{'queries_count'}++;
+    }
+    else {
+
+        # we complete smth that was executed earlier ??
+        $stats->{'total_queries'}++;
+    }
 }
 
 ## handle command B(D)
 # @param $pg_msg hash with pg message properties
 sub DataRow {
-	my $pg_msg = shift;
-	my $session = get_session($pg_msg);
+    my $pg_msg  = shift;
+    my $session = get_session($pg_msg);
 
-	$session->{'stats'}->{'rows_count'}++;
+    $session->{'stats'}->{'rows_count'}++;
 }
 
 ## handle command B(E) (ErrorResponse)
 # @param $pg_msg hash with pg message properties
 sub ErrorResponse {
-	my $pg_msg = shift;
-	my $session = get_session($pg_msg);
-	my $error_stats = $stats->{'errors'};
-	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
+    my $pg_msg      = shift;
+    my $session     = get_session($pg_msg);
+    my $error_stats = $stats->{'errors'};
+    my $hash        = md5_base64( $pg_msg->{'fields'}->{'M'} );
 
-	if (not defined $error_stats->{$hash}) {
-		$error_stats->{$hash}->{'fields'} = $pg_msg->{'fields'};
-		$error_stats->{$hash}->{'count'} = 0;
-	}
+    if ( not defined $error_stats->{$hash} ) {
+        $error_stats->{$hash}->{'fields'} = $pg_msg->{'fields'};
+        $error_stats->{$hash}->{'count'}  = 0;
+    }
 
-	$error_stats->{$hash}->{'count'}++;
-	$session->{'stats'}->{'errors_count'}++;
+    $error_stats->{$hash}->{'count'}++;
+    $session->{'stats'}->{'errors_count'}++;
 }
 
 ## handle command F(E) (Execute)
 # @param $pg_msg hash with pg message properties
 sub Execute {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $session = get_session($pg_msg);
+    my $session = get_session($pg_msg);
 
-	if (defined $session->{'portals'}->{$pg_msg->{'name'}}) {
+    if ( defined $session->{'portals'}->{ $pg_msg->{'name'} } ) {
 
-		$session->{'running'}->{'exec'} = {
-			'ts_start' => $pg_msg->{'timestamp'},
-			'query_stat' => $prepd_stats->{$session->{'portals'}->{$pg_msg->{'name'}}}
-		};
-	}
+        $session->{'running'}->{'exec'} = {
+            'ts_start' => $pg_msg->{'timestamp'},
+            'query_stat' =>
+                $prepd_stats->{ $session->{'portals'}->{ $pg_msg->{'name'} } }
+        };
+    }
 }
 
 ## handle command B(N) (NoticeResponse)
 # @param $pg_msg hash with pg message properties
 sub NoticeResponse {
-	my $pg_msg = shift;
-	my $session = get_session($pg_msg);
-	my $notice_stats = $stats->{'notices'};
-	my $hash = md5_base64($pg_msg->{'fields'}->{'M'});
+    my $pg_msg       = shift;
+    my $session      = get_session($pg_msg);
+    my $notice_stats = $stats->{'notices'};
+    my $hash         = md5_base64( $pg_msg->{'fields'}->{'M'} );
 
-	if (not defined $notice_stats->{$hash}) {
-		$notice_stats->{$hash}->{'fields'} = $pg_msg->{'fields'};
-		$notice_stats->{$hash}->{'count'} = 0;
-	}
+    if ( not defined $notice_stats->{$hash} ) {
+        $notice_stats->{$hash}->{'fields'} = $pg_msg->{'fields'};
+        $notice_stats->{$hash}->{'count'}  = 0;
+    }
 
-	$session->{'stats'}->{'notices_count'}++;
-	$notice_stats->{$hash}->{'count'}++;
+    $session->{'stats'}->{'notices_count'}++;
+    $notice_stats->{$hash}->{'count'}++;
 }
 
 ## handle F(P) command (Parse)
 # @param $pg_msg hash with pg message properties
 sub Parse {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $norm_query = normalize_query($pg_msg->{'query'});
-	my $query_hash = md5_base64($norm_query);
+    my $norm_query = normalize_query( $pg_msg->{'query'} );
+    my $query_hash = md5_base64($norm_query);
 
-	my $session = get_session($pg_msg);
+    my $session = get_session($pg_msg);
 
-	if (not defined $prepd_stats->{$query_hash}) {
-		$prepd_stats->{$query_hash} = {
-			'query' => $norm_query,
-			'prep_count' => 0,
-			'count' => 0,  # will be increased when result received
-			'prep_count' => 0,
-			'prep_min_time' => 9**9**9,
-			'prep_max_time' => -1,
-			'prep_avg_time' => 0,
-			'prep_disp' => 0,
-			'prep_total' => 0,
-			'bind_count' => 0,
-			'bind_min_time' => 9**9**9,
-			'bind_max_time' => -1,
-			'bind_avg_time' => 0,
-			'bind_disp' => 0,
-			'bind_total' => 0,
-			'min_time' => 9**9**9,
-			'max_time' => -1,
-			'avg_time' => 0,
-			'total_time' => 0,
-			'disp' => 0,
-			## TODO
-			# add samples
-			# add min/max/avg nb of records returned
-		};
-	}
+    if ( not defined $prepd_stats->{$query_hash} ) {
+        $prepd_stats->{$query_hash} = {
+            'query'      => $norm_query,
+            'prep_count' => 0,
+            'count'      => 0,    # will be increased when result received
+            'prep_count' => 0,
+            'prep_min_time' => 9**9**9,
+            'prep_max_time' => -1,
+            'prep_avg_time' => 0,
+            'prep_disp'     => 0,
+            'prep_total'    => 0,
+            'bind_count'    => 0,
+            'bind_min_time' => 9**9**9,
+            'bind_max_time' => -1,
+            'bind_avg_time' => 0,
+            'bind_disp'     => 0,
+            'bind_total'    => 0,
+            'min_time'      => 9**9**9,
+            'max_time'      => -1,
+            'avg_time'      => 0,
+            'total_time'    => 0,
+            'disp'          => 0,
+            ## TODO
+            # add samples
+            # add min/max/avg nb of records returned
+        };
+    }
 
-	$session->{'prepd'}->{$pg_msg->{'name'}} = $query_hash;
+    $session->{'prepd'}->{ $pg_msg->{'name'} } = $query_hash;
 
-	$session->{'running'}->{'parse'} = {
-		'ts_start' => $pg_msg->{'timestamp'},
-		'query_stat' => $prepd_stats->{$query_hash}
-	};
+    $session->{'running'}->{'parse'} = {
+        'ts_start'   => $pg_msg->{'timestamp'},
+        'query_stat' => $prepd_stats->{$query_hash}
+    };
 }
 
 ## handle command B(1) (ParseComplete)
 # @param $pg_msg hash with pg message properties
 sub ParseComplete {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $session = get_session($pg_msg);
+    my $session = get_session($pg_msg);
 
-	if (defined $session->{'running'}->{'parse'}) {
-		my $interval = $pg_msg->{'timestamp'} - $session->{'running'}->{'parse'}->{'ts_start'};
-		my $prep_stat = $session->{'running'}->{'parse'}->{'query_stat'};
+    if ( defined $session->{'running'}->{'parse'} ) {
+        my $interval = $pg_msg->{'timestamp'}
+            - $session->{'running'}->{'parse'}->{'ts_start'};
+        my $prep_stat = $session->{'running'}->{'parse'}->{'query_stat'};
 
-		$prep_stat->{'prep_count'}++;
-		$prep_stat->{'prep_min_time'} = $interval if ($prep_stat->{'prep_min_time'} > $interval);
-		$prep_stat->{'prep_max_time'} = $interval if ($prep_stat->{'prep_max_time'} < $interval);
-		$prep_stat->{'prep_avg_time'} = (($prep_stat->{'prep_avg_time'} * ($prep_stat->{'prep_count'} - 1)) + $interval) / $prep_stat->{'prep_count'};
-		$prep_stat->{'prep_total'} += $interval;
-		$prep_stat->{'prep_disp'} += abs($prep_stat->{'prep_avg_time'} - $interval)/$prep_stat->{'prep_count'};
+        $prep_stat->{'prep_count'}++;
+        $prep_stat->{'prep_min_time'} = $interval
+            if ( $prep_stat->{'prep_min_time'} > $interval );
+        $prep_stat->{'prep_max_time'} = $interval
+            if ( $prep_stat->{'prep_max_time'} < $interval );
+        $prep_stat->{'prep_avg_time'} = (
+            (   $prep_stat->{'prep_avg_time'}
+                    * ( $prep_stat->{'prep_count'} - 1 )
+            ) + $interval
+        ) / $prep_stat->{'prep_count'};
+        $prep_stat->{'prep_total'} += $interval;
+        $prep_stat->{'prep_disp'}
+            += abs( $prep_stat->{'prep_avg_time'} - $interval )
+            / $prep_stat->{'prep_count'};
 
-		delete $session->{'running'}->{'parse'};
+        delete $session->{'running'}->{'parse'};
 
-		$session->{'stats'}->{'busy_time'} += $interval if (not keys % { $session->{'running'} });
-		$session->{'stats'}->{'queries_count'}++;
+        $session->{'stats'}->{'busy_time'} += $interval
+            if ( not keys %{ $session->{'running'} } );
+        $session->{'stats'}->{'queries_count'}++;
 
-		$qtype_stats->{'PREPARE'}++;
-	}
+        $qtype_stats->{'PREPARE'}++;
+    }
 }
 
 ## handle command F(Q) (query)
 # @param $pg_msg hash with pg message properties
 sub Query {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $session = get_session($pg_msg);
+    my $session = get_session($pg_msg);
 
-	my $norm_query = normalize_query($pg_msg->{'query'});
-	my $query_hash = md5_base64($norm_query);
+    my $norm_query = normalize_query( $pg_msg->{'query'} );
+    my $query_hash = md5_base64($norm_query);
 
-	if (not defined $query_stats->{$query_hash}) {
+    if ( not defined $query_stats->{$query_hash} ) {
 
-		$query_stats->{$query_hash} = {
-			'query' => $norm_query,
-			'count' => 0,  # will be increased when result received
-			'min_time' => 9**9**9,
-			'max_time' => -1,
-			'avg_time' => 0,
-			'disp' => 0,
-			'total_time' => 0,
-			## TODO
-			# add samples
-			# add min/max/avg nb of records returned
-		};
-	}
+        $query_stats->{$query_hash} = {
+            'query'    => $norm_query,
+            'count'    => 0,          # will be increased when result received
+            'min_time' => 9**9**9,
+            'max_time' => -1,
+            'avg_time' => 0,
+            'disp'     => 0,
+            'total_time' => 0,
+            ## TODO
+            # add samples
+            # add min/max/avg nb of records returned
+        };
+    }
 
-	$session->{'running'}->{'exec'} = {
-		'ts_start' => $pg_msg->{'timestamp'},
-		'query_stat' => $query_stats->{$query_hash}
-	};
+    $session->{'running'}->{'exec'} = {
+        'ts_start'   => $pg_msg->{'timestamp'},
+        'query_stat' => $query_stats->{$query_hash}
+    };
 }
 
 ## handle command B(R) (AuthenticationOk)
 # @param $pg_msg hash with pg message properties
 sub AuthenticationOk {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $session = get_session($pg_msg);
+    my $session = get_session($pg_msg);
 
-	my $interval = $pg_msg->{'timestamp'} - $session->{'stats'}->{'ts_start'};
+    my $interval = $pg_msg->{'timestamp'} - $session->{'stats'}->{'ts_start'};
 
-	$stats->{'total_cnx'}++;
+    $stats->{'total_cnx'}++;
 
-	$sess_stats->{'auth_min_time'} = $interval if ($sess_stats->{'auth_min_time'} > $interval);
-	$sess_stats->{'auth_avg_time'} = (($sess_stats->{'auth_avg_time'} * ($stats->{'total_cnx'} - 1)) + $interval) / $stats->{'total_cnx'};
-	$sess_stats->{'auth_max_time'} = $interval if ($sess_stats->{'auth_max_time'} < $interval);
+    $sess_stats->{'auth_min_time'} = $interval
+        if ( $sess_stats->{'auth_min_time'} > $interval );
+    $sess_stats->{'auth_avg_time'}
+        = ( ( $sess_stats->{'auth_avg_time'} * ( $stats->{'total_cnx'} - 1 ) )
+        + $interval ) / $stats->{'total_cnx'};
+    $sess_stats->{'auth_max_time'} = $interval
+        if ( $sess_stats->{'auth_max_time'} < $interval );
 }
 
 ## handle command B(T)
 # @param $pg_msg hash with pg message properties
 sub RowDescription {
-	my $pg_msg = shift;
-	my $session = get_session($pg_msg);
-	my $num_fields = scalar(@{ $pg_msg->{'fields'} });
+    my $pg_msg     = shift;
+    my $session    = get_session($pg_msg);
+    my $num_fields = scalar( @{ $pg_msg->{'fields'} } );
 
-	$session->{'stats'}->{'fields_count'} = $num_fields;
-	$session->{'stats'}->{'min_fields'} = $num_fields if $session->{'stats'}->{'min_fields'} > $num_fields;
-	$session->{'stats'}->{'max_fields'} = $num_fields if $session->{'stats'}->{'max_fields'} < $num_fields;
+    $session->{'stats'}->{'fields_count'} = $num_fields;
+    $session->{'stats'}->{'min_fields'}   = $num_fields
+        if $session->{'stats'}->{'min_fields'} > $num_fields;
+    $session->{'stats'}->{'max_fields'} = $num_fields
+        if $session->{'stats'}->{'max_fields'} < $num_fields;
 }
 
 ## handle command StartupMessage (F)
 # @param $pg_msg hash with pg message properties
 sub StartupMessage {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	# build the session and set its start time
-	my $session = get_session($pg_msg);
+    # build the session and set its start time
+    my $session = get_session($pg_msg);
 }
 
 ## handle command F(X) (Terminate)
 # @param $pg_msg hash with pg message properties
 sub Terminate {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $session = get_session($pg_msg);
+    my $session = get_session($pg_msg);
 
-	$stats->{'total_discnx'}++;
+    $stats->{'total_discnx'}++;
 
-	$session->{'stats'}->{'ts_end'} = $pg_msg->{'timestamp'};
+    $session->{'stats'}->{'ts_end'} = $pg_msg->{'timestamp'};
 
-	record_session_stats($session);
+    record_session_stats($session);
 
-	delete $sessions->{$pg_msg->{'sess_hash'}};
+    delete $sessions->{ $pg_msg->{'sess_hash'} };
 }
 
 Getopt::Long::Configure('bundling');
-GetOptions(\%args, qw{
-	help|?!
-	debug|d+
-	interface|i=s
-	host|h=s
-	port|p=s
-	read|r=s
-	2+
-	3+
-}) or pod2usage(
-    -exitval => 2
-);
+GetOptions(
+    \%args, qw{
+        help|?!
+        debug|d+
+        interface|i=s
+        host|h=s
+        port|p=s
+        read|r=s
+        2+
+        3+
+        }
+) or pod2usage( -exitval => 2 );
 
-pod2usage(-verbose => 2) if $args{'help'};
+pod2usage( -verbose => 2 ) if $args{'help'};
 
 pod2usage(
     -message => "Arguments --interface and --read are incompatible.\n"
-		."Either listen from the network or open a pcap file.",
+        . "Either listen from the network or open a pcap file.",
     -exitval => 1
 ) if $args{'interface'} ne '' and $args{'read'} ne '';
 
@@ -582,54 +651,57 @@ pod2usage(
     -exitval => 1
 ) if $args{'2'} and $args{'3'};
 
-$args{'protocol'} = $args{'2'}? 2 : 3;
+$args{'protocol'} = $args{'2'} ? 2 : 3;
 
 $SIG{'__WARN__'} = sub {
-	warn $_[0] if $args{'debug'};
+    warn $_[0] if $args{'debug'};
 };
 
-$shark = pgShark->new({
-	'procs' => {
-		'AuthenticationOk' => \&AuthenticationOk,
-		'Bind' => \&Bind,
-		'BindComplete' => \&BindComplete,
-		'CancelRequest' => \&CancelRequest,
-		'Close' => \&Close,
-		'CloseComplete' => \&CloseComplete,
-		'CommandComplete' => \&CommandComplete,
-		'DataRow' => \&DataRow,
-		'ErrorResponse' => \&ErrorResponse,
-		'Execute' => \&Execute,
-		'NoticeResponse' => \&NoticeResponse,
-		'Parse' => \&Parse,
-		'ParseComplete' => \&ParseComplete,
-		'Query' => \&Query,
-		'RowDescription' => \&RowDescription,
-		'StartupMessage' => \&StartupMessage,
-		'Terminate' => \&Terminate
-	},
-	'host' => $args{'host'},
-	'port' => $args{'port'},
-	'protocol' => $args{'protocol'},
-	'debug' => $args{'debug'}
-});
+$shark = pgShark->new(
+    {   'procs' => {
+            'AuthenticationOk' => \&AuthenticationOk,
+            'Bind'             => \&Bind,
+            'BindComplete'     => \&BindComplete,
+            'CancelRequest'    => \&CancelRequest,
+            'Close'            => \&Close,
+            'CloseComplete'    => \&CloseComplete,
+            'CommandComplete'  => \&CommandComplete,
+            'DataRow'          => \&DataRow,
+            'ErrorResponse'    => \&ErrorResponse,
+            'Execute'          => \&Execute,
+            'NoticeResponse'   => \&NoticeResponse,
+            'Parse'            => \&Parse,
+            'ParseComplete'    => \&ParseComplete,
+            'Query'            => \&Query,
+            'RowDescription'   => \&RowDescription,
+            'StartupMessage'   => \&StartupMessage,
+            'Terminate'        => \&Terminate
+        },
+        'host'     => $args{'host'},
+        'port'     => $args{'port'},
+        'protocol' => $args{'protocol'},
+        'debug'    => $args{'debug'}
+    }
+);
 
 # open a live capture on given interface
-if ($args{'interface'} ne '') {
-	my $err = '';
+if ( $args{'interface'} ne '' ) {
+    my $err = '';
 
-	($shark->live($args{'interface'}, \$err) == 0)
-		or die ("Can not open interface '$args{'interface'}':\n$err");
+    ( $shark->live( $args{'interface'}, \$err ) == 0 )
+        or die("Can not open interface '$args{'interface'}':\n$err");
 }
+
 # we have no interface to listen on,
 # either open given pcap file or start reading from stdin
 else {
-	my $err = '';
-	# read from stdin if no pcap file given
-	$args{'read'} = '-' if $args{'read'} eq '';
+    my $err = '';
 
-	($shark->open($args{'read'}, \$err) == 0) 
-		or die ("Can not read from file '$args{'read'}':\n$err");
+    # read from stdin if no pcap file given
+    $args{'read'} = '-' if $args{'read'} eq '';
+
+    ( $shark->open( $args{'read'}, \$err ) == 0 )
+        or die("Can not read from file '$args{'read'}':\n$err");
 }
 
 $shark->process_all();
@@ -640,194 +712,235 @@ exit 0;
 
 sub END {
 
-	my @top_slowest;
-	my @top_most_time;
-	my @top_most_frequent;
+    my @top_slowest;
+    my @top_most_time;
+    my @top_most_frequent;
 
-	# record stats for non-Terminate'd sessions when pgshark was stoped
-	foreach my $hash (keys %{ $sessions }) {
-		my $session = $sessions->{$hash};
+    # record stats for non-Terminate'd sessions when pgshark was stoped
+    foreach my $hash ( keys %{$sessions} ) {
+        my $session = $sessions->{$hash};
 
-		$session->{'stats'}->{'ts_end'} = $stats->{'last_message'};
+        $session->{'stats'}->{'ts_end'} = $stats->{'last_message'};
 
-		record_session_stats($session);
+        record_session_stats($session);
 
-		delete $sessions->{$hash};
-	}
+        delete $sessions->{$hash};
+    }
 
-	print "\n===== Overall stats =====\n\n";
+    print "\n===== Overall stats =====\n\n";
 
-	# do not print all stats if there's none of them
-	unless ($stats->{'first_message'} > 0) {
-		print "Nothing captured, no statistics.\n";
-		exit 0;
-	}
+    # do not print all stats if there's none of them
+    unless ( $stats->{'first_message'} > 0 ) {
+        print "Nothing captured, no statistics.\n";
+        exit 0;
+    }
 
-	printf "First message:              %s\n", scalar(localtime($stats->{'first_message'}));
-	printf "Last message:               %s\n", scalar(localtime($stats->{'last_message'}));
-	printf "Number of cancel requests:  %s\n", $stats->{'total_cancels'};
-	printf "Total number of sessions:   %d\n", $stats->{'total_sessions'};
-	printf "Number connections:         %d\n", $stats->{'total_cnx'};
-	printf "Number of disconnections:   %d\n", $stats->{'total_discnx'};
-	printf "Cumulated sessions time:    %.6f s\n", $sess_stats->{'total_sess_time'};
-	printf "Cumulated busy time:        %.6f s\n", $sess_stats->{'total_busy_time'};
-	printf "Total busy ratio:           %.6f %%\n", 100 * $sess_stats->{'total_busy_time'} / $sess_stats->{'total_sess_time'};
-	printf "Total number of rows:       %d\n", $sess_stats->{'total_rows'};
+    printf "First message:              %s\n",
+        scalar( localtime( $stats->{'first_message'} ) );
+    printf "Last message:               %s\n",
+        scalar( localtime( $stats->{'last_message'} ) );
+    printf "Number of cancel requests:  %s\n", $stats->{'total_cancels'};
+    printf "Total number of sessions:   %d\n", $stats->{'total_sessions'};
+    printf "Number connections:         %d\n", $stats->{'total_cnx'};
+    printf "Number of disconnections:   %d\n", $stats->{'total_discnx'};
+    printf "Cumulated sessions time:    %.6f s\n",
+        $sess_stats->{'total_sess_time'};
+    printf "Cumulated busy time:        %.6f s\n",
+        $sess_stats->{'total_busy_time'};
+    printf "Total busy ratio:           %.6f %%\n",
+        100 
+        * $sess_stats->{'total_busy_time'}
+        / $sess_stats->{'total_sess_time'};
+    printf "Total number of rows:       %d\n", $sess_stats->{'total_rows'};
 
-	print "\n\n==== Notices & Errors ====\n\n";
+    print "\n\n==== Notices & Errors ====\n\n";
 
-	printf "Total notices:                %d\n",  $stats->{'total_notices'};
-	printf "Min/Max notices per sessions: %d/%d\n",  $sess_stats->{'min_notices'}, $sess_stats->{'max_notices'};
-	printf "Total errors:                 %d\n",  $stats->{'total_errors'};
-	printf "Min/Max errors per sessions:  %d/%d\n",  $sess_stats->{'min_errors'}, $sess_stats->{'max_errors'};
+    printf "Total notices:                %d\n", $stats->{'total_notices'};
+    printf "Min/Max notices per sessions: %d/%d\n",
+        $sess_stats->{'min_notices'}, $sess_stats->{'max_notices'};
+    printf "Total errors:                 %d\n", $stats->{'total_errors'};
+    printf "Min/Max errors per sessions:  %d/%d\n",
+        $sess_stats->{'min_errors'}, $sess_stats->{'max_errors'};
 
-	print "\n\n=== Most frequent notices ===\n\n";
+    print "\n\n=== Most frequent notices ===\n\n";
 
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $stats->{'notices'} };
+    @top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} }
+        values %{ $stats->{'notices'} };
 
-	print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
-	for(my $i=0; $i < 10; $i++) {
-		if (defined $top_most_frequent[$i]) {
-			printf "%4d\t%12d\t%10s\t%10s\t%s\n",
-				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'fields'}->{'S'},
-				$top_most_frequent[$i]->{'fields'}->{'C'}, $top_most_frequent[$i]->{'fields'}->{'M'};
-		}
-	}
+    print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
+    for ( my $i = 0; $i < 10; $i++ ) {
+        if ( defined $top_most_frequent[$i] ) {
+            printf "%4d\t%12d\t%10s\t%10s\t%s\n",
+                $i + 1, $top_most_frequent[$i]->{'count'},
+                $top_most_frequent[$i]->{'fields'}->{'S'},
+                $top_most_frequent[$i]->{'fields'}->{'C'},
+                $top_most_frequent[$i]->{'fields'}->{'M'};
+        }
+    }
 
-	print "\n\n=== Most frequent errors ===\n\n";
+    print "\n\n=== Most frequent errors ===\n\n";
 
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $stats->{'errors'} };
+    @top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} }
+        values %{ $stats->{'errors'} };
 
-	print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
-	for(my $i=0; $i < 10; $i++) {
-		if (defined $top_most_frequent[$i]) {
-			printf "%4d\t%12d\t%10s\t%10s\t%s\n",
-				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'fields'}->{'S'},
-				$top_most_frequent[$i]->{'fields'}->{'C'}, $top_most_frequent[$i]->{'fields'}->{'M'};
-		}
-	}
+    print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
+    for ( my $i = 0; $i < 10; $i++ ) {
+        if ( defined $top_most_frequent[$i] ) {
+            printf "%4d\t%12d\t%10s\t%10s\t%s\n",
+                $i + 1, $top_most_frequent[$i]->{'count'},
+                $top_most_frequent[$i]->{'fields'}->{'S'},
+                $top_most_frequent[$i]->{'fields'}->{'C'},
+                $top_most_frequent[$i]->{'fields'}->{'M'};
+        }
+    }
 
-	print "\n\n==== Sessions ====\n\n";
+    print "\n\n==== Sessions ====\n\n";
 
-	printf "Min/Avg/Max authentication time (s):              %.6f / %.6f / %.6f\n",
-		$sess_stats->{'auth_min_time'},
-		$sess_stats->{'auth_avg_time'},
-		$sess_stats->{'auth_max_time'};
-	printf "Min/Avg/Max sessions time (s):                    %.6f / %.6f / %.6f\n",
-		$sess_stats->{'min_sess_time'},
-		$sess_stats->{'avg_sess_time'},
-		$sess_stats->{'max_sess_time'};
-	printf "Min/Avg/Max number of queries per sessions:       %d / %.2f / %d\n",
-		$sess_stats->{'min_queries'},
-		$sess_stats->{'avg_queries'},
-		$sess_stats->{'max_queries'};
-	printf "Min/Avg/Max number of fields per session and queries: %d / %d / %d\n",
-		$sess_stats->{'min_fields'},
-		$sess_stats->{'avg_fields'},
-		$sess_stats->{'max_fields'};
-	printf "Min/Avg/Max number of rows per sessions:          %d / %.2f / %d\n",
-		$sess_stats->{'min_rows'},
-		$sess_stats->{'avg_rows'},
-		$sess_stats->{'max_rows'};
+    printf
+        "Min/Avg/Max authentication time (s):              %.6f / %.6f / %.6f\n",
+        $sess_stats->{'auth_min_time'},
+        $sess_stats->{'auth_avg_time'},
+        $sess_stats->{'auth_max_time'};
+    printf
+        "Min/Avg/Max sessions time (s):                    %.6f / %.6f / %.6f\n",
+        $sess_stats->{'min_sess_time'},
+        $sess_stats->{'avg_sess_time'},
+        $sess_stats->{'max_sess_time'};
+    printf
+        "Min/Avg/Max number of queries per sessions:       %d / %.2f / %d\n",
+        $sess_stats->{'min_queries'},
+        $sess_stats->{'avg_queries'},
+        $sess_stats->{'max_queries'};
+    printf
+        "Min/Avg/Max number of fields per session and queries: %d / %d / %d\n",
+        $sess_stats->{'min_fields'},
+        $sess_stats->{'avg_fields'},
+        $sess_stats->{'max_fields'};
+    printf
+        "Min/Avg/Max number of rows per sessions:          %d / %.2f / %d\n",
+        $sess_stats->{'min_rows'},
+        $sess_stats->{'avg_rows'},
+        $sess_stats->{'max_rows'};
 
-	print "\n===== Queries =====\n\n";
+    print "\n===== Queries =====\n\n";
 
-	print "==== Queries by type ====\n\n";
+    print "==== Queries by type ====\n\n";
 
-	if ($stats->{'total_queries'}) {
-		@top_most_frequent = sort { $qtype_stats->{$b} <=> $qtype_stats->{$a} }
-			keys %{ $qtype_stats };
-		print "Rank\t        Type\t     Count\tPercentage\n";
-		my $i = 1;
-		foreach (@top_most_frequent) {
-			printf "%4d\t%12s\t%10d\t%10.2f\n",
-				$i, $_, $qtype_stats->{$_}, 100*($qtype_stats->{$_} / $stats->{'total_queries'});
-			$i++;
-		}
+    if ( $stats->{'total_queries'} ) {
+        @top_most_frequent
+            = sort { $qtype_stats->{$b} <=> $qtype_stats->{$a} }
+            keys %{$qtype_stats};
+        print "Rank\t        Type\t     Count\tPercentage\n";
+        my $i = 1;
+        foreach (@top_most_frequent) {
+            printf "%4d\t%12s\t%10d\t%10.2f\n",
+                $i, $_, $qtype_stats->{$_},
+                100 * ( $qtype_stats->{$_} / $stats->{'total_queries'} );
+            $i++;
+        }
 
-		print "\n\nTotal queries: $stats->{'total_queries'}\n\n";
-	}
-	else {
-		print "\n\nBackend answers were not found.\n\n";
-	}
+        print "\n\nTotal queries: $stats->{'total_queries'}\n\n";
+    }
+    else {
+        print "\n\nBackend answers were not found.\n\n";
+    }
 
-	print "\n==== Prepared Statements ====\n\n";
+    print "\n==== Prepared Statements ====\n\n";
 
-	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $prepd_stats };
-	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $prepd_stats };
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $prepd_stats };
+    @top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} }
+        values %{$prepd_stats};
+    @top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} }
+        values %{$prepd_stats};
+    @top_most_frequent
+        = sort { $b->{'count'} <=> $a->{'count'} } values %{$prepd_stats};
 
-	print "=== Top slowest queries ===\n\n";
-	print "Rank\tDuration(s)\tQuery\n";
-	for(my $i=0; $i < 10; $i++) {
-		if (defined $top_slowest[$i]) {
-			printf "%4d\t%12.5f\t%s\n",
-				$i+1, $top_slowest[$i]->{'max_time'}, $top_slowest[$i]->{'query'};
-		}
-	}
+    print "=== Top slowest queries ===\n\n";
+    print "Rank\tDuration(s)\tQuery\n";
+    for ( my $i = 0; $i < 10; $i++ ) {
+        if ( defined $top_slowest[$i] ) {
+            printf "%4d\t%12.5f\t%s\n",
+                $i + 1, $top_slowest[$i]->{'max_time'},
+                $top_slowest[$i]->{'query'};
+        }
+    }
 
-	print "\n\n=== Queries that took up the most time ===\n\n";
-	print "Rank\ttotal Duration(s)\ttimes executed\tAv. duration (s)\tQuery\n";
-	for(my $i=0; $i < 10; $i++) {
-		if (defined $top_most_time[$i]) {
-			printf "%4d\t%18.5f\t%14d\t%17.5f\t%s\n",
-				$i+1, $top_most_time[$i]->{'total_time'}, $top_most_time[$i]->{'count'},
-				$top_most_time[$i]->{'avg_time'}, $top_most_time[$i]->{'query'};
-		}
-	}
+    print "\n\n=== Queries that took up the most time ===\n\n";
+    print
+        "Rank\ttotal Duration(s)\ttimes executed\tAv. duration (s)\tQuery\n";
+    for ( my $i = 0; $i < 10; $i++ ) {
+        if ( defined $top_most_time[$i] ) {
+            printf "%4d\t%18.5f\t%14d\t%17.5f\t%s\n",
+                $i + 1, $top_most_time[$i]->{'total_time'},
+                $top_most_time[$i]->{'count'},
+                $top_most_time[$i]->{'avg_time'},
+                $top_most_time[$i]->{'query'};
+        }
+    }
 
-	print "\n\n=== Most frequent queries ===\n\n";
-	print "Rank\ttimes executed\ttotal Duration(s)\tAv. duration (s)\tQuery\n";
-	for(my $i=0; $i < 10; $i++) {
-		if (defined $top_most_frequent[$i]) {
-			printf "%4d\t%14d\t%18.5f\t%17.5f\t%s\n",
-				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'total_time'},
-				$top_most_frequent[$i]->{'avg_time'}, $top_most_frequent[$i]->{'query'};
-		}
-	}
+    print "\n\n=== Most frequent queries ===\n\n";
+    print
+        "Rank\ttimes executed\ttotal Duration(s)\tAv. duration (s)\tQuery\n";
+    for ( my $i = 0; $i < 10; $i++ ) {
+        if ( defined $top_most_frequent[$i] ) {
+            printf "%4d\t%14d\t%18.5f\t%17.5f\t%s\n",
+                $i + 1, $top_most_frequent[$i]->{'count'},
+                $top_most_frequent[$i]->{'total_time'},
+                $top_most_frequent[$i]->{'avg_time'},
+                $top_most_frequent[$i]->{'query'};
+        }
+    }
 
-	print "\n\n==== Simple Queries ====\n\n";
+    print "\n\n==== Simple Queries ====\n\n";
 
-	@top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} } values %{ $query_stats };
-	@top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} } values %{ $query_stats };
-	@top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} } values %{ $query_stats };
+    @top_slowest = sort { $b->{'max_time'} <=> $a->{'max_time'} }
+        values %{$query_stats};
+    @top_most_time = sort { $b->{'total_time'} <=> $a->{'total_time'} }
+        values %{$query_stats};
+    @top_most_frequent
+        = sort { $b->{'count'} <=> $a->{'count'} } values %{$query_stats};
 
-	print "=== Top slowest queries ===\n\n";
-	print "Rank\tDuration(s)\tQuery\n";
-	for(my $i=0; $i < 10; $i++) {
-		if (defined $top_slowest[$i]) {
-			printf "%4d\t%12.5f\t%s\n",
-				$i+1, $top_slowest[$i]->{'max_time'}, $top_slowest[$i]->{'query'};
-		}
-	}
+    print "=== Top slowest queries ===\n\n";
+    print "Rank\tDuration(s)\tQuery\n";
+    for ( my $i = 0; $i < 10; $i++ ) {
+        if ( defined $top_slowest[$i] ) {
+            printf "%4d\t%12.5f\t%s\n",
+                $i + 1, $top_slowest[$i]->{'max_time'},
+                $top_slowest[$i]->{'query'};
+        }
+    }
 
-	print "\n\n=== Queries that took up the most time ===\n\n";
-	print "Rank\ttotal Duration(s)\ttimes executed\tAv. duration (s)\tQuery\n";
-	for(my $i=0; $i < 10; $i++) {
-		if (defined $top_most_time[$i]) {
-			printf "%4d\t%18.5f\t%14d\t%17.5f\t%s\n",
-				$i+1, $top_most_time[$i]->{'total_time'}, $top_most_time[$i]->{'count'},
-				$top_most_time[$i]->{'avg_time'}, $top_most_time[$i]->{'query'};
-		}
-	}
+    print "\n\n=== Queries that took up the most time ===\n\n";
+    print
+        "Rank\ttotal Duration(s)\ttimes executed\tAv. duration (s)\tQuery\n";
+    for ( my $i = 0; $i < 10; $i++ ) {
+        if ( defined $top_most_time[$i] ) {
+            printf "%4d\t%18.5f\t%14d\t%17.5f\t%s\n",
+                $i + 1, $top_most_time[$i]->{'total_time'},
+                $top_most_time[$i]->{'count'},
+                $top_most_time[$i]->{'avg_time'},
+                $top_most_time[$i]->{'query'};
+        }
+    }
 
-	print "\n\n=== Most frequent queries ===\n\n";
-	print "Rank\ttimes executed\ttotal Duration(s)\tAv. duration (s)\tQuery\n";
-	for(my $i=0; $i < 10; $i++) {
-		if (defined $top_most_frequent[$i]) {
-			printf "%4d\t%14d\t%18.5f\t%17.5f\t%s\n",
-				$i+1, $top_most_frequent[$i]->{'count'}, $top_most_frequent[$i]->{'total_time'},
-				$top_most_frequent[$i]->{'avg_time'}, $top_most_frequent[$i]->{'query'};
-		}
-	}
+    print "\n\n=== Most frequent queries ===\n\n";
+    print
+        "Rank\ttimes executed\ttotal Duration(s)\tAv. duration (s)\tQuery\n";
+    for ( my $i = 0; $i < 10; $i++ ) {
+        if ( defined $top_most_frequent[$i] ) {
+            printf "%4d\t%14d\t%18.5f\t%17.5f\t%s\n",
+                $i + 1, $top_most_frequent[$i]->{'count'},
+                $top_most_frequent[$i]->{'total_time'},
+                $top_most_frequent[$i]->{'avg_time'},
+                $top_most_frequent[$i]->{'query'};
+        }
+    }
 
-	print Dumper($stats);
-	print Dumper($sess_stats);
-	print Dumper($qtype_stats);
-	print Dumper($query_stats);
-	print Dumper($prepd_stats);
+    print Dumper($stats);
+    print Dumper($sess_stats);
+    print Dumper($qtype_stats);
+    print Dumper($query_stats);
+    print Dumper($prepd_stats);
 }
-
 
 __END__
 

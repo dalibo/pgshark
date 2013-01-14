@@ -7,25 +7,25 @@ use warnings;
 
 use File::Basename 'dirname';
 use File::Spec;
-use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+use lib join '/', File::Spec->splitdir( dirname(__FILE__) ), '../lib';
 
 use Getopt::Long;
 use Pod::Usage;
 use pgShark;
 
 use constant FROM_FRONTEND => 0;
-use constant FROM_BACKEND => 1;
+use constant FROM_BACKEND  => 1;
 
 my $shark;
 my %args = (
-	'help' => 0,
-	'debug' => 0,
-	'interface' => '',
-	'host' => '127.0.0.1',
-	'port' => 5432,
-	'read' => '',
-	'2' => 0,
-	'3' => 0
+    'help'      => 0,
+    'debug'     => 0,
+    'interface' => '',
+    'host'      => '127.0.0.1',
+    'port'      => 5432,
+    'read'      => '',
+    '2'         => 0,
+    '3'         => 0
 );
 
 #prelude
@@ -33,447 +33,466 @@ my %args = (
 # @param $pg_msg The pgsql message hash
 # @param $from_backend does the message comes from backend or frontend ? (1/0)
 sub prelude {
-	my $pg_msg = shift;
-	my $from_backend = shift;
+    my $pg_msg       = shift;
+    my $from_backend = shift;
 
-	printf "Packet: t=%s, session=%s\n", $pg_msg->{'timestamp'}, $pg_msg->{'sess_hash'};
-	printf "PGSQL: type=%s, ", $pg_msg->{'type'};
-	if ($from_backend == FROM_BACKEND) {
-		printf "B -> F\n";
-	}
-	else {
-		printf "F -> B\n";
-	}
+    printf "Packet: t=%s, session=%s\n", $pg_msg->{'timestamp'},
+        $pg_msg->{'sess_hash'};
+    printf "PGSQL: type=%s, ", $pg_msg->{'type'};
+    if ( $from_backend == FROM_BACKEND ) {
+        printf "B -> F\n";
+    }
+    else {
+        printf "F -> B\n";
+    }
 }
 
 #code_reponse
 # Prints code and message of each fields from a error or notice message
 sub code_response {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	foreach my $code (keys %{ $pg_msg->{'fields'} }) {
-		my $value = $pg_msg->{'fields'}->{$code};
-		SWITCH: {
-			#S C M D H P p q W F L R
-			if ($code eq 'S') {
-				printf "  Severity: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'C') {
-				printf "  Code: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'M') {
-				printf "  Message: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'D') {
-				printf "  Detail: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'H') {
-				printf "  Hint: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'P') {
-				printf "  Position: '%s'n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'p') {
-				printf "  Internal position: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'q') {
-				printf "  Internal query: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'W') {
-				printf "  Where: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'F') {
-				printf "  File: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'L') {
-				printf "  Line: '%s'\n", $value;
-				last SWITCH;
-			}
-			if ($code eq 'R') {
-				printf "  Routine: '%s'\n", $value;
-				last SWITCH;
-			}
-		}
-	}
+    foreach my $code ( keys %{ $pg_msg->{'fields'} } ) {
+        my $value = $pg_msg->{'fields'}->{$code};
+    SWITCH: {
+
+            #S C M D H P p q W F L R
+            if ( $code eq 'S' ) {
+                printf "  Severity: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'C' ) {
+                printf "  Code: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'M' ) {
+                printf "  Message: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'D' ) {
+                printf "  Detail: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'H' ) {
+                printf "  Hint: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'P' ) {
+                printf "  Position: '%s'n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'p' ) {
+                printf "  Internal position: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'q' ) {
+                printf "  Internal query: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'W' ) {
+                printf "  Where: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'F' ) {
+                printf "  File: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'L' ) {
+                printf "  Line: '%s'\n", $value;
+                last SWITCH;
+            }
+            if ( $code eq 'R' ) {
+                printf "  Routine: '%s'\n", $value;
+                last SWITCH;
+            }
+        }
+    }
 }
 
 sub Authentication {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "AUTHENTIFICATION REQUEST code=%d ", $pg_msg->{'code'};
+    printf "AUTHENTIFICATION REQUEST code=%d ", $pg_msg->{'code'};
 
-	SWITCH: {
-		if ($pg_msg->{'code'} == 0) {
-			printf "(SUCCESS)\n\n";
-			last SWITCH;
-		}
-		if ($pg_msg->{'code'} == 2) {
-			printf "(Kerberos V5)\n\n";
-			last SWITCH;
-		}
-		if ($pg_msg->{'code'} == 3) {
-			printf "(clear-text password)\n\n";
-			last SWITCH;
-		}
-		if ($pg_msg->{'code'} == 5) {
-			printf "(MD5 salt='%s')\n\n", unpack('h*', $pg_msg->{'salt'});
-			last SWITCH;
-		}
-		if ($pg_msg->{'code'} == 6) {
-			printf "(SCM)\n\n";
-			last SWITCH;
-		}
-		if ($pg_msg->{'code'} == 7) {
-			printf "(GSSAPI)\n\n";
-			last SWITCH;
-		}
-		if ($pg_msg->{'code'} == 9) {
-			printf "(SSPI)\n\n";
-			last SWITCH;
-		}
-		if ($pg_msg->{'code'} == 8) {
-			printf "(contains GSSAPI or SSPI data)\n\n";
-			last SWITCH;
-		}
-	}
+SWITCH: {
+        if ( $pg_msg->{'code'} == 0 ) {
+            printf "(SUCCESS)\n\n";
+            last SWITCH;
+        }
+        if ( $pg_msg->{'code'} == 2 ) {
+            printf "(Kerberos V5)\n\n";
+            last SWITCH;
+        }
+        if ( $pg_msg->{'code'} == 3 ) {
+            printf "(clear-text password)\n\n";
+            last SWITCH;
+        }
+        if ( $pg_msg->{'code'} == 5 ) {
+            printf "(MD5 salt='%s')\n\n", unpack( 'h*', $pg_msg->{'salt'} );
+            last SWITCH;
+        }
+        if ( $pg_msg->{'code'} == 6 ) {
+            printf "(SCM)\n\n";
+            last SWITCH;
+        }
+        if ( $pg_msg->{'code'} == 7 ) {
+            printf "(GSSAPI)\n\n";
+            last SWITCH;
+        }
+        if ( $pg_msg->{'code'} == 9 ) {
+            printf "(SSPI)\n\n";
+            last SWITCH;
+        }
+        if ( $pg_msg->{'code'} == 8 ) {
+            printf "(contains GSSAPI or SSPI data)\n\n";
+            last SWITCH;
+        }
+    }
 }
 
 sub BackendKeyData {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "BACKEND KEY DATA pid=%d, key=%d\n\n", $pg_msg->{'pid'}, $pg_msg->{'key'};
+    printf "BACKEND KEY DATA pid=%d, key=%d\n\n", $pg_msg->{'pid'},
+        $pg_msg->{'key'};
 }
 
 sub Bind {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	map {$_='NULL' if not defined} @{ $pg_msg->{'params'} };
+    map { $_ = 'NULL' if not defined } @{ $pg_msg->{'params'} };
 
-	printf "BIND portal='%s', name='%s', num_formats=%d, formats=%s, num_params=%d, params=%s\n\n",
-		$pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'}, join(', ', @{ $pg_msg->{'params_types'} }),
-		$pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params'} });
+    printf
+        "BIND portal='%s', name='%s', num_formats=%d, formats=%s, num_params=%d, params=%s\n\n",
+        $pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'},
+        join( ', ', @{ $pg_msg->{'params_types'} } ),
+        $pg_msg->{'num_params'}, join( ', ', @{ $pg_msg->{'params'} } );
 }
 
 sub BindComplete {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "BIND COMPLETE\n\n";
+    printf "BIND COMPLETE\n\n";
 }
 
 sub CancelRequest {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "CANCEL REQUEST pid=%s, key=%s\n\n", $pg_msg->{'pid'}, $pg_msg->{'key'};
+    printf "CANCEL REQUEST pid=%s, key=%s\n\n", $pg_msg->{'pid'},
+        $pg_msg->{'key'};
 }
 
 sub Close {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "CLOSE kind='%s', name='%s'\n\n", $pg_msg->{'kind'}, $pg_msg->{'name'};
+    printf "CLOSE kind='%s', name='%s'\n\n", $pg_msg->{'kind'},
+        $pg_msg->{'name'};
 }
 
 sub CloseComplete {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "CLOSE COMPLETE\n\n";
+    printf "CLOSE COMPLETE\n\n";
 }
 
 sub CommandComplete {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "COMMAND COMPLETE command='%s'\n\n", $pg_msg->{'command'};
+    printf "COMMAND COMPLETE command='%s'\n\n", $pg_msg->{'command'};
 }
 
 # @param $from_backend (boolean) wether the message comes from the backend or not
 sub CopyData {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	prelude($pg_msg, $pg_msg->{'from_backend'});
+    prelude( $pg_msg, $pg_msg->{'from_backend'} );
 
-	printf "COPY DATA len=%d\n\n", length($pg_msg->{'row'});
+    printf "COPY DATA len=%d\n\n", length( $pg_msg->{'row'} );
 }
 
 # @param $from_backend (boolean) wether the message comes from the backend or not
 sub CopyDone {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	prelude($pg_msg, $pg_msg->{'from_backend'});
+    prelude( $pg_msg, $pg_msg->{'from_backend'} );
 
-	printf "COPY DONE\n\n";
+    printf "COPY DONE\n\n";
 }
 
 sub CopyFail {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "COPY FAIL error='%s'\n\n", $pg_msg->{'error'};
+    printf "COPY FAIL error='%s'\n\n", $pg_msg->{'error'};
 }
 
 sub CopyInResponse {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "COPY IN RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n", $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
-		join(', ', @{ $pg_msg->{'fields_formats'} });
+    printf
+        "COPY IN RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n",
+        $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
+        join( ', ', @{ $pg_msg->{'fields_formats'} } );
 }
 
 sub CopyOutResponse {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "COPY OUT RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n", $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
-		join(', ', @{ $pg_msg->{'fields_formats'} });
+    printf
+        "COPY OUT RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n",
+        $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
+        join( ', ', @{ $pg_msg->{'fields_formats'} } );
 }
 
 sub DataRow {
-	my $pg_msg = shift;
-	my $i = 0;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    my $i      = 0;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "DATA ROW num_values=%d\n", $pg_msg->{'num_values'};
+    printf "DATA ROW num_values=%d\n", $pg_msg->{'num_values'};
 
-	for my $value ( @{ $pg_msg->{'values'} } ) {
-		$i++;
-		if (defined $value->[1]) {
-			$value->[1] =~ tr/\x00-\x1F\x80-\xFF/./;
-			$value->[1] = "'$value->[1]'";
-		}
-		else {
-			$value->[1] = 'NULL';
-		}
-		printf "  ---[Value %02d]---\n  length=%d\n  value=%s\n", $i, @{ $value } ;
-	}
-	print "\n";
+    for my $value ( @{ $pg_msg->{'values'} } ) {
+        $i++;
+        if ( defined $value->[1] ) {
+            $value->[1] =~ tr/\x00-\x1F\x80-\xFF/./;
+            $value->[1] = "'$value->[1]'";
+        }
+        else {
+            $value->[1] = 'NULL';
+        }
+        printf "  ---[Value %02d]---\n  length=%d\n  value=%s\n", $i,
+            @{$value};
+    }
+    print "\n";
 }
 
 sub Describe {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "DESCRIBE kind='%s', name='%s'\n\n", $pg_msg->{'kind'}, $pg_msg->{'name'};
+    printf "DESCRIBE kind='%s', name='%s'\n\n", $pg_msg->{'kind'},
+        $pg_msg->{'name'};
 }
 
 sub EmptyQueryResponse {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "EMPTY QUERY RESPONSE\n\n";
+    printf "EMPTY QUERY RESPONSE\n\n";
 }
 
 sub ErrorResponse {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "ERROR RESPONSE\n";
-	code_response($pg_msg);
+    printf "ERROR RESPONSE\n";
+    code_response($pg_msg);
 
-	print "\n";
+    print "\n";
 }
 
 sub Execute {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "EXECUTE name='%s', nb_rows=%d\n\n", $pg_msg->{'name'}, $pg_msg->{'nb_rows'};
+    printf "EXECUTE name='%s', nb_rows=%d\n\n", $pg_msg->{'name'},
+        $pg_msg->{'nb_rows'};
 }
 
 sub Flush {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "FLUSH\n\n";
+    printf "FLUSH\n\n";
 }
 
 sub NoData {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "NO DATA\n\n";
+    printf "NO DATA\n\n";
 }
 
 sub NoticeResponse {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "NOTICE RESPONSE\n\n";
-	code_response($pg_msg);
+    printf "NOTICE RESPONSE\n\n";
+    code_response($pg_msg);
 
-	print "\n";
+    print "\n";
 }
 
 sub NotificationResponse {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "NOTIFICATION RESPONSE pid=%d, channel='%s', payload='%s'\n\n",
-		$pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'},;
+    printf "NOTIFICATION RESPONSE pid=%d, channel='%s', payload='%s'\n\n",
+        $pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'},;
 }
 
 sub ParameterDescription {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "PARAMETER DESCRIPTION: num_param=%d, params_oids=%s\n\n",
-		$pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params_types'} });
+    printf "PARAMETER DESCRIPTION: num_param=%d, params_oids=%s\n\n",
+        $pg_msg->{'num_params'}, join( ', ', @{ $pg_msg->{'params_types'} } );
 }
 
 sub ParameterStatus {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "PARAMETER STATUS name='%s', value='%s'\n\n", $pg_msg->{'name'}, $pg_msg->{'value'};
+    printf "PARAMETER STATUS name='%s', value='%s'\n\n", $pg_msg->{'name'},
+        $pg_msg->{'value'};
 }
 
 sub Parse {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "PARSE name='%s', num_params=%d, params_type=%s, query=%s\n\n",
-		$pg_msg->{'name'}, $pg_msg->{'num_params'}, join(', ', @{ $pg_msg->{'params_types'} }), $pg_msg->{'query'};
+    printf "PARSE name='%s', num_params=%d, params_type=%s, query=%s\n\n",
+        $pg_msg->{'name'}, $pg_msg->{'num_params'},
+        join( ', ', @{ $pg_msg->{'params_types'} } ), $pg_msg->{'query'};
 }
 
 sub ParseComplete {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "PARSE COMPLETE\n\n";
+    printf "PARSE COMPLETE\n\n";
 }
 
 sub PasswordMessage {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "PASSWORD MESSAGE password=%s\n\n", $pg_msg->{'password'};
+    printf "PASSWORD MESSAGE password=%s\n\n", $pg_msg->{'password'};
 }
 
 sub PortalSuspended {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "PORTAL SUSPENDED\n\n";
+    printf "PORTAL SUSPENDED\n\n";
 }
 
 sub Query {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "QUERY query=%s\n\n", $pg_msg->{'query'};
+    printf "QUERY query=%s\n\n", $pg_msg->{'query'};
 }
 
 sub ReadyForQuery {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	$pg_msg->{'status'} = '?' if not defined $pg_msg->{'status'};
+    $pg_msg->{'status'} = '?' if not defined $pg_msg->{'status'};
 
-	if ($pg_msg->{'status'} eq 'I') {
-		printf "READY FOR QUERY type=<IDLE>\n\n";
-	}
-	elsif ($pg_msg->{'status'} eq 'T') {
-		printf "READY FOR QUERY type=<IDLE> in transaction\n\n";
-	}
-	elsif ($pg_msg->{'status'} eq 'E') {
-		printf "READY FOR QUERY type=<IDLE> in transaction (aborted)\n\n";
-	}
-	else {
-		# protocol v2 has no status
-		printf "READY FOR QUERY\n\n";
-	}
+    if ( $pg_msg->{'status'} eq 'I' ) {
+        printf "READY FOR QUERY type=<IDLE>\n\n";
+    }
+    elsif ( $pg_msg->{'status'} eq 'T' ) {
+        printf "READY FOR QUERY type=<IDLE> in transaction\n\n";
+    }
+    elsif ( $pg_msg->{'status'} eq 'E' ) {
+        printf "READY FOR QUERY type=<IDLE> in transaction (aborted)\n\n";
+    }
+    else {
+
+        # protocol v2 has no status
+        printf "READY FOR QUERY\n\n";
+    }
 }
 
 sub RowDescription {
-	my $pg_msg = shift;
-	my $i=0;
-	prelude($pg_msg, FROM_BACKEND);
+    my $pg_msg = shift;
+    my $i      = 0;
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "ROW DESCRIPTION: num_fields=%d\n",
-		$pg_msg->{'num_fields'};
+    printf "ROW DESCRIPTION: num_fields=%d\n", $pg_msg->{'num_fields'};
 
-	for my $field ( @{ $pg_msg->{'fields'} } ) {
-		$i++;
-		printf "  ---[Field %02d]---\n  name='%s'\n  type=%d\n  type_len=%d\n  type_mod=%d\n",
-			$i, $field->[0], $field->[3], $field->[4], $field->[5];
+    for my $field ( @{ $pg_msg->{'fields'} } ) {
+        $i++;
+        printf
+            "  ---[Field %02d]---\n  name='%s'\n  type=%d\n  type_len=%d\n  type_mod=%d\n",
+            $i, $field->[0], $field->[3], $field->[4], $field->[5];
 
-		printf("  relid=%d\n  attnum=%d\n  format=%d\n", $field->[1], $field->[2], $field->[6]) if defined $field->[1];
-	}
-	print "\n";
+        printf( "  relid=%d\n  attnum=%d\n  format=%d\n",
+            $field->[1], $field->[2], $field->[6] )
+            if defined $field->[1];
+    }
+    print "\n";
 }
 
 sub SSLAnswer {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	prelude($pg_msg, FROM_BACKEND);
+    prelude( $pg_msg, FROM_BACKEND );
 
-	printf "SSL BACKEND ANSWER: %s\n\n", $pg_msg->{'ssl_answer'};
+    printf "SSL BACKEND ANSWER: %s\n\n", $pg_msg->{'ssl_answer'};
 }
 
 sub SSLRequest {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "SSL REQUEST\n\n";
+    printf "SSL REQUEST\n\n";
 }
 
 sub StartupMessage {
-	my $pg_msg = shift;
-	my $i=0;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    my $i      = 0;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "STARTUP MESSAGE version: %s\n", $pg_msg->{'version'};
+    printf "STARTUP MESSAGE version: %s\n", $pg_msg->{'version'};
 
-	foreach my $param ( keys %{ $pg_msg->{'params'} } ) {
-		printf "  %s=%s\n", $param, $pg_msg->{'params'}->{$param};
-	}
-	print "\n";
+    foreach my $param ( keys %{ $pg_msg->{'params'} } ) {
+        printf "  %s=%s\n", $param, $pg_msg->{'params'}->{$param};
+    }
+    print "\n";
 }
 
 sub Sync {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "SYNC\n\n";
+    printf "SYNC\n\n";
 }
 
 sub Terminate {
-	my $pg_msg = shift;
-	prelude($pg_msg, FROM_FRONTEND);
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_FRONTEND );
 
-	printf "DISCONNECT\n\n";
+    printf "DISCONNECT\n\n";
 }
 
 Getopt::Long::Configure('bundling');
-GetOptions(\%args, qw{
-	help
-	debug|d+
-	interface|i=s
-	host|h=s
-	port|p=s
-	read|r=s
-	2+
-	3+
-}) or pod2usage(
-    -exitval => 2
-);
+GetOptions(
+    \%args, qw{
+        help
+        debug|d+
+        interface|i=s
+        host|h=s
+        port|p=s
+        read|r=s
+        2+
+        3+
+        }
+) or pod2usage( -exitval => 2 );
 
-pod2usage(-verbose => 2) if $args{'help'};
+pod2usage( -verbose => 2 ) if $args{'help'};
 
 pod2usage(
     -message => "Options -2 and -3 are mutal exclusives.\n",
@@ -482,82 +501,86 @@ pod2usage(
 
 pod2usage(
     -message => "Arguments --interface and --read are incompatible.\n"
-		."Either listen from the network or open a pcap file.",
+        . "Either listen from the network or open a pcap file.",
     -exitval => 1
 ) if $args{'interface'} ne '' and $args{'read'} ne '';
 
-$args{'protocol'} = $args{'2'}? 2 : 3;
+$args{'protocol'} = $args{'2'} ? 2 : 3;
 
-$shark = pgShark->new({
-	'procs' => {
-		'AuthenticationOk' => \&Authentication,
-		'AuthenticationKerberosV5' => \&Authentication,
-		'AuthenticationCleartextPassword' => \&Authentication,
-		'AuthenticationMD5Password' => \&Authentication,
-		'AuthenticationSCMCredential' => \&Authentication,
-		'AuthenticationGSS' => \&Authentication,
-		'AuthenticationSSPI' => \&Authentication,
-		'AuthenticationGSSContinue' => \&Authentication,
-		'BackendKeyData' => \&BackendKeyData,
-		'Bind' => \&Bind,
-		'BindComplete' => \&BindComplete,
-		'CancelRequest' => \&CancelRequest,
-		'Close' => \&Close,
-		'CloseComplete' => \&CloseComplete,
-		'CommandComplete' => \&CommandComplete,
-		'CopyData' => \&CopyData,
-		'CopyDone' => \&CopyDone,
-		'CopyFail' => \&CopyFail,
-		'CopyInResponse' => \&CopyInResponse,
-		'CopyOutResponse' => \&CopyOutResponse,
-		'DataRow' => \&DataRow,
-		'Describe' => \&Describe,
-		'EmptyQueryResponse' => \&EmptyQueryResponse,
-		'ErrorResponse' => \&ErrorResponse,
-		'Execute' => \&Execute,
-		'Flush' => \&Flush,
-		# 'FunctionCall' => sub {},
-		# 'FunctionCallResponse' => sub {},
-		'NoData' => \&NoData,
-		'NoticeResponse' => \&NoticeResponse,
-		'NotificationResponse' => \&NotificationResponse,
-		'ParameterDescription' => \&ParameterDescription,
-		'ParameterStatus' => \&ParameterStatus,
-		'Parse' => \&Parse,
-		'ParseComplete' => \&ParseComplete,
-		'PasswordMessage' => \&PasswordMessage,
-		'PortalSuspended' => \&PortalSuspended,
-		'Query' => \&Query,
-		'ReadyForQuery' => \&ReadyForQuery,
-		'RowDescription' => \&RowDescription,
-		'SSLAnswer' => \&SSLAnswer,
-		'SSLRequest' => \&SSLRequest,
-		'StartupMessage' => \&StartupMessage,
-		'Sync' => \&Sync,
-		'Terminate' => \&Terminate
-	},
-	'host' => $args{'host'},
-	'port' => $args{'port'},
-	'protocol' => $args{'protocol'},
-	'debug' => $args{'debug'}
-});
+$shark = pgShark->new(
+    {   'procs' => {
+            'AuthenticationOk'                => \&Authentication,
+            'AuthenticationKerberosV5'        => \&Authentication,
+            'AuthenticationCleartextPassword' => \&Authentication,
+            'AuthenticationMD5Password'       => \&Authentication,
+            'AuthenticationSCMCredential'     => \&Authentication,
+            'AuthenticationGSS'               => \&Authentication,
+            'AuthenticationSSPI'              => \&Authentication,
+            'AuthenticationGSSContinue'       => \&Authentication,
+            'BackendKeyData'                  => \&BackendKeyData,
+            'Bind'                            => \&Bind,
+            'BindComplete'                    => \&BindComplete,
+            'CancelRequest'                   => \&CancelRequest,
+            'Close'                           => \&Close,
+            'CloseComplete'                   => \&CloseComplete,
+            'CommandComplete'                 => \&CommandComplete,
+            'CopyData'                        => \&CopyData,
+            'CopyDone'                        => \&CopyDone,
+            'CopyFail'                        => \&CopyFail,
+            'CopyInResponse'                  => \&CopyInResponse,
+            'CopyOutResponse'                 => \&CopyOutResponse,
+            'DataRow'                         => \&DataRow,
+            'Describe'                        => \&Describe,
+            'EmptyQueryResponse'              => \&EmptyQueryResponse,
+            'ErrorResponse'                   => \&ErrorResponse,
+            'Execute'                         => \&Execute,
+            'Flush'                           => \&Flush,
+
+            # 'FunctionCall' => sub {},
+            # 'FunctionCallResponse' => sub {},
+            'NoData'               => \&NoData,
+            'NoticeResponse'       => \&NoticeResponse,
+            'NotificationResponse' => \&NotificationResponse,
+            'ParameterDescription' => \&ParameterDescription,
+            'ParameterStatus'      => \&ParameterStatus,
+            'Parse'                => \&Parse,
+            'ParseComplete'        => \&ParseComplete,
+            'PasswordMessage'      => \&PasswordMessage,
+            'PortalSuspended'      => \&PortalSuspended,
+            'Query'                => \&Query,
+            'ReadyForQuery'        => \&ReadyForQuery,
+            'RowDescription'       => \&RowDescription,
+            'SSLAnswer'            => \&SSLAnswer,
+            'SSLRequest'           => \&SSLRequest,
+            'StartupMessage'       => \&StartupMessage,
+            'Sync'                 => \&Sync,
+            'Terminate'            => \&Terminate
+        },
+        'host'     => $args{'host'},
+        'port'     => $args{'port'},
+        'protocol' => $args{'protocol'},
+        'debug'    => $args{'debug'}
+    }
+);
 
 # open a live capture on given interface
-if ($args{'interface'} ne '') {
-	my $err = '';
+if ( $args{'interface'} ne '' ) {
+    my $err = '';
 
-	($shark->live($args{'interface'}, \$err) == 0)
-		or die ("Can not open interface '$args{'interface'}':\n$err");
+    ( $shark->live( $args{'interface'}, \$err ) == 0 )
+        or die("Can not open interface '$args{'interface'}':\n$err");
 }
+
 # we have no interface to listen on,
 # either open given pcap file or start reading from stdin
 else {
-	my $err = '';
-	# read from stdin if no pcap file given
-	$args{'read'} = '-' if $args{'read'} eq '';
+    my $err = '';
 
-	($shark->open($args{'read'}, \$err) == 0) 
-		or die ("Can not read from file '$args{'read'}':\n$err");
+    # read from stdin if no pcap file given
+    $args{'read'} = '-' if $args{'read'} eq '';
+
+    ( $shark->open( $args{'read'}, \$err ) == 0 )
+        or die("Can not read from file '$args{'read'}':\n$err");
 }
 
 # on live capture, a ctrl-C interrupt the loop

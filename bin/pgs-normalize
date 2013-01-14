@@ -13,7 +13,7 @@ use warnings;
 
 use File::Basename 'dirname';
 use File::Spec;
-use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+use lib join '/', File::Spec->splitdir( dirname(__FILE__) ), '../lib';
 
 use pgShark;
 use pgShark::Utils;
@@ -26,85 +26,87 @@ my $OUT_NORM;
 my $OUT_RAW = undef;
 my $shark;
 my %args = (
-	'help' => 0,
-	'debug' => 0,
-	'interface' => '',
-	'host' => '127.0.0.1',
-	'port' => 5432,
-	'read' => '',
-	'output-queries' => undef,
-	'output-norm' => undef,
-	'2' => 0,
-	'3' => 0
+    'help'           => 0,
+    'debug'          => 0,
+    'interface'      => '',
+    'host'           => '127.0.0.1',
+    'port'           => 5432,
+    'read'           => '',
+    'output-queries' => undef,
+    'output-norm'    => undef,
+    '2'              => 0,
+    '3'              => 0
 );
 
 #normalize 
 # normalize query and record them in the $normalized hash
 # @return the hash of the query
 sub normalize {
-	my $query = shift;
+    my $query = shift;
 
-	$query = normalize_query($query);
+    $query = normalize_query($query);
 
-	my $query_hash = md5_base64($query);
+    my $query_hash = md5_base64($query);
 
-	if (not defined $normalized->{$query_hash}) {
-		$normalized->{$query_hash} = {
-			'query' => $query,
-			'count' => 1
-		};
-	}
-	else {
-		$normalized->{$query_hash}->{count}++;
-	}
+    if ( not defined $normalized->{$query_hash} ) {
+        $normalized->{$query_hash} = {
+            'query' => $query,
+            'count' => 1
+        };
+    }
+    else {
+        $normalized->{$query_hash}->{count}++;
+    }
 
-	return $query_hash;
+    return $query_hash;
 }
 
 sub Parse {
-	# maybe we should do something fancier ?
-	my $pg_msg = shift;
 
-	my $query_hash = normalize($pg_msg->{query});
+    # maybe we should do something fancier ?
+    my $pg_msg = shift;
 
-	if ($normalized->{$query_hash}->{count} == 1) {
-		print $OUT_NORM "PREPARE xxx(...) AS $normalized->{$query_hash}->{query}\n\n";
-		print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
-	}
+    my $query_hash = normalize( $pg_msg->{query} );
+
+    if ( $normalized->{$query_hash}->{count} == 1 ) {
+        print $OUT_NORM
+            "PREPARE xxx(...) AS $normalized->{$query_hash}->{query}\n\n";
+        print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
+    }
 }
 
 sub Query {
-	my $pg_msg = shift;
+    my $pg_msg = shift;
 
-	my $query_hash = normalize($pg_msg->{query});
+    my $query_hash = normalize( $pg_msg->{query} );
 
-	if ($normalized->{$query_hash}->{count} == 1) {
-		print $OUT_NORM "$normalized->{$query_hash}->{query}\n\n";
-		print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
-	}
+    if ( $normalized->{$query_hash}->{count} == 1 ) {
+        print $OUT_NORM "$normalized->{$query_hash}->{query}\n\n";
+        print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
+    }
 }
 
 Getopt::Long::Configure('bundling');
-GetOptions(\%args, qw{
-	help|?!
-	debug|d+
-	interface|i=s
-	host|h=s
-	port|p=s
-	read|r=s
-	output-queries|Q=s
-	output-norm|N=s
-	2+
-	3+
-}) or pod2usage(
-    -exitval => 2
-);
+GetOptions(
+    \%args, qw{
+        help|?!
+        debug|d+
+        interface|i=s
+        host|h=s
+        port|p=s
+        read|r=s
+        output-queries|Q=s
+        output-norm|N=s
+        2+
+        3+
+        }
+) or pod2usage( -exitval => 2 );
 
-pod2usage(-verbose => 2) if $args{'help'};
+pod2usage( -verbose => 2 ) if $args{'help'};
 
 pod2usage(
     -message => "Arguments --interface and --read are incompatible.\n"
-		."Either listen from the network or open a pcap file.",
+        . "Either listen from the network or open a pcap file.",
     -exitval => 1
 ) if $args{'interface'} ne '' and $args{'read'} ne '';
 
@@ -113,58 +115,61 @@ pod2usage(
     -exitval => 1
 ) if $args{'2'} and $args{'3'};
 
-$args{'protocol'} = $args{'2'}? 2 : 3;
+$args{'protocol'} = $args{'2'} ? 2 : 3;
 
-if (defined $args{'output-norm'}) {
+if ( defined $args{'output-norm'} ) {
 
-	$args{'output-norm'} = '&STDOUT' if $args{'output-norm'} eq '-';
+    $args{'output-norm'} = '&STDOUT' if $args{'output-norm'} eq '-';
 
-	open($OUT_NORM, ">$args{'output-norm'}")
-		or die("Can not open file $args{'output-norm'}: $!");
+    open( $OUT_NORM, ">$args{'output-norm'}" )
+        or die("Can not open file $args{'output-norm'}: $!");
 }
 else {
-	open($OUT_NORM, '>&STDOUT');
+    open( $OUT_NORM, '>&STDOUT' );
 }
 
-if (defined $args{'output-queries'}) {
+if ( defined $args{'output-queries'} ) {
 
-	$args{'output-queries'} = '&STDOUT' if $args{'output-queries'} eq '-';
+    $args{'output-queries'} = '&STDOUT' if $args{'output-queries'} eq '-';
 
-	open($OUT_RAW, ">$args{'output-queries'}")
-		or die("Can not open file $args{'output-queries'}: $!");
+    open( $OUT_RAW, ">$args{'output-queries'}" )
+        or die("Can not open file $args{'output-queries'}: $!");
 }
 
 $SIG{'__WARN__'} = sub {
-	warn $_[0] if $args{'debug'};
+    warn $_[0] if $args{'debug'};
 };
 
-$shark = pgShark->new({
-	'procs' => {
-		'Parse' => \&Parse,
-		'Query' => \&Query
-	},
-	'host' => $args{'host'},
-	'port' => $args{'port'},
-	'protocol' => $args{'protocol'},
-	'debug' => $args{'debug'}
-});
+$shark = pgShark->new(
+    {   'procs' => {
+            'Parse' => \&Parse,
+            'Query' => \&Query
+        },
+        'host'     => $args{'host'},
+        'port'     => $args{'port'},
+        'protocol' => $args{'protocol'},
+        'debug'    => $args{'debug'}
+    }
+);
 
 # open a live capture on given interface
-if ($args{'interface'} ne '') {
-	my $err = '';
+if ( $args{'interface'} ne '' ) {
+    my $err = '';
 
-	($shark->live($args{'interface'}, \$err) == 0)
-		or die ("Can not open interface '$args{'interface'}':\n$err");
+    ( $shark->live( $args{'interface'}, \$err ) == 0 )
+        or die("Can not open interface '$args{'interface'}':\n$err");
 }
+
 # we have no interface to listen on,
 # either open given pcap file or start reading from stdin
 else {
-	my $err = '';
-	# read from stdin if no pcap file given
-	$args{'read'} = '-' if $args{'read'} eq '';
+    my $err = '';
 
-	($shark->open($args{'read'}, \$err) == 0) 
-		or die ("Can not read from file '$args{'read'}':\n$err");
+    # read from stdin if no pcap file given
+    $args{'read'} = '-' if $args{'read'} eq '';
+
+    ( $shark->open( $args{'read'}, \$err ) == 0 )
+        or die("Can not read from file '$args{'read'}':\n$err");
 }
 
 $shark->process_all();
@@ -174,7 +179,8 @@ $shark->close();
 # we could do something funnier like this trivial report...
 # 	print "$normalized->{$_}->{count} :\n$normalized->{$_}->{query}\n\n"
 # 		foreach (keys %{ $normalized });
-warn "-- Number of normalized queries found: ". scalar(keys %{ $normalized }) ."\n";
+warn "-- Number of normalized queries found: "
+    . scalar( keys %{$normalized} ) . "\n";
 
 exit 0;
 

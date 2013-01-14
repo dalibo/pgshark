@@ -10,7 +10,7 @@ use warnings;
 
 use File::Basename 'dirname';
 use File::Spec;
-use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+use lib join '/', File::Spec->splitdir( dirname(__FILE__) ), '../lib';
 
 use pgShark;
 use Getopt::Long;
@@ -18,313 +18,323 @@ use Pod::Usage;
 use IO::Socket;
 use IO::Select;
 
-use constant READMAX => 2048;
+use constant READMAX      => 2048;
 use constant FROM_BACKEND => 1;
 
 my %sessions;
 my $selects = new IO::Select();
 my $shark;
 my %args = (
-	'help' => 0,
-	'debug' => 0,
-	'interface' => '',
-	'host' => '127.0.0.1',
-	'port' => 5432,
-	'read' => '',
-	'rhost' => undef,
-	'rport' => undef,
-	'role' => undef,
-	'timeout' => 5,
+    'help'      => 0,
+    'debug'     => 0,
+    'interface' => '',
+    'host'      => '127.0.0.1',
+    'port'      => 5432,
+    'read'      => '',
+    'rhost'     => undef,
+    'rport'     => undef,
+    'role'      => undef,
+    'timeout'   => 5,
 );
 
 #readFromBackend
 # @param $sess_hash Session hash to listen on
 # @returns 0 when ready, 1 when nothing happened
 sub readFromBackend {
-	my $sess_hash = shift;
-	my $session = $sessions{$sess_hash};
-	my $sock = $session->{'sock'};
-	my $timeout = $args{'timeout'};
-	my $count = READMAX;
-	my $buff = '';
-	my @ready;
+    my $sess_hash = shift;
+    my $session   = $sessions{$sess_hash};
+    my $sock      = $session->{'sock'};
+    my $timeout   = $args{'timeout'};
+    my $count     = READMAX;
+    my $buff      = '';
+    my @ready;
 
-	warn "readFromBackend: on session $sess_hash.";
+    warn "readFromBackend: on session $sess_hash.";
 
-	# TODO: better timeout handling
-	TIMELOOP:while ($timeout) {
-		@ready = $selects->can_read(1);
+    # TODO: better timeout handling
+TIMELOOP: while ($timeout) {
+        @ready = $selects->can_read(1);
 
-		foreach my $fh (@ready) {
-			# our socket is ready to be readed
-			last TIMELOOP if($fh == $sock);
-		}
-		warn "socket not ready ($timeout).";
-		sleep 1;
-		$timeout--;
-	}
+        foreach my $fh (@ready) {
 
-	return 1 unless $timeout > 0;
+            # our socket is ready to be readed
+            last TIMELOOP if ( $fh == $sock );
+        }
+        warn "socket not ready ($timeout).";
+        sleep 1;
+        $timeout--;
+    }
 
-	while($count == READMAX) {
-		$count = sysread($sock, $buff, READMAX);
-		if (defined $count) {
-			warn "  $count bytes readed.";
-			$session->{'data'} .= $buff;
-		}
-		# TODO must handle error on $count not defined
-	}
+    return 1 unless $timeout > 0;
 
-	return 0;
+    while ( $count == READMAX ) {
+        $count = sysread( $sock, $buff, READMAX );
+        if ( defined $count ) {
+            warn "  $count bytes readed.";
+            $session->{'data'} .= $buff;
+        }
+
+        # TODO must handle error on $count not defined
+    }
+
+    return 0;
 }
 
 #nextMessage
 # @param $sess_hash Session hash to read next message from
 # @return next message
 sub nextMessage {
-	my $sess_hash = shift;
-	my $session = $sessions{$sess_hash};
-	my $buff = '';
-	my $count = 0;
-	my $pg_msg = {
-		'type' => ''
-	};
+    my $sess_hash = shift;
+    my $session   = $sessions{$sess_hash};
+    my $buff      = '';
+    my $count     = 0;
+    my $pg_msg    = { 'type' => '' };
 
-	$count = pgShark::parse_v3($pg_msg, FROM_BACKEND, $session->{'data'})
-		unless $session->{'data'} eq '';
+    $count = pgShark::parse_v3( $pg_msg, FROM_BACKEND, $session->{'data'} )
+        unless $session->{'data'} eq '';
 
-	return undef if $count == -1;
+    return undef if $count == -1;
 
-	if ($count == 0) {
-		return undef if readFromBackend($sess_hash) == 1;
+    if ( $count == 0 ) {
+        return undef if readFromBackend($sess_hash) == 1;
 
-		$count = pgShark::parse_v3($pg_msg, FROM_BACKEND, $session->{'data'});
-	}
+        $count
+            = pgShark::parse_v3( $pg_msg, FROM_BACKEND, $session->{'data'} );
+    }
 
-	$session->{'data'} = substr($session->{'data'}, $count);
-	warn "Seen a $pg_msg->{'type'} as answer to $sess_hash.";
+    $session->{'data'} = substr( $session->{'data'}, $count );
+    warn "Seen a $pg_msg->{'type'} as answer to $sess_hash.";
 
-	return $pg_msg;
+    return $pg_msg;
 }
 
 sub pg_connect {
-	my $sess_hash = shift;
-	my $sock = $sessions{$sess_hash}{'sock'};
-	my $pg_msg;
+    my $sess_hash = shift;
+    my $sock      = $sessions{$sess_hash}{'sock'};
+    my $pg_msg;
 
-	warn "session $sess_hash\n";
+    warn "session $sess_hash\n";
 
-	## authentication
-	my $msg = "user\0$args{'role'}\0database\0$sessions{$sess_hash}{'database'}\0\0";
-	# TODO support protocol 2 ?
-	$msg = pack("NNZ*Z*Z*Z*Z*", 8 + length($msg), 196608, "user", $args{'role'}, 
-		"database", $sessions{$sess_hash}{'database'}, ""
-	);
-	$sock->send($msg);
+    ## authentication
+    my $msg
+        = "user\0$args{'role'}\0database\0$sessions{$sess_hash}{'database'}\0\0";
 
-	$pg_msg = nextMessage($sess_hash);
+    # TODO support protocol 2 ?
+    $msg = pack( "NNZ*Z*Z*Z*Z*",
+        8 + length($msg),
+        196608, "user", $args{'role'}, "database",
+        $sessions{$sess_hash}{'database'}, "" );
+    $sock->send($msg);
 
-	return 1 if not defined $pg_msg
-		or $pg_msg->{'type'} ne 'AuthenticationOk';
+    $pg_msg = nextMessage($sess_hash);
 
-	do {
-		$pg_msg = nextMessage($sess_hash);
-	} while $pg_msg->{'type'} ne 'ReadyForQuery';
+    return 1
+        if not defined $pg_msg
+            or $pg_msg->{'type'} ne 'AuthenticationOk';
 
-	$sessions{$sess_hash}{'msg_ts'} = 0;
+    do {
+        $pg_msg = nextMessage($sess_hash);
+    } while $pg_msg->{'type'} ne 'ReadyForQuery';
 
-	return 0;
+    $sessions{$sess_hash}{'msg_ts'} = 0;
+
+    return 0;
 }
 
 sub StartupMessage {
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	warn "StartupMessage: session $sess_hash.";
-	
-	$sessions{$sess_hash}{'database'} = $pg_msg->{'params'}->{'database'};
+    warn "StartupMessage: session $sess_hash.";
+
+    $sessions{$sess_hash}{'database'} = $pg_msg->{'params'}->{'database'};
 }
 
 ## handle command B(R)
 # @param $pg_msg hash with pg message properties
 sub openSocket {
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	warn "openSocket: session $sess_hash";
+    warn "openSocket: session $sess_hash";
 
-	# if we don't have information about the session opening, ignore it
-	return unless defined $sessions{$sess_hash};
+    # if we don't have information about the session opening, ignore it
+    return unless defined $sessions{$sess_hash};
 
-	if (substr($args{'rhost'}, 0, 1) eq '/') {
-		my $sock_path = "$args{'rhost'}/.s.PGSQL.$args{'rport'}";
+    if ( substr( $args{'rhost'}, 0, 1 ) eq '/' ) {
+        my $sock_path = "$args{'rhost'}/.s.PGSQL.$args{'rport'}";
 
-		warn "  opening unix socket : «$sock_path»";
-		$sessions{$sess_hash}{'sock'} = IO::Socket::UNIX->new (
-			'Type' => SOCK_STREAM,
-			'Peer' => $sock_path
-		);
-	}
-	else {
-		warn "  opening inet socket : «tcp://$args{'rhost'}:$args{'rport'}»";
-		$sessions{$sess_hash}{'sock'} = IO::Socket::INET->new (
-			'PeerAddr' => $args{'rhost'},
-			'PeerPort' => $args{'rport'},
-			'Proto' => 'tcp',
-			'Blocking' => 0
-		);
-	}
+        warn "  opening unix socket : «$sock_path»";
+        $sessions{$sess_hash}{'sock'} = IO::Socket::UNIX->new(
+            'Type' => SOCK_STREAM,
+            'Peer' => $sock_path
+        );
+    }
+    else {
+        warn
+            "  opening inet socket : «tcp://$args{'rhost'}:$args{'rport'}»";
+        $sessions{$sess_hash}{'sock'} = IO::Socket::INET->new(
+            'PeerAddr' => $args{'rhost'},
+            'PeerPort' => $args{'rport'},
+            'Proto'    => 'tcp',
+            'Blocking' => 0
+        );
+    }
 
-	if (not $sessions{$sess_hash}{'sock'}) {
-		warn "  could not open socket for session $sess_hash. $!";
-		delete $sessions{$sess_hash};
-		return;
-	}
-	
-	warn "  socket for session $sess_hash.";
+    if ( not $sessions{$sess_hash}{'sock'} ) {
+        warn "  could not open socket for session $sess_hash. $!";
+        delete $sessions{$sess_hash};
+        return;
+    }
 
-	$selects->add($sessions{$sess_hash}{'sock'});
+    warn "  socket for session $sess_hash.";
 
-	$sessions{$sess_hash}{'data'} = '';
-	
-	if (pg_connect($sess_hash)) {
-		warn "  could not open pgsql session for $sess_hash.";
-		delete $sessions{$sess_hash};
-		return;
-	}
+    $selects->add( $sessions{$sess_hash}{'sock'} );
+
+    $sessions{$sess_hash}{'data'} = '';
+
+    if ( pg_connect($sess_hash) ) {
+        warn "  could not open pgsql session for $sess_hash.";
+        delete $sessions{$sess_hash};
+        return;
+    }
 }
 
 #Replay
 # replay any kind of message
 # @param $pg_msg hash with pg message properties
 sub Replay {
-	my $pg_msg = shift;
-	my $pg_ans = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg    = shift;
+    my $pg_ans    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	return unless defined $sessions{$sess_hash};
+    return unless defined $sessions{$sess_hash};
 
-	if ($sessions{$sess_hash}{'msg_ts'} and $sessions{$sess_hash}{'msg_ts'} != $pg_msg->{'timestamp'}) {
-		do {
-			$pg_ans = nextMessage($sess_hash);
-		} while defined $pg_ans and $pg_ans->{'type'} ne 'ReadyForQuery';
+    if (    $sessions{$sess_hash}{'msg_ts'}
+        and $sessions{$sess_hash}{'msg_ts'} != $pg_msg->{'timestamp'} )
+    {
+        do {
+            $pg_ans = nextMessage($sess_hash);
+        } while defined $pg_ans and $pg_ans->{'type'} ne 'ReadyForQuery';
 
-		$sessions{$sess_hash}{'msg_ts'} = $pg_msg->{'timestamp'};
-	}
+        $sessions{$sess_hash}{'msg_ts'} = $pg_msg->{'timestamp'};
+    }
 
-	warn "Replay: replaying a '$pg_msg->{'type'}' for session $sess_hash.";
+    warn "Replay: replaying a '$pg_msg->{'type'}' for session $sess_hash.";
 
-	my $sock = $sessions{$sess_hash}{'sock'};
+    my $sock = $sessions{$sess_hash}{'sock'};
 
-	print $sock $pg_msg->{'data'};
-	$sock->flush;
-
+    print $sock $pg_msg->{'data'};
+    $sock->flush;
 
 }
 
 #ReplayCopy
-# special callback to filter message availables for F OR B 
+# special callback to filter message availables for F OR B
 sub ReplayCopy {
-	my $pg_msg = shift;
-	
-	return if $pg_msg->{'from_backend'};
+    my $pg_msg = shift;
 
-	Replay($pg_msg);
+    return if $pg_msg->{'from_backend'};
+
+    Replay($pg_msg);
 }
 
 sub Terminate {
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	return unless defined $sessions{$sess_hash};
+    return unless defined $sessions{$sess_hash};
 
-	my $sock = $sessions{$sess_hash}{'sock'};
+    my $sock = $sessions{$sess_hash}{'sock'};
 
-	warn "Terminate: session $sess_hash.";
+    warn "Terminate: session $sess_hash.";
 
-	print $sock $pg_msg->{'data'};
-	$selects->remove($sock);
-	$sock->close();
-	delete $sessions{$sess_hash};
+    print $sock $pg_msg->{'data'};
+    $selects->remove($sock);
+    $sock->close();
+    delete $sessions{$sess_hash};
 }
 
 Getopt::Long::Configure('bundling');
-GetOptions(\%args, qw{
-	help|?!
-	debug|d+
-	interface|i=s
-	host|h=s
-	port|p=s
-	read|r=s
-	rhost|rh=s
-	rport|rp=s
-	role|U=s
-	timeout|t=s
-}) or pod2usage(
-    -exitval => 2
-);
+GetOptions(
+    \%args, qw{
+        help|?!
+        debug|d+
+        interface|i=s
+        host|h=s
+        port|p=s
+        read|r=s
+        rhost|rh=s
+        rport|rp=s
+        role|U=s
+        timeout|t=s
+        }
+) or pod2usage( -exitval => 2 );
 
-pod2usage(-verbose => 2) if $args{'help'};
+pod2usage( -verbose => 2 ) if $args{'help'};
 
 pod2usage(
     -message => "Arguments --rhost, --rport and --role are mandatory",
     -exitval => 1
-) unless
-	defined $args{'rhost'}
-	and defined $args{'rport'}
-	and defined $args{'role'};
+    )
+    unless defined $args{'rhost'}
+        and defined $args{'rport'}
+        and defined $args{'role'};
 
 pod2usage(
     -message => "Arguments --interface and --read are incompatible.\n"
-		."Either listen from the network or open a pcap file.",
+        . "Either listen from the network or open a pcap file.",
     -exitval => 1
 ) if $args{'interface'} ne '' and $args{'read'} ne '';
 
 $args{'rhost'} = '/tmp' if $args{'rhost'} eq '';
 
 $SIG{'__WARN__'} = sub {
-	warn $_[0] if $args{'debug'};
+    warn $_[0] if $args{'debug'};
 };
 
-$shark = pgShark->new({
-	'procs' => {
-		'AuthenticationOk' => \&openSocket,
-		'Bind' => \&Replay,
-		'CancelRequest' => \&Replay,
-		'Close' => \&Replay,
-		'CopyData' => \&ReplayCopy,
-		'CopyDone' => \&ReplayCopy,
-		'CopyFail' => \&Replay,
-		'Describe' => \&Replay,
-		'Execute' => \&Replay,
-		'Flush' => \&Replay,
-		'FunctionCall' => \&Replay,
-		'Parse' => \&Replay,
-		'Query' => \&Replay,
-		'StartupMessage' => \&StartupMessage,
-		'Sync' => \&Replay,
-		'Terminate' => \&Terminate
-	},
-	'host' => $args{'host'},
-	'port' => $args{'port'},
-});
+$shark = pgShark->new(
+    {   'procs' => {
+            'AuthenticationOk' => \&openSocket,
+            'Bind'             => \&Replay,
+            'CancelRequest'    => \&Replay,
+            'Close'            => \&Replay,
+            'CopyData'         => \&ReplayCopy,
+            'CopyDone'         => \&ReplayCopy,
+            'CopyFail'         => \&Replay,
+            'Describe'         => \&Replay,
+            'Execute'          => \&Replay,
+            'Flush'            => \&Replay,
+            'FunctionCall'     => \&Replay,
+            'Parse'            => \&Replay,
+            'Query'            => \&Replay,
+            'StartupMessage'   => \&StartupMessage,
+            'Sync'             => \&Replay,
+            'Terminate'        => \&Terminate
+        },
+        'host' => $args{'host'},
+        'port' => $args{'port'},
+    }
+);
 
 # open a live capture on given interface
-if ($args{'interface'} ne '') {
-	my $err = '';
+if ( $args{'interface'} ne '' ) {
+    my $err = '';
 
-	($shark->live($args{'interface'}, \$err) == 0)
-		or die ("Can not open interface '$args{'interface'}':\n$err");
+    ( $shark->live( $args{'interface'}, \$err ) == 0 )
+        or die("Can not open interface '$args{'interface'}':\n$err");
 }
+
 # we have no interface to listen on,
 # either open given pcap file or start reading from stdin
 else {
-	my $err = '';
-	# read from stdin if no pcap file given
-	$args{'read'} = '-' if $args{'read'} eq '';
+    my $err = '';
 
-	($shark->open($args{'read'}, \$err) == 0) 
-		or die ("Can not read from file '$args{'read'}':\n$err");
+    # read from stdin if no pcap file given
+    $args{'read'} = '-' if $args{'read'} eq '';
+
+    ( $shark->open( $args{'read'}, \$err ) == 0 )
+        or die("Can not read from file '$args{'read'}':\n$err");
 }
 
 $shark->process_all();

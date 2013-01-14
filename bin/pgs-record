@@ -7,7 +7,7 @@ use warnings;
 
 use File::Basename 'dirname';
 use File::Spec;
-use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+use lib join '/', File::Spec->splitdir( dirname(__FILE__) ), '../lib';
 
 use pgShark 'PCAP_FILTER_TEMPLATE';
 use Net::Pcap qw(:functions);
@@ -19,102 +19,110 @@ my $pcap;
 my $fd_pcap;
 my $c_filter = undef;
 my $read_err = '';
-my $filter = '';
+my $filter   = '';
 my %pcap_stats;
 my %args = (
-	'help' => 0,
-	'debug' => 0,
-	'interface' => '',
-	'port' => 5432,
-	'read' => '',
-	'write' => '-',
-	'buffer' => 32*1024
+    'help'      => 0,
+    'debug'     => 0,
+    'interface' => '',
+    'port'      => 5432,
+    'read'      => '',
+    'write'     => '-',
+    'buffer'    => 32 * 1024
 );
 
 # Catch SIGINT to stop immediatly pcap_loop amongs all pgShark objects.
-sigaction SIGINT, new POSIX::SigAction(sub {
-   pcap_breakloop($pcap);
+sigaction SIGINT, new POSIX::SigAction(
+    sub {
+        pcap_breakloop($pcap);
 
-}, undef, &POSIX::SA_RESETHAND & &POSIX::SA_RESTART)
-	or die "Error setting SIGINT handler: $!\n";
+    },
+    undef,
+    &POSIX::SA_RESETHAND & &POSIX::SA_RESTART
+) or die "Error setting SIGINT handler: $!\n";
 
 Getopt::Long::Configure('bundling');
-GetOptions(\%args, qw{
-	help|?!
-	debug|d+
-	interface|i=s
-	port|p=i
-	read|r=s
-	write|w=s
-	buffer|B=i
-}) or pod2usage(
-    -exitval => 2
-);
+GetOptions(
+    \%args, qw{
+        help|?!
+        debug|d+
+        interface|i=s
+        port|p=i
+        read|r=s
+        write|w=s
+        buffer|B=i
+        }
+) or pod2usage( -exitval => 2 );
 
-pod2usage(-verbose => 2) if $args{'help'};
+pod2usage( -verbose => 2 ) if $args{'help'};
 
 pod2usage(
     -message => "Arguments --interface and --read are incompatible.\n"
-		."Either listen from the network or open a pcap file.",
+        . "Either listen from the network or open a pcap file.",
     -exitval => 1
 ) if $args{'interface'} ne '' and $args{'read'} ne '';
 
 $SIG{'__WARN__'} = sub {
-	warn $_[0] if $args{'debug'};
+    warn $_[0] if $args{'debug'};
 };
 
-$filter = sprintf(pgShark::PCAP_FILTER_TEMPLATE, $args{'port'});
+$filter = sprintf( pgShark::PCAP_FILTER_TEMPLATE, $args{'port'} );
 
 system 'tcpdump -c 0 2>/dev/null';
 
 $? = $? >> 8;
-if ($? == 1) {
-	my @tcpdump_args = ('tcpdump', '-w', $args{'write'}, '-B', $args{'buffer'});
-	push @tcpdump_args, ('-i', $args{'interface'}) if $args{'interface'};
-	push @tcpdump_args, ('-r', $args{'read'}) if $args{'read'};
-	push @tcpdump_args, "$filter";
-	warn join ' ', @tcpdump_args;
-	system @tcpdump_args;
+if ( $? == 1 ) {
+    my @tcpdump_args
+        = ( 'tcpdump', '-w', $args{'write'}, '-B', $args{'buffer'} );
+    push @tcpdump_args, ( '-i', $args{'interface'} ) if $args{'interface'};
+    push @tcpdump_args, ( '-r', $args{'read'} )      if $args{'read'};
+    push @tcpdump_args, "$filter";
+    warn join ' ', @tcpdump_args;
+    system @tcpdump_args;
 
-	$? = $? >> 8;
-	exit $?;
+    $? = $? >> 8;
+    exit $?;
 }
 
-print "Couldn't find `tcpdump` tool. Fallback on Net::Pcap module. We may loose some packets!\nConsider installing
+print
+    "Couldn't find `tcpdump` tool. Fallback on Net::Pcap module. We may loose some packets!\nConsider installing
 'tcpdump' on your system.\n";
 
-print "Argument '--buffer' is ignored when tcpdump is not available!\n" if $args{'buffer'};
+print "Argument '--buffer' is ignored when tcpdump is not available!\n"
+    if $args{'buffer'};
 
 # open a live capture on given interface
-if ($args{'interface'} ne '') {
-	 $pcap = pcap_open_live($args{'interface'}, 65535, 0, 0, \$read_err)
-		or die ("Can not open interface '$args{'interface'}':\n$read_err");
+if ( $args{'interface'} ne '' ) {
+    $pcap = pcap_open_live( $args{'interface'}, 65535, 0, 0, \$read_err )
+        or die("Can not open interface '$args{'interface'}':\n$read_err");
 }
+
 # we have no interface to listen on,
 # either open given pcap file or start reading from stdin
 else {
-	# read from stdin if no pcap file given
-	$args{'read'} = '-' if $args{'read'} eq '';
 
-	$pcap = pcap_open_offline($args{'read'}, \$read_err)
-		or die ("Can not read from file '$args{'read'}':\n$read_err");
+    # read from stdin if no pcap file given
+    $args{'read'} = '-' if $args{'read'} eq '';
+
+    $pcap = pcap_open_offline( $args{'read'}, \$read_err )
+        or die("Can not read from file '$args{'read'}':\n$read_err");
 }
 
-pcap_compile($pcap, \$c_filter, $filter, 0, 0);
-pcap_setfilter($pcap, $c_filter);
+pcap_compile( $pcap, \$c_filter, $filter, 0, 0 );
+pcap_setfilter( $pcap, $c_filter );
 
-$fd_pcap = pcap_dump_open($pcap, $args{'write'})
-	or die pcap_geterr($pcap);
+$fd_pcap = pcap_dump_open( $pcap, $args{'write'} )
+    or die pcap_geterr($pcap);
 
-pcap_loop($pcap, -1, \&pcap_dump, $fd_pcap);
+pcap_loop( $pcap, -1, \&pcap_dump, $fd_pcap );
 
-pcap_stats($pcap, \%pcap_stats);
+pcap_stats( $pcap, \%pcap_stats );
 
-printf STDERR 
-	"\n%d packets captured\n%d packets dropped by libpcap\n%d packets dropped by kernel\n",
-	$pcap_stats{'ps_recv'},
-	$pcap_stats{'ps_drop'},
-	$pcap_stats{'ps_ifdrop'};
+printf STDERR
+    "\n%d packets captured\n%d packets dropped by libpcap\n%d packets dropped by kernel\n",
+    $pcap_stats{'ps_recv'},
+    $pcap_stats{'ps_drop'},
+    $pcap_stats{'ps_ifdrop'};
 
 pcap_dump_close($fd_pcap);
 

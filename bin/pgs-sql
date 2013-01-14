@@ -12,7 +12,7 @@ use warnings;
 
 use File::Basename 'dirname';
 use File::Spec;
-use lib join '/', File::Spec->splitdir(dirname(__FILE__)), '../lib';
+use lib join '/', File::Spec->splitdir( dirname(__FILE__) ), '../lib';
 
 use pgShark;
 use pgShark::Utils;
@@ -24,15 +24,15 @@ my $prefix = '';
 my @prefix_keys;
 my $shark;
 my %args = (
-	'help' => 0,
-	'debug' => 0,
-	'line_prefix' => '',
-	'interface' => '',
-	'host' => '127.0.0.1',
-	'port' => 5432,
-	'read' => '',
-	'2' => 0,
-	'3' => 0
+    'help'        => 0,
+    'debug'       => 0,
+    'line_prefix' => '',
+    'interface'   => '',
+    'host'        => '127.0.0.1',
+    'port'        => 5432,
+    'read'        => '',
+    '2'           => 0,
+    '3'           => 0
 );
 
 #Hash for sessions properties
@@ -71,24 +71,24 @@ my $portals = {};
 # @param $pg_msg
 # @params vars, ...
 sub printf_prefix {
-	my $frmt = shift;
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
-	my $prefix_frmt = $prefix;
+    my $frmt        = shift;
+    my $pg_msg      = shift;
+    my $sess_hash   = $pg_msg->{'sess_hash'};
+    my $prefix_frmt = $prefix;
 
-	unless ($prefix eq '') {
-		foreach my $sub (@prefix_keys) {
-			$sub->(\$prefix_frmt, $pg_msg) 
-		}
-		print $prefix_frmt;
-	}
+    unless ( $prefix eq '' ) {
+        foreach my $sub (@prefix_keys) {
+            $sub->( \$prefix_frmt, $pg_msg );
+        }
+        print $prefix_frmt;
+    }
 
-	printf $frmt, @_;
+    printf $frmt, @_;
 }
 
 sub deallocate {
-	my $pg_msg = shift;
-	printf_prefix "DEALLOCATE %s;\n", $pg_msg, shift;
+    my $pg_msg = shift;
+    printf_prefix "DEALLOCATE %s;\n", $pg_msg, shift;
 }
 
 #prep_name
@@ -96,92 +96,96 @@ sub deallocate {
 # As we cannot have more than one unnamed prepd stmt per session, we create a
 # name for them based on their session properties
 sub prep_name {
-	my ($name, $hash) = @_;
-	return ($name eq '') ? "anon$hash" : $name;
+    my ( $name, $hash ) = @_;
+    return ( $name eq '' ) ? "anon$hash" : $name;
 }
 
 # handle command B
 # @param $pg_msg hash with pg message properties
 sub Bind {
-	my $pg_msg = shift;
-	my @params;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg = shift;
+    my @params;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	debug(2, "SQL: call process_bind\n");
+    debug( 2, "SQL: call process_bind\n" );
 
-	my $prepname = prep_name($pg_msg->{'name'}, $sess_hash);
-	my $portalname = prep_name($pg_msg->{'portal'}, $sess_hash);
+    my $prepname   = prep_name( $pg_msg->{'name'},   $sess_hash );
+    my $portalname = prep_name( $pg_msg->{'portal'}, $sess_hash );
 
-	# we might be trying to bind to a prepd stmt parsed before the network dump started
-	# we should probably send some debug message about it...
-	return unless defined $prepd->{$sess_hash}->{$prepname};
+# we might be trying to bind to a prepd stmt parsed before the network dump started
+# we should probably send some debug message about it...
+    return unless defined $prepd->{$sess_hash}->{$prepname};
 
-	# We need to wait until the first BIND to know the number of params before actually issue a PREPARE
-	# query. If understood correctly from the doc, even prepd stmt without args must be binded,
-	# so this piece of code will be executed for all prepd stmt.
-	# If never binded, there's no portals, so execute the PREPARE stmt as it wasn't prepd yet
-	if (not scalar(keys %{$prepd->{$sess_hash}->{$prepname}->{'portals'} })) {
+# We need to wait until the first BIND to know the number of params before actually issue a PREPARE
+# query. If understood correctly from the doc, even prepd stmt without args must be binded,
+# so this piece of code will be executed for all prepd stmt.
+# If never binded, there's no portals, so execute the PREPARE stmt as it wasn't prepd yet
+    if (not scalar( keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} } )
+        )
+    {
 
-		printf_prefix "PREPARE %s ", $pg_msg, $prepname;
+        printf_prefix "PREPARE %s ", $pg_msg, $prepname;
 
-		# print parameters: we use "unknown" as we can not know
-		# args types
-		printf '(%s) ', substr('unknown,'x$pg_msg->{'num_params'},0,-1)
-			if ($pg_msg->{'num_params'});
+        # print parameters: we use "unknown" as we can not know
+        # args types
+        printf '(%s) ', substr( 'unknown,' x $pg_msg->{'num_params'}, 0, -1 )
+            if ( $pg_msg->{'num_params'} );
 
-		printf "AS %s;\n", $prepd->{$sess_hash}->{$prepname}->{'query'};
-	}
+        printf "AS %s;\n", $prepd->{$sess_hash}->{$prepname}->{'query'};
+    }
 
-	## TODO
-	# mess with text/binary format !
-	# cf. @params_formats and http://www.postgresql.org/docs/9.0/interactive/protocol-message-formats.html
-	# @ Bind (F) :
-	# [...]
-	# Int16
-	#
-	# The number of parameter format codes that follow (denoted C below). This can be zero to indicate that there are
-	# no parameters or that the parameters all use the default format (text); or one, in which case the
-	# specified format code is applied to all parameters; or it can equal the actual number of parameters.
-	#
-	# Int16[C]
-	#
-	# The parameter format codes. Each must presently be zero (text) or one (binary).
+    ## TODO
+# mess with text/binary format !
+# cf. @params_formats and http://www.postgresql.org/docs/9.0/interactive/protocol-message-formats.html
+# @ Bind (F) :
+# [...]
+# Int16
+#
+# The number of parameter format codes that follow (denoted C below). This can be zero to indicate that there are
+# no parameters or that the parameters all use the default format (text); or one, in which case the
+# specified format code is applied to all parameters; or it can equal the actual number of parameters.
+#
+# Int16[C]
+#
+# The parameter format codes. Each must presently be zero (text) or one (binary).
 
-	## escape params
-	# copy the params array instead of direct using the reference
+    ## escape params
+    # copy the params array instead of direct using the reference
 
-	foreach my $param (@{$pg_msg->{'params'}}) {
-		if (defined $param) {
-			$param =~ s/'/''/g;
-			push @params, "'$param'";
-		}
-		else {
-			push @params, 'NULL';
-		}
-	}
+    foreach my $param ( @{ $pg_msg->{'params'} } ) {
+        if ( defined $param ) {
+            $param =~ s/'/''/g;
+            push @params, "'$param'";
+        }
+        else {
+            push @params, 'NULL';
+        }
+    }
 
-	$portals->{$sess_hash}->{$portalname} = $prepname;
-	$prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} = [ @params ];
+    $portals->{$sess_hash}->{$portalname} = $prepname;
+    $prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} = [@params];
 }
 
 # handle command C
 # @param $pg_msg hash with pg message properties
 sub Close {
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	debug(2, "SQL: call process_close\n");
+    debug( 2, "SQL: call process_close\n" );
 
-	my $prepname = prep_name($pg_msg->{'name'}, $sess_hash);
+    my $prepname = prep_name( $pg_msg->{'name'}, $sess_hash );
 
-	# we ignore closing portals as it doesn't make sense in SQL
-	return unless $pg_msg->{'kind'} eq 'S';
+    # we ignore closing portals as it doesn't make sense in SQL
+    return unless $pg_msg->{'kind'} eq 'S';
 
-	deallocate($pg_msg, $prepname);
-	foreach my $portal (keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} }) {
-		delete $portals->{$sess_hash}->{$portal};
-	}
-	delete $prepd->{$sess_hash}->{$prepname};
+    deallocate( $pg_msg, $prepname );
+    foreach my $portal (
+        keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} } )
+    {
+        delete $portals->{$sess_hash}->{$portal};
+    }
+    delete $prepd->{$sess_hash}->{$prepname};
 }
 
 # handle command E
@@ -190,105 +194,120 @@ sub Close {
 # Here, we can saftly ignore nb_rows as there's no way to use
 # portals in SQL but with the simple query protocol
 sub Execute {
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	debug(2, "SQL: call process_execute\n");
+    debug( 2, "SQL: call process_execute\n" );
 
-	my $portalname = prep_name($pg_msg->{'name'}, $sess_hash);
+    my $portalname = prep_name( $pg_msg->{'name'}, $sess_hash );
 
-	# we might be trying to execute a prepd stmt parsed before the network dump
-	# we should probably send some debug message about it...
-	return unless defined $portals->{$sess_hash}->{$portalname};
-	
-	my $prepname = $portals->{$sess_hash}->{$portalname};
-	printf_prefix "EXECUTE %s", $pg_msg, $prepname;
-	printf "(%s)", join (',', @{ $prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} })
-		if (scalar(@{ $prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} }));
-	printf ";\n";
+   # we might be trying to execute a prepd stmt parsed before the network dump
+   # we should probably send some debug message about it...
+    return unless defined $portals->{$sess_hash}->{$portalname};
+
+    my $prepname = $portals->{$sess_hash}->{$portalname};
+    printf_prefix "EXECUTE %s", $pg_msg, $prepname;
+    printf "(%s)",
+        join( ',',
+        @{ $prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname} } )
+        if (
+        scalar(
+            @{  $prepd->{$sess_hash}->{$prepname}->{'portals'}->{$portalname}
+                }
+        )
+        );
+    printf ";\n";
 }
 
 # handle P command
 # @param $pg_msg hash with pg message properties
 sub Parse {
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	debug(2, "SQL: call process_parse (name, query) = ('$pg_msg->{'name'}', $pg_msg->{'query'})\n");
+    debug( 2,
+        "SQL: call process_parse (name, query) = ('$pg_msg->{'name'}', $pg_msg->{'query'})\n"
+    );
 
-	my $prepname = prep_name($pg_msg->{'name'}, $sess_hash);
+    my $prepname = prep_name( $pg_msg->{'name'}, $sess_hash );
 
-	# we can only have one anonymous prepd stmt per session, deallocate previous anonym xact
-	# note: trying to parse using an existing name shoudl rise an error. We doesn't test
-	# this case here as if the session did it, it received an error as well.
-	if (($pg_msg->{'name'} eq '') and (defined $portals->{$sess_hash}->{$prepname})) {
-		deallocate($pg_msg, $prepname);
-		foreach my $portal (keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} }) {
-			delete $portals->{$sess_hash}->{$portal};
-		}
-		delete $prepd->{$sess_hash}->{$prepname};
-	}
+# we can only have one anonymous prepd stmt per session, deallocate previous anonym xact
+# note: trying to parse using an existing name shoudl rise an error. We doesn't test
+# this case here as if the session did it, it received an error as well.
+    if (    ( $pg_msg->{'name'} eq '' )
+        and ( defined $portals->{$sess_hash}->{$prepname} ) )
+    {
+        deallocate( $pg_msg, $prepname );
+        foreach my $portal (
+            keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} } )
+        {
+            delete $portals->{$sess_hash}->{$portal};
+        }
+        delete $prepd->{$sess_hash}->{$prepname};
+    }
 
-	# save the prepd stmt for this session
-	$prepd->{$sess_hash}->{$prepname}->{'query'} = $pg_msg->{'query'};
+    # save the prepd stmt for this session
+    $prepd->{$sess_hash}->{$prepname}->{'query'} = $pg_msg->{'query'};
 }
 
 # handle command Q
 # @param $pg_msg hash with pg message properties
 sub Query {
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	debug(2, "SQL: call process_query\n");
+    debug( 2, "SQL: call process_query\n" );
 
-	printf_prefix "%s;\n", $pg_msg, $pg_msg->{'query'};
+    printf_prefix "%s;\n", $pg_msg, $pg_msg->{'query'};
 }
 
 # handle command StartupMessage (F)
 # @param $pg_msg hash with pg message properties
 sub StartupMessage {
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    my $pg_msg    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	$sess{$sess_hash}{'user'} = $pg_msg->{'params'}->{'user'};
-	$sess{$sess_hash}{'database'} = $pg_msg->{'params'}->{'database'};
-	$sess{$sess_hash}{'application_name'} = $pg_msg->{'params'}->{'application_name'}
-		if defined $pg_msg->{'params'}->{'application_name'};
+    $sess{$sess_hash}{'user'}     = $pg_msg->{'params'}->{'user'};
+    $sess{$sess_hash}{'database'} = $pg_msg->{'params'}->{'database'};
+    $sess{$sess_hash}{'application_name'}
+        = $pg_msg->{'params'}->{'application_name'}
+        if defined $pg_msg->{'params'}->{'application_name'};
 }
 
 # handle command X
 # @param $pg_msg hash with pg message properties
 sub Terminate {
-	# release all prepd stmt
 
-	my $pg_msg = shift;
-	my $sess_hash = $pg_msg->{'sess_hash'};
+    # release all prepd stmt
 
-	debug(2, "SQL: call process_disconnect\n");
+    my $pg_msg    = shift;
+    my $sess_hash = $pg_msg->{'sess_hash'};
 
-	delete $prepd->{$sess_hash};
+    debug( 2, "SQL: call process_disconnect\n" );
+
+    delete $prepd->{$sess_hash};
 }
 
 Getopt::Long::Configure('bundling');
-GetOptions(\%args, qw{
-	help|?!
-	debug|d+
-	line_prefix=s
-	interface|i=s
-	host|h=s
-	port|p=s
-	read|r=s
-	2+
-	3+
-}) or pod2usage(
-    -exitval => 2
-);
+GetOptions(
+    \%args, qw{
+        help|?!
+        debug|d+
+        line_prefix=s
+        interface|i=s
+        host|h=s
+        port|p=s
+        read|r=s
+        2+
+        3+
+        }
+) or pod2usage( -exitval => 2 );
 
-pod2usage(-verbose => 2) if $args{'help'};
+pod2usage( -verbose => 2 ) if $args{'help'};
 
 pod2usage(
     -message => "Arguments --interface and --read are incompatible.\n"
-		."Either listen from the network or open a pcap file.",
+        . "Either listen from the network or open a pcap file.",
     -exitval => 1
 ) if $args{'interface'} ne '' and $args{'read'} ne '';
 
@@ -297,114 +316,131 @@ pod2usage(
     -exitval => 1
 ) if $args{'2'} and $args{'3'};
 
-$args{'protocol'} = $args{'2'}? 2 : 3;
+$args{'protocol'} = $args{'2'} ? 2 : 3;
 
 $SIG{'__WARN__'} = sub {
-	warn $_[0] if $args{'debug'};
+    warn $_[0] if $args{'debug'};
 };
 
-$shark = pgShark->new({
-	'procs' => {
-		'Bind' => \&Bind,
-		'Close' => \&Close,
-		'Execute' => \&Execute,
-		'Parse' => \&Parse,
-		'Query' => \&Query,
-		'StartupMessage' => \&StartupMessage,
-		'Terminate' => \&Terminate
-	},
-	'host' => $args{'host'},
-	'port' => $args{'port'},
-	'protocol' => $args{'protocol'},
-	'debug' => $args{'debug'}
-});
+$shark = pgShark->new(
+    {   'procs' => {
+            'Bind'           => \&Bind,
+            'Close'          => \&Close,
+            'Execute'        => \&Execute,
+            'Parse'          => \&Parse,
+            'Query'          => \&Query,
+            'StartupMessage' => \&StartupMessage,
+            'Terminate'      => \&Terminate
+        },
+        'host'     => $args{'host'},
+        'port'     => $args{'port'},
+        'protocol' => $args{'protocol'},
+        'debug'    => $args{'debug'}
+    }
+);
 
 # prepare/compile line prefix
-if ($args{'line_prefix'} ne '') {
+if ( $args{'line_prefix'} ne '' ) {
 
-	my $re_a = qr/%a/;
-	my $re_d = qr/%d/;
-	my $re_H = qr/%H/;
-	my $re_h = qr/%h/;
-	my $re_k = qr/%k/;
-	my $re_R = qr/%R/;
-	my $re_r = qr/%r/;
-	my $re_T = qr/%T/;
-	my $re_t = qr/%t/;
-	my $re_u = qr/%u/;
-	
-	$prefix = $args{'line_prefix'};
+    my $re_a = qr/%a/;
+    my $re_d = qr/%d/;
+    my $re_H = qr/%H/;
+    my $re_h = qr/%h/;
+    my $re_k = qr/%k/;
+    my $re_R = qr/%R/;
+    my $re_r = qr/%r/;
+    my $re_T = qr/%T/;
+    my $re_t = qr/%t/;
+    my $re_u = qr/%u/;
 
-	push @prefix_keys, sub {
-		my $session = $sess{$_[1]->{'sess_hash'}};
-		return ${$_[0]} =~ s/$re_a/?/g unless defined $session->{'application_name'};
-		${$_[0]} =~ s/$re_a/$session->{'application_name'}/g;
-	} if ($prefix =~ $re_a);
+    $prefix = $args{'line_prefix'};
 
-	push @prefix_keys, sub {
-		my $session = $sess{$_[1]->{'sess_hash'}};
-		return ${$_[0]} =~ s/$re_d/?/g unless defined $session->{'database'};
-		${$_[0]} =~ s/$re_d/$session->{'database'}/g;
-	} if ($prefix =~ $re_d);
+    push @prefix_keys, sub {
+        my $session = $sess{ $_[1]->{'sess_hash'} };
+        return ${ $_[0] } =~ s/$re_a/?/g
+            unless defined $session->{'application_name'};
+        ${ $_[0] } =~ s/$re_a/$session->{'application_name'}/g;
+        }
+        if ( $prefix =~ $re_a );
 
-	push @prefix_keys, sub {
-		#print Dumper($_[0]);
-		my $src_ip = dec2dot($_[1]->{'tcpip'}->{'src_ip'});
-		${$_[0]} =~ s/$re_H/$src_ip/g;
-	} if ($prefix =~ $re_H);
+    push @prefix_keys, sub {
+        my $session = $sess{ $_[1]->{'sess_hash'} };
+        return ${ $_[0] } =~ s/$re_d/?/g
+            unless defined $session->{'database'};
+        ${ $_[0] } =~ s/$re_d/$session->{'database'}/g;
+        }
+        if ( $prefix =~ $re_d );
 
-	push @prefix_keys, sub {
-		my $dest_ip = dec2dot($_[1]->{'tcpip'}->{'dest_ip'});
-		${$_[0]} =~ s/$re_h/$dest_ip/g;
-	} if ($prefix =~ $re_h);
+    push @prefix_keys, sub {
 
-	push @prefix_keys, sub {
-		${$_[0]} =~ s/$re_k/$_[1]->{'sess_hash'}/g;
-	} if ($prefix =~ $re_k);
+        #print Dumper($_[0]);
+        my $src_ip = dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
+        ${ $_[0] } =~ s/$re_H/$src_ip/g;
+        }
+        if ( $prefix =~ $re_H );
 
-	push @prefix_keys, sub {
-	 	my $src_ip = dec2dot($_[1]->{'tcpip'}->{'src_ip'});
-	 	my $src_port = $_[1]->{'tcpip'}->{'src_port'};
-	 	${$_[0]} =~ s/$re_R/$src_ip:$src_port/g;
-	} if ($prefix =~ $re_R);
+    push @prefix_keys, sub {
+        my $dest_ip = dec2dot( $_[1]->{'tcpip'}->{'dest_ip'} );
+        ${ $_[0] } =~ s/$re_h/$dest_ip/g;
+        }
+        if ( $prefix =~ $re_h );
 
-	push @prefix_keys, sub {
-	 	my $dest_ip = dec2dot($_[1]->{'tcpip'}->{'dest_ip'});
-	 	my $dest_port = $_[1]->{'tcpip'}->{'dest_port'};
-	 	${$_[0]} =~ s/$re_r/$dest_ip:$dest_port/g;
-	} if ($prefix =~ $re_r);
+    push @prefix_keys, sub {
+        ${ $_[0] } =~ s/$re_k/$_[1]->{'sess_hash'}/g;
+        }
+        if ( $prefix =~ $re_k );
 
-	push @prefix_keys, sub {
-		${$_[0]} =~ s/$re_T/$_[1]->{'timestamp'}/g;
-	} if ($prefix =~ $re_T);
-	
-	push @prefix_keys, sub {
-		${$_[0]} =~ s/$re_t/strftime('%Y-%m-%d %H:%M:%S %Z', localtime $_[1]->{'timestamp'})/ge;
-	} if ($prefix =~ $re_t);
+    push @prefix_keys, sub {
+        my $src_ip   = dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
+        my $src_port = $_[1]->{'tcpip'}->{'src_port'};
+        ${ $_[0] } =~ s/$re_R/$src_ip:$src_port/g;
+        }
+        if ( $prefix =~ $re_R );
 
-	push @prefix_keys, sub {
-		my $session = $sess{$_[1]->{'sess_hash'}};
-		return ${$_[0]} =~ s/$re_u/?/g unless defined $session->{'user'};
-		${$_[0]} =~ s/$re_u/$session->{'user'}/g;
-	} if ($prefix =~ $re_u);
+    push @prefix_keys, sub {
+        my $dest_ip   = dec2dot( $_[1]->{'tcpip'}->{'dest_ip'} );
+        my $dest_port = $_[1]->{'tcpip'}->{'dest_port'};
+        ${ $_[0] } =~ s/$re_r/$dest_ip:$dest_port/g;
+        }
+        if ( $prefix =~ $re_r );
+
+    push @prefix_keys, sub {
+        ${ $_[0] } =~ s/$re_T/$_[1]->{'timestamp'}/g;
+        }
+        if ( $prefix =~ $re_T );
+
+    push @prefix_keys, sub {
+        ${ $_[0] }
+            =~ s/$re_t/strftime('%Y-%m-%d %H:%M:%S %Z', localtime $_[1]->{'timestamp'})/ge;
+        }
+        if ( $prefix =~ $re_t );
+
+    push @prefix_keys, sub {
+        my $session = $sess{ $_[1]->{'sess_hash'} };
+        return ${ $_[0] } =~ s/$re_u/?/g unless defined $session->{'user'};
+        ${ $_[0] } =~ s/$re_u/$session->{'user'}/g;
+        }
+        if ( $prefix =~ $re_u );
 }
 
 # open a live capture on given interface
-if ($args{'interface'} ne '') {
-	my $err = '';
+if ( $args{'interface'} ne '' ) {
+    my $err = '';
 
-	($shark->live($args{'interface'}, \$err) == 0)
-		or die ("Can not open interface '$args{'interface'}':\n$err");
+    ( $shark->live( $args{'interface'}, \$err ) == 0 )
+        or die("Can not open interface '$args{'interface'}':\n$err");
 }
+
 # we have no interface to listen on,
 # either open given pcap file or start reading from stdin
 else {
-	my $err = '';
-	# read from stdin if no pcap file given
-	$args{'read'} = '-' if $args{'read'} eq '';
+    my $err = '';
 
-	($shark->open($args{'read'}, \$err) == 0) 
-		or die ("Can not read from file '$args{'read'}':\n$err");
+    # read from stdin if no pcap file given
+    $args{'read'} = '-' if $args{'read'} eq '';
+
+    ( $shark->open( $args{'read'}, \$err ) == 0 )
+        or die("Can not read from file '$args{'read'}':\n$err");
 }
 
 $shark->process_all();
