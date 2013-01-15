@@ -4,11 +4,6 @@
 
 use strict;
 use warnings;
-
-use File::Basename 'dirname';
-use File::Spec;
-use lib join '/', File::Spec->splitdir( dirname(__FILE__) ), '../lib';
-
 use Getopt::Long;
 use Pod::Usage;
 use pgShark;

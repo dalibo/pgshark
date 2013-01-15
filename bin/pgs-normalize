@@ -10,11 +10,6 @@
 
 use strict;
 use warnings;
-
-use File::Basename 'dirname';
-use File::Spec;
-use lib join '/', File::Spec->splitdir( dirname(__FILE__) ), '../lib';
-
 use pgShark;
 use pgShark::Utils;
 use Getopt::Long;
