@@ -1,0 +1,199 @@
+#!/usr/bin/perl
+# This program is open source, licensed under the simplified BSD license.
+# For license terms, see the LICENSE file.
+
+use strict;
+use warnings;
+use pgShark;
+use Getopt::Long;
+use POSIX ':signal_h';
+
+my $err = '';
+my $i = 0;
+my $cnx = 0;
+my $dcnx = 0;
+my $queries = 0;
+my $parses = 0;
+my $execs = 0;
+my $stmts = 0;
+my $rows = 0;
+my $cancels = 0;
+my $errors = 0;
+my $t_cnx = 0;
+my $t_dcnx = 0;
+my $t_queries = 0;
+my $t_parses = 0;
+my $t_execs = 0;
+my $t_stmts = 0;
+my $t_rows = 0;
+my $t_cancels = 0;
+my $t_errors = 0;
+
+my %args = (
+	'interface' => undef,
+	'host' => '127.0.0.1',
+	'port' => 5432,
+	'delay' =>  5,
+	'2' => 0,
+	'3' => 0
+);
+
+Getopt::Long::Configure('bundling');
+GetOptions(\%args, qw{
+	interface|i=s
+	host|h=s
+	port|p=s
+	delay|d=i
+	2+
+	3+
+});
+
+die "Options -2 and -3 are mutal exclusives.\n" if $args{'2'} and $args{'3'};
+die "You must specify an interface" unless $args{'interface'};
+
+$args{'protocol'} = $args{'2'}? 2 : 3;
+
+sub header() {
+	printf "%10s %10s %10s %10s %10s %10s %10s %10s %10s\n", 'cnx', 'discnx',
+	'queries', 'prepare', 'execute', 'stmt', 'rows', 'cancels', 'errors';
+}
+
+sigaction SIGALRM, new POSIX::SigAction(sub {
+	printf "%10u %10u %10u %10u %10u %10u %10u %10u %10u\n", $cnx, $dcnx,
+		$queries, $parses, $execs, $stmts, $rows, $cancels, $errors;
+
+	$t_cnx += $cnx;
+	$t_dcnx += $dcnx;
+	$t_queries += $queries;
+	$t_parses += $parses;
+	$t_execs += $execs;
+	$t_stmts += $stmts;
+	$t_rows += $rows;
+	$t_cancels += $cancels;
+	$t_errors += $errors;
+
+	$cnx = $dcnx = $queries = $parses = $execs = $stmts = $rows = $cancels =
+	$errors = 0;
+	$i++;
+
+	header() if $i % 35 == 0;
+
+	alarm $args{'delay'};
+}) or die "Error setting SIGALRM handler: $!\n";
+
+my $shark = pgShark->new({
+	'procs' => {
+		'AuthenticationOk' => sub {$cnx++;},
+		'Terminate' => sub {$dcnx++;},
+		'Query' => sub {$queries++;},
+		'Parse' => sub {$parses++;},
+		'Execute' => sub {$execs++;},
+		'CommandComplete' => sub {$stmts++;},
+		'DataRow' => sub {$rows++;},
+		'CancelRequest' => sub {$cancels++;},
+		'ErrorResponse' => sub {$errors++;},
+	},
+	'host' => $args{'host'},
+	'port' => $args{'port'},
+	'protocol' => $args{'protocol'}
+});
+
+($shark->live($args{'interface'}, \$err) == 0)
+	or die ("Can not open interface '$args{'interface'}':\n$err");
+
+header();
+
+alarm $args{'delay'};
+
+$shark->process_all();
+
+$shark->close();
+
+print "Total:\n";
+header();
+printf "%10u %10u %10u %10u %10u %10u %10u %10u %10u\n", $t_cnx, $t_dcnx,
+	$t_queries, $t_parses, $t_execs, $t_stmts, $t_rows, $t_cancels, $t_errors;
+
+exit 0;
+
+__END__
+
+=head1 pgs-stat
+
+pgs-stat - Prints out various informations on a sampling period of 5 seconds per
+default.
+
+Belongs to the pgShark scripts collection.
+
+=head1 SYNOPSIS
+
+=over
+
+=item pgs-stat --help
+
+=item pgs-stat [-2|-3] [--interface DEV] [--host IPADDR] [--port PORT] [--delay DELAY]
+
+=back
+
+=head1 DESCRIPTION
+
+B<pgs-stat> outputs the following informations on a sampling period of 5
+seconds per default: number of connections, disconnections, queries, prepared
+statements, executed prepared statements, total number of statement (prepared
+or not), number of rows, cancels and errors.
+
+Usefull in a context where you can not track this informations PostgreSQL logs
+or don't want to count them in there.
+
+This script is interactive and can not run with offline pcap files.
+
+=over
+
+=item B<--help>
+
+Show this help message and exit.
+
+=item B<-2>
+
+Use PostgreSQL v2.0 protocol.
+
+=item B<-3>
+
+Use PostgreSQL v3.0 protocol. This is the default.
+
+=item B<-d>, B<--delay> <DELAY>
+
+Gives the delay in second between two samples. By default set to '5'.
+
+=item B<-h>, B<--host> <ip address>
+
+Gives the IP address of the PostgreSQL server. By default, set to '127.0.0.1'.
+
+=item B<-i>, B<--interface> <interface name>
+
+Capture PostgreSQL traffic directly from the given network interface.
+
+=item B<-p>, B<--port> <port>
+
+Gives the port the PostgreSQL backend is listening on. By default, set to 5432
+
+=back
+
+=head1 AUTHORS
+
+Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
+
+Dalibo's team.
+
+http://www.dalibo.org
+
+=head1 SEE ALSO
+
+The pgShark wiki on github : https://github.com/dalibo/pgshark/wiki
+
+=head1 LICENSING
+
+This program is open source, licensed under the simplified BSD license. For license terms, see the LICENSE provided
+with the sources.
+
+=cut

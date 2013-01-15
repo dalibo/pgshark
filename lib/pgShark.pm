@@ -1919,6 +1919,20 @@ For details, see the output of parameter C<--help> for each of them.
 =over
 
 =item *
+B<pgs-badger>
+
+This script analyse the pcap traffics and outputs various statistics about
+what was found in PostgreSQL protocol.
+
+The report contains most popular queries, slowest cumulated ones, slowest
+queries ever, classification of queries by type, sessions time, number of
+connexion, errors, notices, etc.
+
+The network dump could be live or from a pcap file (using tcpdump for instance).
+
+In a futur version this script is supposed to talk with pgbadger directly !
+
+=item *
 B<pgs-debug>
 
 Outputs the PostgreSQL messages in human readable format. Useful to analyze
@@ -1933,6 +1947,8 @@ whatever the number of time they have been sent by clients and whatever their
 parameters were.
 
 =item *
+B<pgs-record>
+
 C<pgs-record> filters network traffic and dump PostgreSQL related activity to a
 pcap file. The pcap file can then be processed with all available pgShark
 tools.
@@ -1969,18 +1985,10 @@ unnamed prepared statement, this script actually try to names them. Presently,
 this script doesn't support cursors nor COPY messages.
 
 =item *
-B<pgs-badger>
+B<pgs-stat>
 
-This script analyse the pcap traffics and outputs various statistics about
-what was found in PostgreSQL protocol.
-
-The report contains most popular queries, slowest cumulated ones, slowest
-queries ever, classification of queries by type, sessions time, number of
-connexion, errors, notices, etc.
-
-The network dump could be live or from a pcap file (using tcpdump for instance).
-
-In a futur version this script is supposed to talk with pgbadger directly !
+Outputs various informations about PostgreSQL activity on the network on a
+given sampling period.
 
 =back
 
