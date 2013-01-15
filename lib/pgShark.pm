@@ -1969,7 +1969,7 @@ unnamed prepared statement, this script actually try to names them. Presently,
 this script doesn't support cursors nor COPY messages.
 
 =item *
-B<pgs-stats>
+B<pgs-badger>
 
 This script analyse the pcap traffics and outputs various statistics about
 what was found in PostgreSQL protocol.
@@ -1979,6 +1979,8 @@ queries ever, classification of queries by type, sessions time, number of
 connexion, errors, notices, etc.
 
 The network dump could be live or from a pcap file (using tcpdump for instance).
+
+In a futur version this script is supposed to talk with pgbadger directly !
 
 =back
 

@@ -935,18 +935,18 @@ sub END {
         }
     }
 
-    print Dumper($stats);
-    print Dumper($sess_stats);
-    print Dumper($qtype_stats);
-    print Dumper($query_stats);
-    print Dumper($prepd_stats);
+    # print Dumper($stats);
+    # print Dumper($sess_stats);
+    # print Dumper($qtype_stats);
+    # print Dumper($query_stats);
+    # print Dumper($prepd_stats);
 }
 
 __END__
 
-=head1 pgs-stats
+=head1 pgs-badger
 
-pgs-stats - Outputs various statistics from pgsql messages
+pgs-badger - Outputs various statistics from pgsql messages
 
 Belongs to the pgShark scripts collection.
 
@@ -954,15 +954,15 @@ Belongs to the pgShark scripts collection.
 
 =over 2
 
-=item pgs-stats --help
+=item pgs-badger --help
 
-=item pgs-stats [-2|-3] [--read file|--interface DEV] [--host IPADDR] [--port PORT]
+=item pgs-badger [-2|-3] [--read file|--interface DEV] [--host IPADDR] [--port PORT]
 
 =back
 
 =head1 DESCRIPTION
 
-The B<pgs-stats> outputs various statistics about a PostgreSQL network dump.
+The B<pgs-badger> outputs various statistics about a PostgreSQL network dump.
 
 The report contains most popular queries, slowest cumulated ones, slowest
 queries ever, classification of queries by type, sessions time,
@@ -987,12 +987,12 @@ Gives the port the PostgreSQL backend is listening on. By default, set to 5432
 =item B<-i>, B<--interface> <interface name>
 
 Capture PostgreSQL traffic directly from the given network interface. Conflict with B<--read>.
-By default, B<pgs-normalize> will read from stdin if neither B<--read> or B<--interface> are given.
+By default, B<pgs-badger> will read from stdin if neither B<--read> or B<--interface> are given.
 
 =item B<-r>, B<--read> <path to file>
 
 Read PostgreSQL traffic from given pcap file. Conflict with B<--interface>.
-By default, B<pgs-normalize> will read from stdin if neither B<--read> or B<--interface> are given.
+By default, B<pgs-badger> will read from stdin if neither B<--read> or B<--interface> are given.
 
 =back
 

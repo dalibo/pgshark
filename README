@@ -1,5 +1,6 @@
 pgShark
-    pgShark - pgShark is a Perl module messing with PostgreSQL network traffic
+    pgShark - pgShark is a Perl module able to mess with PostgreSQL network
+    traffic
 
 SYNOPSIS
     A simple exemple to count the number of connections and disconnections
@@ -177,6 +178,8 @@ METHODS
         stable. We need some pcap file to make some tests !
 
 BINARIES
+    For details, see the output of parameter "--help" for each of them.
+
     *   pgs-debug
 
         Outputs the PostgreSQL messages in human readable format. Useful to
@@ -227,7 +230,7 @@ BINARIES
         to names them. Presently, this script doesn't support cursors nor
         COPY messages.
 
-    *   pgs-stats
+    *   pgs-badger
 
         This script analyse the pcap traffics and outputs various statistics
         about what was found in PostgreSQL protocol.
@@ -238,6 +241,9 @@ BINARIES
 
         The network dump could be live or from a pcap file (using tcpdump
         for instance).
+
+        In a futur version this script is supposed to talk with pgbadger
+        directly !
 
 LICENSING
     This program is open source, licensed under the simplified BSD license.

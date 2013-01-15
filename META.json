@@ -1,0 +1,47 @@
+{
+   "abstract" : "Messing with PostgreSQL network traffic",
+   "author" : [
+      "Jehan-Guillaume (ioguix) de Rorthais <jgdr@dalibo.com>"
+   ],
+   "dynamic_config" : 1,
+   "generated_by" : "Module::Build version 0.38, CPAN::Meta::Converter version 2.110440",
+   "license" : [
+      "bsd"
+   ],
+   "meta-spec" : {
+      "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "pgShark",
+   "prereqs" : {
+      "configure" : {
+         "requires" : {
+            "Module::Build" : "0.38"
+         }
+      },
+      "runtime" : {
+         "requires" : {
+            "Digest::MD5" : 0,
+            "Net::Pcap" : 0,
+            "perl" : "v5.8.0"
+         }
+      }
+   },
+   "provides" : {
+      "pgShark" : {
+         "file" : "lib/pgShark.pm",
+         "version" : "0.1"
+      },
+      "pgShark::Utils" : {
+         "file" : "lib/pgShark/Utils.pm",
+         "version" : "0.1"
+      }
+   },
+   "release_status" : "stable",
+   "resources" : {
+      "license" : [
+         "http://opensource.org/licenses/bsd-license.php"
+      ]
+   },
+   "version" : "0.1"
+}
