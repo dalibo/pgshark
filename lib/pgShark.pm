@@ -596,7 +596,7 @@ sub pgsql_dissect {
         }
 
         if (    $pg_msg->{'type'} eq 'SSLAnswer'
-            and $pg_msg->{'ssl_answer'} eq 'S' )
+            and $pg_msg->{'ssl_answer'} eq 'Y' )
         {
             debug( 3,
                 "PGSQL: session %s will be encrypted so we ignore it.\n",
