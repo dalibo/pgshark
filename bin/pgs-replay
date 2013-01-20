@@ -9,6 +9,7 @@ use strict;
 use warnings;
 
 use pgShark;
+use pgShark::protocol_3;
 use Getopt::Long;
 use Pod::Usage;
 use IO::Socket;
@@ -86,7 +87,7 @@ sub nextMessage {
     my $count     = 0;
     my $pg_msg    = { 'type' => '' };
 
-    $count = pgShark::parse_v3( $pg_msg, FROM_BACKEND, $session->{'data'} )
+    $count = pgsql_parser( $pg_msg, FROM_BACKEND, $session->{'data'} )
         unless $session->{'data'} eq '';
 
     return undef if $count == -1;
@@ -95,7 +96,7 @@ sub nextMessage {
         return undef if readFromBackend($sess_hash) == 1;
 
         $count
-            = pgShark::parse_v3( $pg_msg, FROM_BACKEND, $session->{'data'} );
+            = pgsql_parser( $pg_msg, FROM_BACKEND, $session->{'data'} );
     }
 
     $session->{'data'} = substr( $session->{'data'}, $count );
