@@ -136,6 +136,15 @@ sub pgsql_parser {
             return 9;
         }
 
+        # AuthenticationCryptPassword
+        #   code=int32
+        #   sal=Char[2]
+        elsif ( $pg_msg->{'code'} == 4) {
+            $pg_msg->{'salt'} = substr( $raw_data, 9, 2 );
+            $pg_msg->{'type'} = 'AuthenticationCryptPassword';
+            return 11;
+        }
+
         # AuthenticationMD5Password
         #   code=int32
         #   salt=Char[4]

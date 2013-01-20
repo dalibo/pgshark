@@ -507,6 +507,7 @@ $shark = pgShark->new(
             'AuthenticationOk'                => \&Authentication,
             'AuthenticationKerberosV5'        => \&Authentication,
             'AuthenticationCleartextPassword' => \&Authentication,
+            'AuthenticationCryptPassword'     => \&Authentication,
             'AuthenticationMD5Password'       => \&Authentication,
             'AuthenticationSCMCredential'     => \&Authentication,
             'AuthenticationGSS'               => \&Authentication,
