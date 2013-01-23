@@ -70,7 +70,7 @@ sub pgsql_parser {
     my $len;
     my $msg_len;
 
-    if ( $from_backend and $raw_data =~ /^(N|S)$/ ) {
+    if ( $from_backend and $raw_data =~ /^(N|Y)$/ ) {
 
         # SSL answer
         $pg_msg->{'type'} = 'SSLAnswer';

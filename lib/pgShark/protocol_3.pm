@@ -55,7 +55,7 @@ sub pgsql_parser {
         ( $pg_msg->{'type'}, $msg_len ) = unpack( 'AN', $raw_data );
 
         if ( $data_len < $msg_len + 1 ) {    # we add the type byte
-                # we don't have the full message, waiting for more bits
+            # we don't have the full message, waiting for more bits
             # debug(
             #     3,
             #     "NOTICE: message fragmented (data available: %d, total message length: %d), waiting for more bits.\n",
@@ -65,7 +65,7 @@ sub pgsql_parser {
             return 0;
         }
     }
-    elsif ( $from_backend and $raw_data =~ /^(N|S)$/ ) {
+    elsif ( $from_backend and $raw_data =~ /^(N|Y)$/ ) {
 
         # SSL answer
         $pg_msg->{'type'} = 'SSLAnswer';
