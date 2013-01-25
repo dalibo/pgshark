@@ -556,8 +556,8 @@ sub pgsql_dissect {
         my $msg_len;
         my $type
             = $from_backend
-            ? get_msg_type_backend( $curr_sess->{'data'} )
-            : get_msg_type_frontend( $curr_sess->{'data'} );
+            ? get_msg_type_backend( $curr_sess->{'data'}, $curr_sess )
+            : get_msg_type_frontend( $curr_sess->{'data'}, $curr_sess );
 
         if ( not defined $type ) {
             debug(

@@ -176,7 +176,7 @@ sub get_msg_len($$) {
         : unpack( 'xN', $raw_data ) + 1;
 }
 
-sub get_msg_type_backend($) {
+sub get_msg_type_backend($;$) {
     my $raw_data = shift;
 
     return 'SSLAnswer' if $raw_data =~ $sslanswer_re;
@@ -198,7 +198,7 @@ sub get_msg_type_backend($) {
     return '';
 }
 
-sub get_msg_type_frontend($) {
+sub get_msg_type_frontend($;$) {
     my $raw_data = shift;
 
     # the message has a type byte
@@ -871,9 +871,7 @@ sub pgsql_parser_backend($$;$) {
 sub pgsql_parser_frontend($$;$) {
     my $pg_msg   = shift;
     my $raw_data = shift;
-    my $type;
-
-    $type = get_msg_type_frontend($raw_data);
+    my $type     = get_msg_type_frontend($raw_data);
 
     return 0 if not defined $type;
 
