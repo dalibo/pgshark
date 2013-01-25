@@ -16,29 +16,29 @@ pgShark - pgShark is a Perl module able to mess with PostgreSQL network traffic
 A simple exemple to count the number of connections and disconnections on
 localhost, live version:
 
-	use pgShark;
-	
-	my ($cnx, $dcnx) = (0, 0);
-	my $dev = 'lo';
-	my $err;
-	
-	$shark = pgShark->new({
-		'procs' => {
-			'AuthenticationOk' => sub {$cnx++},
-			'Terminate' => sub {$dcnx++},
-		},
-		'host' => '127.0.0.1',
-		'port' => 5432
-	});
-	
-	die "Can not open interface $dev:\n$err" if $shark->live($dev, \$err);
-	
-	# on live capture, a ctrl-c interrupt the loop
-	$shark->process_all();
-	
-	$shark->close();
-	
-	printf "Number of connections/disconnections: %u/%u\n", $cnx, $dcnx;
+    use pgShark;
+
+    my ($cnx, $dcnx) = (0, 0);
+    my $dev = 'lo';
+    my $err;
+
+    $shark = pgShark->new({
+        'procs' => {
+            'AuthenticationOk' => sub {$cnx++},
+            'Terminate' => sub {$dcnx++},
+        },
+        'host' => '127.0.0.1',
+        'port' => 5432
+    });
+
+    die "Can not open interface $dev:\n$err" if $shark->live($dev, \$err);
+
+    # on live capture, a ctrl-c interrupt the loop
+    $shark->process_all();
+
+    $shark->close();
+
+    printf "Number of connections/disconnections: %u/%u\n", $cnx, $dcnx;
 
 =head1 DESCRIPTION
 
@@ -107,16 +107,16 @@ B<Static method>.
 Creates a new pgShark object and returns it. It takes a hash as parameter with
 the following settings:
 
-	{
-		'host' => IP address of the server
-		'port' => Port of the PostgreSQL server
-		'protocol' => the protocol version, ie. 2 or 3
-		'procs' => {
-			# Hash of callbacks for each messages.
-			'message name' => \&callback
-			...
-		}
-	}
+    {
+        'host' => IP address of the server
+        'port' => Port of the PostgreSQL server
+        'protocol' => the protocol version, ie. 2 or 3
+        'procs' => {
+            # Hash of callbacks for each messages.
+            'message name' => \&callback
+            ...
+        }
+    }
 
 pgShark is not able to detect in a network dump which IP address is the server
 and on which port it is listening. Defaults are PostgreSQL's ones, ie.
@@ -274,7 +274,7 @@ sub process_all {
     my $self = shift;
 
   # Net::Pcap::Reassemble::loop($self->{'pcap'}, -1, \&process_packet, $self)
-  # 	if $self->{'pcap'};
+  #     if $self->{'pcap'};
 
     ## slightly better perfs without Net::Pcap::Reassemble
     pcap_loop( $pcaps{ $self->{'id'} }, -1, \&process_packet, $self )
@@ -501,7 +501,7 @@ sub process_packet {
             . sprintf( '%06d', $pckt_hdr->{'tv_usec'} ),
         ## the following entries will be feeded bellow
         # 'type' => message type. Either one-char type or full message for
-        #			special ones
+        #           special ones
         # 'data' =>  the message data (without the type and int32 length)
         ## other fields specifics to each messages are added bellow
     };
@@ -536,9 +536,9 @@ sub process_packet {
 # When the TCP monolog buffer is empty, parsing was successful, or message is
 # fragmented, returns 0. Any other value means that an error occured.
 #
-# @param pg_msg_orig	The hash's skeleton to use to construct a pgsql hash
-# 						message.
-# 						It already contains tcp and other global infos.
+# @param pg_msg_orig    The hash's skeleton to use to construct a pgsql hash
+#                       message.
+#                       It already contains tcp and other global infos.
 sub pgsql_dissect {
     my $self         = shift;
     my $pg_msg_orig  = shift;
@@ -553,12 +553,63 @@ sub pgsql_dissect {
 
         # copy base message properties hash for this new message
         my $pg_msg = {%$pg_msg_orig};
+        my $msg_len;
+        my $type
+            = $from_backend
+            ? get_msg_type_backend( $curr_sess->{'data'} )
+            : get_msg_type_frontend( $curr_sess->{'data'} );
 
-        my $msg_len = pgsql_parser( $pg_msg, $from_backend, $curr_sess->{'data'}, $curr_sess );
+        if ( not defined $type ) {
+            debug(
+                3,
+                "NOTICE: buffer full of junk or empty (data available: %d)...waiting for more bits.\n",
+                $data_len
+            );
+            debug(
+                6,
+                "DEBUG: last packet was: %s\n",
+                [ $curr_sess->{'data'} ]
+            );
+            return 0;
+        }
+
+        if ( $type eq '' ) {
+            debug(
+                3,
+                "WARNING: dropped alien packet at timestamp %s!\n",
+                $pg_msg->{'timestamp'}
+            );
+            debug( 6, "DEBUG: alien packet was: %s\n", $curr_sess->{'data'} );
+            return -1;
+        }
+
+        if ( defined $self->{$type} ) {
+            $pg_msg->{'type'} = $type;
+            $msg_len
+                = &{ get_msg_parser($type) }( $pg_msg, $curr_sess->{'data'},
+                $curr_sess );
+
+            # we don't have enough data for the current message (0)
+            # or an error occured (<0)
+            return $msg_len if $msg_len < 1;
+
+            # extract the message data from the buffer
+            $pg_msg->{'data'} = substr( $curr_sess->{'data'}, 0, $msg_len );
+
+            # callback for this message type
+            $self->{$type}->($pg_msg);
+        }
+        else {
+            $msg_len = get_msg_len( $type, $curr_sess->{'data'} );
+        }
 
         # we don't have enough data for the current message (0)
         # or an error occured (<0)
         return $msg_len if $msg_len < 1;
+
+        # here, we processed some data
+
+        $self->{'msg_count'}++;
 
         debug(
             3,
@@ -566,24 +617,13 @@ sub pgsql_dissect {
             $self->{'pckt_count'},
             $pg_msg->{'timestamp'},
             $sess_hash,
-            $pg_msg->{'type'},
+            $type,
             $msg_len,
             $data_len
         );
 
-        # extract the message data from the buffer
-        $pg_msg->{'data'} = substr( $curr_sess->{'data'}, 0, $msg_len );
-
-        # call the callback for the message type if defined.
-        $self->{ $pg_msg->{'type'} }->($pg_msg)
-            if defined $self->{ $pg_msg->{'type'} };
-
-        # remove processed data from the buffer
-        $curr_sess->{'data'} = substr( $curr_sess->{'data'}, $msg_len );
-        $data_len -= $msg_len;
-
         # if the message was Terminate, destroy the session
-        if ( $pg_msg->{'type'} eq 'Terminate' ) {
+        if ( $type eq 'Terminate' ) {
             debug(
                 3,
                 "PGSQL: destroying session %s (remaining buffer was %d byte long).\n",
@@ -595,9 +635,7 @@ sub pgsql_dissect {
             return 0;
         }
 
-        if (    $pg_msg->{'type'} eq 'SSLAnswer'
-            and $pg_msg->{'ssl_answer'} eq 'Y' )
-        {
+        if ( $type eq 'SSLAnswer' and $curr_sess->{'data'} =~ /^Y/ ) {
             debug( 3,
                 "PGSQL: session %s will be encrypted so we ignore it.\n",
                 $sess_hash );
@@ -607,7 +645,10 @@ sub pgsql_dissect {
             return 0;
         }
 
-        $self->{'msg_count'}++;
+        # remove processed data from the buffer
+        $curr_sess->{'data'} = substr( $curr_sess->{'data'}, $msg_len );
+        $data_len -= $msg_len;
+
     } while ( $data_len > 0 );
 
     return 0;
@@ -725,5 +766,5 @@ Authors:
 Copyright: (C) 2012-2013 Jehan-Guillaume de Rorthais - All rights reserved.
 
 Dalibo's team. http://www.dalibo.org
-  
+
 =cut
