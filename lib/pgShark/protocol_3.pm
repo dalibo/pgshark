@@ -67,6 +67,7 @@ my %backend_msg_type = (
 
 my %authentication_codes = (
     0 => 'AuthenticationOk',
+    1 => 'AuthenticationKerberosV4',
     2 => 'AuthenticationKerberosV5',
     3 => 'AuthenticationCleartextPassword',
     4 => 'AuthenticationCryptPassword',
@@ -79,6 +80,7 @@ my %authentication_codes = (
 
 my %parsers = (
     'AuthenticationOk'                => \&AuthenticationOk,
+    'AuthenticationKerberosV4'        => \&AuthenticationKerberosV4,
     'AuthenticationKerberosV5'        => \&AuthenticationKerberosV5,
     'AuthenticationCleartextPassword' => \&AuthenticationCleartextPassword,
     'AuthenticationCryptPassword'     => \&AuthenticationCryptPassword,
@@ -147,6 +149,7 @@ sub get_msg_len($$) {
     return 11 if $type eq 'AuthenticationCryptPassword';
     return 9
         if $type eq 'AuthenticationOk'
+            or $type eq 'AuthenticationKerberosV4'
             or $type eq 'AuthenticationKerberosV5'
             or $type eq 'AuthenticationCleartextPassword'
             or $type eq 'AuthenticationSCMCredential'
@@ -221,6 +224,13 @@ sub get_msg_type_frontend($) {
 #   code=int32
 sub AuthenticationOk($$) {
     $_[0]{'code'} = 0;
+    return 9;
+}
+
+# AuthenticationKerberosV4
+#   code=int32
+sub AuthenticationKerberosV4($$) {
+    $_[0]{'code'} = 1;
     return 9;
 }
 
