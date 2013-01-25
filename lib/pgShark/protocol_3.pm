@@ -185,7 +185,7 @@ sub get_msg_type_backend($) {
         if $raw_data =~ $backend_type_re;
 
     # message: B(R) "Authentication*"
-    if ( $raw_data =~ /^R.{4}/s ) {
+    if ( $raw_data =~ /^R.{8}/s ) {
         my $code = unpack( 'x5N', $raw_data );
 
         return $authentication_codes{$code};
