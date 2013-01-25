@@ -174,7 +174,7 @@ sub new {
 
     set_debug( $args{'debug'} ) if defined( $args{'debug'} );
 
-    debug( 1, "A shark is borned.\n" );
+    debug( 1, "A %s shark is borned.\n", $VERSION );
 
     return bless( $self, $class );
 }
