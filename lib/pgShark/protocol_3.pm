@@ -130,7 +130,7 @@ my %parsers = (
 );
 
 my $backend_type_re  = qr/^([K23CGHWDIEVnNAtS1sZTdc]).{4}/s;
-my $frontend_type_re = qr/^[BCfDEHFPpQSXdc].{4}/s;
+my $frontend_type_re = qr/^([BCfDEHFPpQSXdc]).{4}/s;
 my $sslanswer_re     = qr/^[NY]$/;
 
 sub get_msg_parser($) {
@@ -202,7 +202,7 @@ sub get_msg_type_frontend($) {
     my $raw_data = shift;
 
     # the message has a type byte
-    return $frontend_msg_type{ substr( $raw_data, 0, 1 ) }
+    return $frontend_msg_type{ $1 }
         if $raw_data =~ $frontend_type_re;
 
     if ( $raw_data =~ /^.{8}/s ) {
