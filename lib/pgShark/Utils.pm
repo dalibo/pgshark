@@ -33,6 +33,9 @@ sub debug {
 	my $frmt = shift;
 	my @from = caller(1);
 	$from[2] = (caller(0))[2];
+	if ($lvl == 6) {
+		tr/\x00-\x1F\x7F-\xFF/./ foreach (@_);
+	}
 	printf(STDERR "[%d] in %s:%d, %s:\n  $frmt\n", $lvl, $from[1], $from[2], $from[3], @_) if $debug_lvl >= $lvl;
 }
 
