@@ -249,6 +249,13 @@ sub CopyOutResponse {
         join( ', ', @{ $pg_msg->{'fields_formats'} } );
 }
 
+sub CursorResponse {
+    my $pg_msg = shift;
+    prelude( $pg_msg, FROM_BACKEND );
+
+    printf "CURSOR RESPONSE name='%s'\n\n", $pg_msg->{'name'};
+}
+
 sub DataRow {
     my $pg_msg = shift;
     my $i      = 0;
@@ -525,6 +532,7 @@ $shark = pgShark->new(
             'CopyFail'                        => \&CopyFail,
             'CopyInResponse'                  => \&CopyInResponse,
             'CopyOutResponse'                 => \&CopyOutResponse,
+            'CursorResponse'                  => \&CursorResponse,
             'DataRow'                         => \&DataRow,
             'Describe'                        => \&Describe,
             'EmptyQueryResponse'              => \&EmptyQueryResponse,
