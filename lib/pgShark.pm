@@ -585,6 +585,7 @@ sub pgsql_dissect {
 
         if ( defined $self->{$type} ) {
             $pg_msg->{'type'} = $type;
+
             $msg_len
                 = &{ get_msg_parser($type) }( $pg_msg, $curr_sess->{'data'},
                 $curr_sess );
@@ -630,6 +631,7 @@ sub pgsql_dissect {
                 $sess_hash,
                 $data_len
             );
+
             delete $self->{'sessions'}->{$sess_hash};
             $curr_sess = undef;
             return 0;
@@ -750,6 +752,11 @@ Outputs various informations about PostgreSQL activity on the network on a
 given sampling period.
 
 =back
+
+=head1 SEE ALSO
+
+This module rely on two modules to parse message of protocols v2 and v3:
+B<pgShark::protocol_2> and B<pgShark::protocol_3>.
 
 =head1 LICENSING
 

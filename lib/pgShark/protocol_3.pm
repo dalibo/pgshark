@@ -1,6 +1,23 @@
 # This program is open source, licensed under the simplified BSD license.  For
 # license terms, see the LICENSE file.
 
+=head1 pgShark::protocol_3
+
+pgShark::protocol_3 - is the collection of functions able to deal with procol
+v2 of PostgreSQL
+
+=head1 DESCRIPTION
+
+This Perl module is aimed to be used by module pgShark. However, its functions
+can be useful for other purpose to deal or parse PostgreSQL message of
+protocol v3.
+
+=head1 FUNCTIONS
+
+=over
+
+=cut
+
 package pgShark::protocol_3;
 
 use strict;
@@ -12,9 +29,9 @@ use Pod::Usage;
 our $VERSION = 0.2;
 our @ISA     = ('Exporter');
 our @EXPORT  = qw/pgsql_parser_backend pgsql_parser_frontend
-    get_msg_type_frontend get_msg_type_backend get_msg_parser/;
+    get_msg_type_frontend get_msg_type_backend get_msg_parser get_msg_len/;
 our @EXPORT_OK = qw/pgsql_parser_backend pgsql_parser_frontend
-    get_msg_type_frontend get_msg_type_backend get_msg_parser/;
+    get_msg_type_frontend get_msg_type_backend get_msg_parser get_msg_len/;
 
 my %frontend_msg_type = (
     'B' => 'Bind',
@@ -133,9 +150,31 @@ my $backend_type_re  = qr/^([K23CGHWDIEVnNAtS1sZTdc]).{4}/s;
 my $frontend_type_re = qr/^([BCfDEHFPpQSXdc]).{4}/s;
 my $sslanswer_re     = qr/^[NY]$/;
 
+=item *
+B<get_msg_parser ($data)>
+
+Retruns a subref able to parse the message of type given as parameter one.
+
+The parser sub takes two args:
+
+    &{ $parser} (\%msg_props, $data)
+
+First parameter is a hashref where the message properties will be set. The
+second one is the data to parse the message from.
+
+=cut
+
 sub get_msg_parser($) {
     return $parsers{ $_[0] };
 }
+
+=item *
+B<get_msg_len ($type, $data)>
+
+Returns the length of the message of given as second parameter with type given
+as first parameter.
+
+=cut
 
 sub get_msg_len($$;$) {
     my $type     = shift;
@@ -176,6 +215,14 @@ sub get_msg_len($$;$) {
         : unpack( 'xN', $raw_data ) + 1;
 }
 
+=item *
+B<get_msg_type_backend ($data)>
+
+Returns the type of a message coming from the backend. Message is given as
+first parameter.
+
+=cut
+
 sub get_msg_type_backend($;$) {
     my $raw_data = shift;
 
@@ -198,6 +245,14 @@ sub get_msg_type_backend($;$) {
     return '';
 }
 
+=item *
+B<get_msg_type_frontend ($data)>
+
+Returns the type of a message coming from the frontend. Message is given as
+first parameter.
+
+=cut
+
 sub get_msg_type_frontend($;$) {
     my $raw_data = shift;
 
@@ -218,6 +273,90 @@ sub get_msg_type_frontend($;$) {
 
     # not known !
     return '';
+}
+
+=item *
+B<pgsql_parser_backend (\%pg_msg, $data)>
+
+Parse and dissect a buffer, looking for a valid pgsql v3 message coming from
+the backend. It sets the given hashref as first parameter with the message
+properties. Properties set in the given hashref depend on the message type. See
+the function code comments for more information about them.
+
+The data to parsed are given as second parameter.
+
+CAUTION: This function MUST returns the total length of the parsed message so
+it can be removed from the TCP monolog buffer. 0 means lack of data to
+process the current message. On error, returns -1
+
+=cut
+
+sub pgsql_parser_backend($$;$) {
+    my $pg_msg   = shift;
+    my $raw_data = shift;
+    my $type     = get_msg_type_backend($raw_data);
+
+    return 0 if not defined $type;
+
+    $pg_msg->{'type'} = $type;
+
+    # messages without payload
+    return 5
+        if $type eq 'BindComplete'
+            or $type eq 'CloseComplete'
+            or $type eq 'CopyDone'
+            or $type eq 'EmptyQueryResponse'
+            or $type eq 'NoData'
+            or $type eq 'ParseComplete'
+            or $type eq 'PortalSuspended';
+
+    return &{ $parsers{$type} }( $pg_msg, $raw_data )
+        if ( defined $parsers{$type} );
+
+    # catchall / debug message ?
+
+    return -1;
+}
+
+=item *
+B<pgsql_parser_frontend (\%pg_msg, $data)>
+
+Parse and dissect a buffer, looking for a valid pgsql v3 message coming from a
+frontend. It sets the given hashref as first parameter with the message
+properties. Properties set in the given hashref depend on the message type. See
+the function code comments for more information about them.
+
+The data to parsed are given as second parameter.
+
+CAUTION: This function MUST returns the total length of the parsed message so
+it can be removed from the TCP monolog buffer. 0 means lack of data to
+process the current message. On error, returns -1
+
+=cut
+sub pgsql_parser_frontend($$;$) {
+    my $pg_msg   = shift;
+    my $raw_data = shift;
+    my $type     = get_msg_type_frontend($raw_data);
+
+    return 0 if not defined $type;
+
+    $pg_msg->{'type'} = $type;
+
+    # messages without payload
+    return 5
+        if $type eq 'CopyDone'
+            or $type eq 'Flush',
+            or $type eq 'Sync',
+            or $type eq 'Terminate';
+
+    return 8 if $type eq 'SSLRequest';
+
+    return &{ $parsers{$type} }( $pg_msg, $raw_data )
+        if ( defined $parsers{$type} );
+
+    # catchall / debug message ?
+
+    return -1;
 }
 
 # AuthenticationOk
@@ -817,81 +956,32 @@ BEGIN {
     *NoticeResponse   = \&ErrorResponse;
 }
 
-=item *
-B<pgsql_parser (\%pg_msg, $from_backend, $data)>
+1
 
-B<Static method>.
+__END__
 
-Parse and dissect a buffer, looking for a valid pgsql v3 message, and set the
-given hashref as first parameter with the message properties. Properties set in
-the given hashref depend on the message type. See the method code comments for
-more information about them.
+=pod
 
-The second parameter tells the method who sent the given data so it is able to
-parse them properly: the backend (1) or the frontend (0).
+=back
 
-The data to parsed are given in the third parameter.
+=head1 SEE ALSO
 
-This method is static, so it can be used outside of the class for any other
-purpose.
+Module B<pgShark>.
 
-CAUTION: This function MUST returns the total length of the parsed message so
-it can be removed from the TCP monolog buffer. 0 means lack of data to
-process the current message. On error, returns -1
+=head1 LICENSING
+
+This program is open source, licensed under the simplified BSD license. For
+license terms, see the LICENSE provided with the sources.
+
+=head1 AUTHORS
+
+Authors:
+
+  * Jehan-Guillaume de Rorthais
+  * Nicolas Thauvin
+
+Copyright: (C) 2012-2013 Jehan-Guillaume de Rorthais - All rights reserved.
+
+Dalibo's team. http://www.dalibo.org
 
 =cut
-
-sub pgsql_parser_backend($$;$) {
-    my $pg_msg   = shift;
-    my $raw_data = shift;
-    my $type     = get_msg_type_backend($raw_data);
-
-    return 0 if not defined $type;
-
-    $pg_msg->{'type'} = $type;
-
-    # messages without payload
-    return 5
-        if $type eq 'BindComplete'
-            or $type eq 'CloseComplete'
-            or $type eq 'CopyDone'
-            or $type eq 'EmptyQueryResponse'
-            or $type eq 'NoData'
-            or $type eq 'ParseComplete'
-            or $type eq 'PortalSuspended';
-
-    return &{ $parsers{$type} }( $pg_msg, $raw_data )
-        if ( defined $parsers{$type} );
-
-    # catchall / debug message ?
-
-    return -1;
-}
-
-sub pgsql_parser_frontend($$;$) {
-    my $pg_msg   = shift;
-    my $raw_data = shift;
-    my $type     = get_msg_type_frontend($raw_data);
-
-    return 0 if not defined $type;
-
-    $pg_msg->{'type'} = $type;
-
-    # messages without payload
-    return 5
-        if $type eq 'CopyDone'
-            or $type eq 'Flush',
-            or $type eq 'Sync',
-            or $type eq 'Terminate';
-
-    return 8 if $type eq 'SSLRequest';
-
-    return &{ $parsers{$type} }( $pg_msg, $raw_data )
-        if ( defined $parsers{$type} );
-
-    # catchall / debug message ?
-
-    return -1;
-}
-
-1
