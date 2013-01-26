@@ -600,7 +600,7 @@ sub pgsql_dissect {
             $self->{$type}->($pg_msg);
         }
         else {
-            $msg_len = get_msg_len( $type, $curr_sess->{'data'} );
+            $msg_len = get_msg_len( $type, $curr_sess->{'data'}, $curr_sess );
         }
 
         # we don't have enough data for the current message (0)

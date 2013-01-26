@@ -137,7 +137,7 @@ sub get_msg_parser($) {
     return $parsers{ $_[0] };
 }
 
-sub get_msg_len($$) {
+sub get_msg_len($$;$) {
     my $type     = shift;
     my $raw_data = shift;
 
