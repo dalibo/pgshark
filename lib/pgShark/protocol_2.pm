@@ -140,7 +140,7 @@ my $copymode_re     = qr/^([GH])/;
 my $auth_re         = qr/^R.{4}/s;
 
 =item *
-B<get_msg_parser ($data, \%state)>
+B<get_msg_parser ($data)>
 
 Retruns a subref able to parse the message of type given as parameter one.
 
