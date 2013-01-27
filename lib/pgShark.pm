@@ -302,7 +302,7 @@ sub process_all {
 # Data payloads are reconstructed based on TCP seq/ack sequences.
 sub process_packet {
     my ( $self, $pckt_hdr, $pckt ) = @_;
-    my ( $sess_hash, $curr_sess, $from_backend, $is_fin );
+    my ( $sess_hash, $curr_sess, $from, $is_fin );
 
     $self->{'pckt_count'}++;
 
@@ -362,16 +362,16 @@ sub process_packet {
    # by its IP and origin port. We could add server ip and port to this hash,
    # but we are suppose to work with only one server.
     if ( $src_ip eq $self->{'host'} and $src_port == $self->{'port'} ) {
-        $from_backend = 1;
+        $from = 'B';
         $sess_hash    = $dest_ip . $dest_port;
     }
     else {
-        $from_backend = 0;
+        $from = 'F';
         $sess_hash    = $src_ip . $src_port;
     }
 
     if ($is_fin) {
-        delete $self->{'sessions'}->{$sess_hash};
+        delete $self->{'sessions'}{$sess_hash};
         debug( 4,
             "TCP session finished (FIN or RST). Pgsql session dropped.\n" );
         return;
@@ -379,26 +379,26 @@ sub process_packet {
 
     if ( not defined( $self->{'sessions'}->{$sess_hash} ) ) {
         debug( 3, "PGSQL: creating a new session %s\n", $sess_hash );
-        $self->{'sessions'}->{$sess_hash} = [
-            {    # not from backend
+        $self->{'sessions'}{$sess_hash} = {
+            'F' => { # frontend
                 'data'     => '',    # raw tcp data
                 'next_seq' => -1,
                 'segs'     => [],    # segments buffer
             },
-            {                        # from backend
+            'B' => { # backend
                 'data'     => '',    # raw tcp data
                 'next_seq' => -1,
                 'segs'     => [],    # segments buffer
             }
-        ];
+        };
     }
 
-    if ( $self->{'sessions'}->{$sess_hash} eq 'SSL' ) {
+    if ( $self->{'sessions'}{$sess_hash} eq 'SSL' ) {
         debug( 3, "PGSQL: session %s encrypted, ignore.\n", $sess_hash );
         return;
     }
 
-    $curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
+    $curr_sess = $self->{'sessions'}{$sess_hash}{$from};
 
     $curr_sess->{'next_seq'} = $seqnum;
 
@@ -410,8 +410,8 @@ sub process_packet {
         }
         );
 
-    debug( 5, "TCP/IP: %s-%d: segment in the buff: %d\n",
-        $sess_hash, $from_backend, scalar @{ $curr_sess->{'segs'} } );
+    debug( 5, "TCP/IP: %s-%s: segment in the buff: %d\n",
+        $sess_hash, $from, scalar @{ $curr_sess->{'segs'} } );
 
     # we loop over existing tcp segments trying to find the best one to
     # reconstruct the data
@@ -421,8 +421,8 @@ sub process_packet {
         # normal
         if ( $curr_sess->{'next_seq'} == $segment->{'seq'} ) {
 
-            debug( 5, "TCP/IP: %s-%d: perfect sequence\n",
-                $sess_hash, $from_backend );
+            debug( 5, "TCP/IP: %s-%s: perfect sequence\n",
+                $sess_hash, $from );
 
             # add data to the current session's buffer
             $curr_sess->{'data'} .= $segment->{'data'};
@@ -441,9 +441,9 @@ sub process_packet {
         {
             debug(
                 5,
-                "TCP/IP: %s-%d: segment start in the past but complete data\n",
+                "TCP/IP: %s-%s: segment start in the past but complete data\n",
                 $sess_hash,
-                $from_backend
+                $from
             );
             my $offset = $curr_sess->{'next_seq'} - $segment->{'seq'};
 
@@ -459,8 +459,8 @@ sub process_packet {
         elsif ( $curr_sess->{'next_seq'}
             >= $segment->{'seq'} + $segment->{'len'} )
         {
-            debug( 5, "TCP/IP: %s-%d: segment in the past.\n",
-                $sess_hash, $from_backend );
+            debug( 5, "TCP/IP: %s-%s: segment in the past.\n",
+                $sess_hash, $from );
             splice @{ $curr_sess->{'segs'} }, $i, 1;
         }
 
@@ -468,9 +468,9 @@ sub process_packet {
         else {
             debug(
                 5,
-                "TCP/IP: %s-%d:  tcp's in the future, next_seq: %d, seq: %d-%d.\n",
+                "TCP/IP: %s-%s:  tcp's in the future, next_seq: %d, seq: %d-%d.\n",
                 $sess_hash,
-                $from_backend,
+                $from,
                 $curr_sess->{'next_seq'},
                 $segment->{'seq'},
                 $segment->{'seq'} + $segment->{'len'}
@@ -494,7 +494,7 @@ sub process_packet {
         'sess_hash' => $sess_hash,
 
         # is the message coming from backend ?
-        'from_backend' => $from_backend,
+        'from' => $from,
 
         # timestamps of the message
         'timestamp' => "$pckt_hdr->{'tv_sec'}."
@@ -509,7 +509,7 @@ sub process_packet {
     # if dissecting the buffer fails, reset the data for this half-part of a
     # session
     if ( $self->pgsql_dissect($pg_msg) != 0 ) {
-        $self->{'sessions'}->{$sess_hash}->[$from_backend] = {
+        $self->{'sessions'}{$sess_hash}{$from} = {
             'data'     => '',    # raw tcp data
             'next_seq' => -1,
             'segs'     => [],    # segments buffer
@@ -543,9 +543,9 @@ sub pgsql_dissect {
     my $self         = shift;
     my $pg_msg_orig  = shift;
     my $sess_hash    = $pg_msg_orig->{'sess_hash'};
-    my $from_backend = $pg_msg_orig->{'from_backend'};
+    my $from = $pg_msg_orig->{'from'};
 
-    my $curr_sess = $self->{'sessions'}->{$sess_hash}->[$from_backend];
+    my $curr_sess = $self->{'sessions'}{$sess_hash}{$from};
 
     my $data_len = length $curr_sess->{'data'};
 
@@ -555,7 +555,7 @@ sub pgsql_dissect {
         my $pg_msg = {%$pg_msg_orig};
         my $msg_len;
         my $type
-            = $from_backend
+            = $from eq 'B'
             ? get_msg_type_backend( $curr_sess->{'data'}, $curr_sess )
             : get_msg_type_frontend( $curr_sess->{'data'}, $curr_sess );
 
@@ -565,11 +565,7 @@ sub pgsql_dissect {
                 "NOTICE: buffer full of junk or empty (data available: %d)...waiting for more bits.\n",
                 $data_len
             );
-            debug(
-                6,
-                "DEBUG: last packet was: %s\n",
-                [ $curr_sess->{'data'} ]
-            );
+            debug( 6, "DEBUG: last packet was: %s\n", $curr_sess->{'data'} );
             return 0;
         }
 
@@ -587,7 +583,7 @@ sub pgsql_dissect {
             $pg_msg->{'type'} = $type;
 
             $msg_len
-                = &{ get_msg_parser($type) }( $pg_msg, $curr_sess->{'data'},
+                = &{ get_msg_parser( $type ) }( $pg_msg, $curr_sess->{'data'},
                 $curr_sess );
 
             # we don't have enough data for the current message (0)
@@ -598,7 +594,7 @@ sub pgsql_dissect {
             $pg_msg->{'data'} = substr( $curr_sess->{'data'}, 0, $msg_len );
 
             # callback for this message type
-            $self->{$type}->($pg_msg);
+            &{ $self->{$type} }( $pg_msg );
         }
         else {
             $msg_len = get_msg_len( $type, $curr_sess->{'data'}, $curr_sess );
@@ -632,7 +628,7 @@ sub pgsql_dissect {
                 $data_len
             );
 
-            delete $self->{'sessions'}->{$sess_hash};
+            delete $self->{'sessions'}{$sess_hash};
             $curr_sess = undef;
             return 0;
         }
@@ -641,7 +637,7 @@ sub pgsql_dissect {
             debug( 3,
                 "PGSQL: session %s will be encrypted so we ignore it.\n",
                 $sess_hash );
-            delete $self->{'sessions'}->{$sess_hash};
+            delete $self->{'sessions'}{$sess_hash};
             $curr_sess = undef;
             $self->{'sessions'}->{$sess_hash} = 'SSL';
             return 0;

@@ -16,7 +16,6 @@ use IO::Socket;
 use IO::Select;
 
 use constant READMAX      => 2048;
-use constant FROM_BACKEND => 1;
 
 my %sessions;
 my $selects = new IO::Select();
@@ -87,7 +86,7 @@ sub nextMessage {
     my $count     = 0;
     my $pg_msg    = { 'type' => '' };
 
-    $count = pgsql_parser( $pg_msg, FROM_BACKEND, $session->{'data'} )
+    $count = pgsql_parser_backend( $pg_msg, $session->{'data'}, {} )
         unless $session->{'data'} eq '';
 
     return undef if $count == -1;
@@ -96,7 +95,7 @@ sub nextMessage {
         return undef if readFromBackend($sess_hash) == 1;
 
         $count
-            = pgsql_parser( $pg_msg, FROM_BACKEND, $session->{'data'} );
+            = pgsql_parser_backend( $pg_msg, $session->{'data'}, {} );
     }
 
     $session->{'data'} = substr( $session->{'data'}, $count );
@@ -231,7 +230,7 @@ sub Replay {
 sub ReplayCopy {
     my $pg_msg = shift;
 
-    return if $pg_msg->{'from_backend'};
+    return if $pg_msg->{'from'} eq 'B';
 
     Replay($pg_msg);
 }

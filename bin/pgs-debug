@@ -8,9 +8,6 @@ use Getopt::Long;
 use Pod::Usage;
 use pgShark;
 
-use constant FROM_FRONTEND => 0;
-use constant FROM_BACKEND  => 1;
-
 my $shark;
 my %args = (
     'help'      => 0,
@@ -26,15 +23,13 @@ my %args = (
 #prelude
 # Prints mandatored fields for any kind of message as prelude
 # @param $pg_msg The pgsql message hash
-# @param $from_backend does the message comes from backend or frontend ? (1/0)
 sub prelude {
     my $pg_msg       = shift;
-    my $from_backend = shift;
 
     printf "Packet: t=%s, session=%s\n", $pg_msg->{'timestamp'},
         $pg_msg->{'sess_hash'};
     printf "PGSQL: type=%s, ", $pg_msg->{'type'};
-    if ( $from_backend == FROM_BACKEND ) {
+    if ( $pg_msg->{'from'} eq 'B' ) {
         printf "B -> F\n";
     }
     else {
@@ -106,7 +101,7 @@ sub code_response {
 
 sub Authentication {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "AUTHENTIFICATION REQUEST code=%d ", $pg_msg->{'code'};
 
@@ -148,7 +143,7 @@ SWITCH: {
 
 sub BackendKeyData {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "BACKEND KEY DATA pid=%d, key=%d\n\n", $pg_msg->{'pid'},
         $pg_msg->{'key'};
@@ -156,7 +151,7 @@ sub BackendKeyData {
 
 sub Bind {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     map { $_ = 'NULL' if not defined } @{ $pg_msg->{'params'} };
 
@@ -169,14 +164,14 @@ sub Bind {
 
 sub BindComplete {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "BIND COMPLETE\n\n";
 }
 
 sub CancelRequest {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "CANCEL REQUEST pid=%s, key=%s\n\n", $pg_msg->{'pid'},
         $pg_msg->{'key'};
@@ -184,7 +179,7 @@ sub CancelRequest {
 
 sub Close {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "CLOSE kind='%s', name='%s'\n\n", $pg_msg->{'kind'},
         $pg_msg->{'name'};
@@ -192,46 +187,44 @@ sub Close {
 
 sub CloseComplete {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "CLOSE COMPLETE\n\n";
 }
 
 sub CommandComplete {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "COMMAND COMPLETE command='%s'\n\n", $pg_msg->{'command'};
 }
 
-# @param $from_backend (boolean) wether the message comes from the backend or not
 sub CopyData {
     my $pg_msg = shift;
 
-    prelude( $pg_msg, $pg_msg->{'from_backend'} );
+    prelude( $pg_msg );
 
     printf "COPY DATA len=%d\n\n", length( $pg_msg->{'row'} );
 }
 
-# @param $from_backend (boolean) wether the message comes from the backend or not
 sub CopyDone {
     my $pg_msg = shift;
 
-    prelude( $pg_msg, $pg_msg->{'from_backend'} );
+    prelude( $pg_msg );
 
     printf "COPY DONE\n\n";
 }
 
 sub CopyFail {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "COPY FAIL error='%s'\n\n", $pg_msg->{'error'};
 }
 
 sub CopyInResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf
         "COPY IN RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n",
@@ -241,7 +234,7 @@ sub CopyInResponse {
 
 sub CopyOutResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf
         "COPY OUT RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n",
@@ -251,7 +244,7 @@ sub CopyOutResponse {
 
 sub CursorResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "CURSOR RESPONSE name='%s'\n\n", $pg_msg->{'name'};
 }
@@ -259,7 +252,7 @@ sub CursorResponse {
 sub DataRow {
     my $pg_msg = shift;
     my $i      = 0;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "DATA ROW num_values=%d\n", $pg_msg->{'num_values'};
 
@@ -280,7 +273,7 @@ sub DataRow {
 
 sub Describe {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "DESCRIBE kind='%s', name='%s'\n\n", $pg_msg->{'kind'},
         $pg_msg->{'name'};
@@ -288,14 +281,14 @@ sub Describe {
 
 sub EmptyQueryResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "EMPTY QUERY RESPONSE\n\n";
 }
 
 sub ErrorResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "ERROR RESPONSE\n";
     code_response($pg_msg);
@@ -305,7 +298,7 @@ sub ErrorResponse {
 
 sub Execute {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "EXECUTE name='%s', nb_rows=%d\n\n", $pg_msg->{'name'},
         $pg_msg->{'nb_rows'};
@@ -313,21 +306,21 @@ sub Execute {
 
 sub Flush {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "FLUSH\n\n";
 }
 
 sub NoData {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "NO DATA\n\n";
 }
 
 sub NoticeResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "NOTICE RESPONSE\n\n";
     code_response($pg_msg);
@@ -337,7 +330,7 @@ sub NoticeResponse {
 
 sub NotificationResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "NOTIFICATION RESPONSE pid=%d, channel='%s', payload='%s'\n\n",
         $pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'},;
@@ -345,7 +338,7 @@ sub NotificationResponse {
 
 sub ParameterDescription {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "PARAMETER DESCRIPTION: num_param=%d, params_oids=%s\n\n",
         $pg_msg->{'num_params'}, join( ', ', @{ $pg_msg->{'params_types'} } );
@@ -353,7 +346,7 @@ sub ParameterDescription {
 
 sub ParameterStatus {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "PARAMETER STATUS name='%s', value='%s'\n\n", $pg_msg->{'name'},
         $pg_msg->{'value'};
@@ -361,7 +354,7 @@ sub ParameterStatus {
 
 sub Parse {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "PARSE name='%s', num_params=%d, params_type=%s, query=%s\n\n",
         $pg_msg->{'name'}, $pg_msg->{'num_params'},
@@ -370,35 +363,35 @@ sub Parse {
 
 sub ParseComplete {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "PARSE COMPLETE\n\n";
 }
 
 sub PasswordMessage {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "PASSWORD MESSAGE password=%s\n\n", $pg_msg->{'password'};
 }
 
 sub PortalSuspended {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "PORTAL SUSPENDED\n\n";
 }
 
 sub Query {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "QUERY query=%s\n\n", $pg_msg->{'query'};
 }
 
 sub ReadyForQuery {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     $pg_msg->{'status'} = '?' if not defined $pg_msg->{'status'};
 
@@ -421,7 +414,7 @@ sub ReadyForQuery {
 sub RowDescription {
     my $pg_msg = shift;
     my $i      = 0;
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "ROW DESCRIPTION: num_fields=%d\n", $pg_msg->{'num_fields'};
 
@@ -441,14 +434,14 @@ sub RowDescription {
 sub SSLAnswer {
     my $pg_msg = shift;
 
-    prelude( $pg_msg, FROM_BACKEND );
+    prelude( $pg_msg );
 
     printf "SSL BACKEND ANSWER: %s\n\n", $pg_msg->{'ssl_answer'};
 }
 
 sub SSLRequest {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "SSL REQUEST\n\n";
 }
@@ -456,7 +449,7 @@ sub SSLRequest {
 sub StartupMessage {
     my $pg_msg = shift;
     my $i      = 0;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "STARTUP MESSAGE version: %s\n", $pg_msg->{'version'};
 
@@ -468,14 +461,14 @@ sub StartupMessage {
 
 sub Sync {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "SYNC\n\n";
 }
 
 sub Terminate {
     my $pg_msg = shift;
-    prelude( $pg_msg, FROM_FRONTEND );
+    prelude( $pg_msg );
 
     printf "DISCONNECT\n\n";
 }
