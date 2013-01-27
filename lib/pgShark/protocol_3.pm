@@ -271,6 +271,9 @@ sub get_msg_type_frontend($;$) {
         # my $maj = $code/65536; # == 3
     }
 
+    # not enough data (usually because of fragmented data)
+    return undef if length $raw_data < 5;
+
     # not known !
     return '';
 }
