@@ -12,7 +12,7 @@ This Perl module is aimed to be used by module pgShark. However, its functions
 can be useful for other purpose to deal or parse PostgreSQL message of
 protocol v2.
 
-Unlike the protocole version 3, version 2 is stateful. Because of this, in
+Some messages properties depends to previous ones.  Because of this, in
 most function, this is the responsability of the caller to keep track of the
 state of each sessions by giving a hashref where states are kept. This hashref
 **MUST** concern the ONLY current session (Frontend/Backend couple) data are
@@ -300,8 +300,8 @@ sub get_msg_type_frontend($$) {
 =item *
 B<pgsql_parser_backend (\%pg_msg, $data, \%state)>
 
-Parse and dissect a buffer, looking for a valid pgsql v2 message coming from a
-backend. Then it sets the given hashref as first parameter with the message
+Parse and dissect a buffer, looking for a valid pgsql v2 message coming from
+the backend. Then it sets the given hashref as first parameter with the message
 properties. Properties set in the given hashref depend on the message type. See
 the function code comments for more information about them.
 
@@ -309,9 +309,6 @@ The data to parsed are given as second parameter.
 
 The third parameter helps to keep track of the state of each
 sessions by giving a hashref as third parameter.
-
-This function is static, so it can be used outside of the class for any other
-purpose.
 
 The function tries to keep some compatibility with messages type returned from the
 v3 parser. Here is how messages are mapped between v2 and v3:
@@ -367,9 +364,6 @@ The data to parsed are given in the second parameter.
 
 The third parameter helps to keep track of the state of each
 sessions by giving a hashref as third parameter.
-
-This function is static, so it can be used outside of the class for any other
-purpose.
 
 The function tries to keep some compatibility with messages type returned from the
 v3 parser. Here is how messages are mapped between v2 and v3:

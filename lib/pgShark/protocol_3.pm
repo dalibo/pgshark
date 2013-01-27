@@ -12,6 +12,12 @@ This Perl module is aimed to be used by module pgShark. However, its functions
 can be useful for other purpose to deal or parse PostgreSQL message of
 protocol v3.
 
+Some messages properties depends to previous ones.  Because of this, in
+most function, this is the responsability of the caller to keep track of the
+state of each sessions by giving a hashref where states are kept. This hashref
+**MUST** concern the ONLY current session (Frontend/Backend couple) data are
+parsed for.
+
 =head1 FUNCTIONS
 
 =over
@@ -155,12 +161,13 @@ B<get_msg_parser ($data)>
 
 Retruns a subref able to parse the message of type given as parameter one.
 
-The parser sub takes two args:
+The parser sub takes three args:
 
-    &{ $parser} (\%msg_props, $data)
+    &{ $parser} (\%msg_props, $data, \%state)
 
 First parameter is a hashref where the message properties will be set. The
-second one is the data to parse the message from.
+second one is the data to parse the message from and the third one helps to keep
+track of the session status.
 
 =cut
 
@@ -169,10 +176,12 @@ sub get_msg_parser($) {
 }
 
 =item *
-B<get_msg_len ($type, $data)>
+B<get_msg_len ($type, $data, \%state)>
 
 Returns the length of the message of given as second parameter with type given
 as first parameter.
+
+The third parameter is used to keep track of session state.
 
 =cut
 
@@ -216,10 +225,14 @@ sub get_msg_len($$;$) {
 }
 
 =item *
-B<get_msg_type_backend ($data)>
+B<get_msg_type_backend ($data, \%state)>
 
 Returns the type of a message coming from the backend. Message is given as
 first parameter.
+
+The second parameter helps to keep track of the session state. As this function
+is responsible to detect the type of messages, it has reponsability to set the
+state of each session.
 
 =cut
 
@@ -246,10 +259,14 @@ sub get_msg_type_backend($;$) {
 }
 
 =item *
-B<get_msg_type_frontend ($data)>
+B<get_msg_type_frontend ($data, \%state)>
 
 Returns the type of a message coming from the frontend. Message is given as
 first parameter.
+
+The second parameter helps to keep track of the session state. As this function
+is responsible to detect the type of messages, it has reponsability to set the
+state of each session.
 
 =cut
 
@@ -279,14 +296,17 @@ sub get_msg_type_frontend($;$) {
 }
 
 =item *
-B<pgsql_parser_backend (\%pg_msg, $data)>
+B<pgsql_parser_backend (\%pg_msg, $data, \%state)>
 
 Parse and dissect a buffer, looking for a valid pgsql v3 message coming from
-the backend. It sets the given hashref as first parameter with the message
+the backend. Then it sets the given hashref as first parameter with the message
 properties. Properties set in the given hashref depend on the message type. See
 the function code comments for more information about them.
 
 The data to parsed are given as second parameter.
+
+The third parameter helps to keep track of the state of each
+sessions by giving a hashref as third parameter.
 
 CAUTION: This function MUST returns the total length of the parsed message so
 it can be removed from the TCP monolog buffer. 0 means lack of data to
@@ -322,7 +342,7 @@ sub pgsql_parser_backend($$;$) {
 }
 
 =item *
-B<pgsql_parser_frontend (\%pg_msg, $data)>
+B<pgsql_parser_frontend (\%pg_msg, $data, \%state)>
 
 Parse and dissect a buffer, looking for a valid pgsql v3 message coming from a
 frontend. It sets the given hashref as first parameter with the message
@@ -330,6 +350,9 @@ properties. Properties set in the given hashref depend on the message type. See
 the function code comments for more information about them.
 
 The data to parsed are given as second parameter.
+
+The third parameter helps to keep track of the state of each
+sessions by giving a hashref as third parameter.
 
 CAUTION: This function MUST returns the total length of the parsed message so
 it can be removed from the TCP monolog buffer. 0 means lack of data to
@@ -364,28 +387,28 @@ sub pgsql_parser_frontend($$;$) {
 
 # AuthenticationOk
 #   code=int32
-sub AuthenticationOk($$) {
+sub AuthenticationOk($$;$) {
     $_[0]{'code'} = 0;
     return 9;
 }
 
 # AuthenticationKerberosV4
 #   code=int32
-sub AuthenticationKerberosV4($$) {
+sub AuthenticationKerberosV4($$;$) {
     $_[0]{'code'} = 1;
     return 9;
 }
 
 # AuthenticationKerberosV5
 #   code=int32
-sub AuthenticationKerberosV5($$) {
+sub AuthenticationKerberosV5($$;$) {
     $_[0]{'code'} = 2;
     return 9;
 }
 
 # AuthenticationCleartextPassword
 #   code=int32
-sub AuthenticationCleartextPassword($$) {
+sub AuthenticationCleartextPassword($$;$) {
     $_[0]{'code'} = 3;
     return 9;
 }
@@ -393,7 +416,7 @@ sub AuthenticationCleartextPassword($$) {
 # AuthenticationCryptPassword
 #   code=int32
 #   sal=Char[2]
-sub AuthenticationCryptPassword($$) {
+sub AuthenticationCryptPassword($$;$) {
     $_[0]{'code'} = 4;
     $_[0]{'salt'} = substr( $_[1], 9, 2 );
     return 11;
@@ -402,7 +425,7 @@ sub AuthenticationCryptPassword($$) {
 # AuthenticationMD5Password
 #   code=int32
 #   salt=Char[4]
-sub AuthenticationMD5Password($$) {
+sub AuthenticationMD5Password($$;$) {
     $_[0]{'code'} = 5;
     $_[0]{'salt'} = substr( $_[1], 9, 4 );
     return 13;
@@ -410,21 +433,21 @@ sub AuthenticationMD5Password($$) {
 
 # AuthenticationSCMCredential
 #   code=int32
-sub AuthenticationSCMCredential($$) {
+sub AuthenticationSCMCredential($$;$) {
     $_[0]{'code'} = 6;
     return 9;
 }
 
 # AuthenticationGSS
 #   code=int32
-sub AuthenticationGSS($$) {
+sub AuthenticationGSS($$;$) {
     $_[0]{'code'} = 7;
     return 9;
 }
 
 # AuthenticationSSPI
 #   code=int32
-sub AuthenticationSSPI($$) {
+sub AuthenticationSSPI($$;$) {
     $_[0]{'code'} = 9;
     return 9;
 }
@@ -432,7 +455,7 @@ sub AuthenticationSSPI($$) {
 # GSSAPI or SSPI authentication data
 #   code=int32
 #   auth_data=String
-sub AuthenticationGSSContinue($$) {
+sub AuthenticationGSSContinue($$;$) {
     my $len = unpack( 'xN', $_[1] );
 
     return 0 if $len + 1 > length $_[1];
@@ -445,7 +468,7 @@ sub AuthenticationGSSContinue($$) {
 # message: B(K) "BackendKeyData"
 #   pid=int32
 #   key=int32
-sub BackendKeyData($$) {
+sub BackendKeyData($$;$) {
     return 0 if length $_[1] < 13;
 
     ( $_[0]{'pid'}, $_[0]{'key'} ) = unpack( 'x5NN', $_[1] );
@@ -460,7 +483,7 @@ sub BackendKeyData($$) {
 #   formats[]=int16[nb_formats]
 #   num_params=int16
 #   params[]=(len=int32,value=char[len])[nb_params]
-sub Bind($$) {
+sub Bind($$;$) {
     my @params_formats;
     my @params;
     my $pg_msg   = $_[0];
@@ -517,12 +540,12 @@ sub Bind($$) {
     return $len + 1;
 }
 
-sub BindComplete ($$) { return 5 }
+sub BindComplete ($$;$) { return 5 }
 
 # message: CancelRequest (F)
 #   pid=int32
 #   key=int32
-sub CancelRequest($$) {
+sub CancelRequest($$;$) {
     ( $_[0]{'pid'}, $_[0]{'key'} ) = unpack( 'x8NN', $_[1] );
     return 16;
 }
@@ -530,7 +553,7 @@ sub CancelRequest($$) {
 # message: F(C) "Close"
 #   kind=char
 #   name=String
-sub Close($$) {
+sub Close($$;$) {
     my $len = unpack( 'xN', $_[1] ) + 1;
 
     return 0 if $len > length $_[1];
@@ -540,12 +563,12 @@ sub Close($$) {
     return $len;
 }
 
-sub CloseComplete ($$) { return 5 }
+sub CloseComplete ($$;$) { return 5 }
 
 # message: B(C) "CommandComplete"
 #   type=char
 #   name=String
-sub CommandComplete($$) {
+sub CommandComplete($$;$) {
     my $len;
     ( $len, $_[0]{'command'} ) = unpack( 'xNZ*', $_[1] );
 
@@ -558,7 +581,7 @@ sub CommandComplete($$) {
 
 # message: B(d) or F(d) "CopyData"
 #   row=Byte[n]
-sub CopyData($$) {
+sub CopyData($$;$) {
     my $len = unpack( 'xN', $_[1] );
 
     return 0 if $len + 1 > length $_[1];
@@ -572,7 +595,7 @@ sub CopyDone($$) { return 5 }
 
 # message: F(f) "CopyFail"
 #   error=String
-sub CopyFail($$) {
+sub CopyFail($$;$) {
     my $len;
 
     ( $len, $_[0]{'error'} ) = unpack( 'xNZ*', $_[1] );
@@ -588,7 +611,7 @@ sub CopyFail($$) {
 #   copy_format=int8
 #   num_fields=int16
 #   fields_formats[]=int16[num_fields]
-sub CopyInResponse($$) {
+sub CopyInResponse($$;$) {
     my @fields_formats;
 
     my $len = unpack( 'xN', $_[1] ) + 1;
@@ -609,7 +632,7 @@ sub CopyInResponse($$) {
 #   value=Byte[value_len]
 #       (TODO give the format given in previous message B(T) ?)
 #   )[num_values]
-sub DataRow($$) {
+sub DataRow($$;$) {
     my @values;
     my $msg;
     my $i = 0;
@@ -646,7 +669,7 @@ sub DataRow($$) {
 # message: F(D) "Describe"
 #   kind=char
 #   name=String
-sub Describe($$) {
+sub Describe($$;$) {
     my $len = unpack( 'xN', $_[1] ) + 1;
 
     return 0 if $len > length $_[1];
@@ -659,7 +682,7 @@ sub Describe($$) {
 # message: B(E) "ErrorResponse"
 #   (code=char
 #   value=String){1,}\x00
-sub ErrorResponse($$) {
+sub ErrorResponse($$;$) {
     my %fields;
     my $len = unpack( 'xN', $_[1] );
 
@@ -679,12 +702,12 @@ sub ErrorResponse($$) {
     return $len + 1;
 }
 
-sub EmptyQueryResponse($$) { return 5 }
+sub EmptyQueryResponse($$;$) { return 5 }
 
 # message: F(E) "Execute"
 #   name=String
 #   nb_rows=int32
-sub Execute($$) {
+sub Execute($$;$) {
     my $len = unpack( 'xN', $_[1] ) + 1;
 
     return 0 if $len > length $_[1];
@@ -694,7 +717,7 @@ sub Execute($$) {
     return $len;
 }
 
-sub Flush($$) { return 5 }
+sub Flush($$;$) { return 5 }
 
 # message: F(F) "FunctionCall"
 #   func_oid=Int32
@@ -704,7 +727,7 @@ sub Flush($$) { return 5 }
 #   args[]=(len=int32,value=Byte[len])[nb_args]
 #   result_format=Int16
 # TODO: NOT TESTED yet
-sub FunctionCall($$) {
+sub FunctionCall($$;$) {
     my @args_formats;
     my @args;
     my $msg;
@@ -750,7 +773,7 @@ sub FunctionCall($$) {
 #   len=Int32
 #   value=Byte[len]
 # TODO: NOT TESTED yet
-sub FunctionCallResponse($$) {
+sub FunctionCallResponse($$;$) {
     my $len = unpack( 'xN', $_[1] ) + 1;
 
     return 0 if $len > length $_[1];
@@ -771,13 +794,13 @@ sub FunctionCallResponse($$) {
     return $len;
 }
 
-sub NoData($$) { return 5 }
+sub NoData($$;$) { return 5 }
 
 # message: B(A) "NotificationResponse"
 #   pid=int32
 #   channel=String
 #   payload=String
-sub NotificationResponse($$) {
+sub NotificationResponse($$;$) {
     my $len = unpack( 'xN', $_[1] ) + 1;
 
     return 0 if $len > length $_[1];
@@ -791,7 +814,7 @@ sub NotificationResponse($$) {
 # message: B(t) "ParameterDescription"
 #   num_params=int16
 #   params_types[]=int32[nb_formats]
-sub ParameterDescription($$) {
+sub ParameterDescription($$;$) {
     my @params_types;
     my $len = unpack( 'xN', $_[1] ) + 1;
 
@@ -807,7 +830,7 @@ sub ParameterDescription($$) {
 # message: B(S) "ParameterStatus"
 #   name=String
 #   value=String
-sub ParameterStatus($$) {
+sub ParameterStatus($$;$) {
     my $len = unpack( 'xN', $_[1] ) + 1;
 
     return 0 if $len > length $_[1];
@@ -822,7 +845,7 @@ sub ParameterStatus($$) {
 #   query=String
 #   num_params=int16
 #   params_types[]=int32[nb_formats]
-sub Parse($$) {
+sub Parse($$;$) {
     my @params_types;
     my $len = unpack( 'xN', $_[1] ) + 1;
 
@@ -837,11 +860,11 @@ sub Parse($$) {
     return $len;
 }
 
-sub ParseComplete($$) { return 5 }
+sub ParseComplete($$;$) { return 5 }
 
 # message: F(p) "PasswordMessage"
 #    password=String
-sub PasswordMessage($$) {
+sub PasswordMessage($$;$) {
     my $len;
     ( $len, $_[0]{'password'} ) = unpack( 'xNZ*', $_[1] );
 
@@ -852,11 +875,11 @@ sub PasswordMessage($$) {
     return $len;
 }
 
-sub PortalSuspended($$) { return 5 }
+sub PortalSuspended($$;$) { return 5 }
 
 # message: F(Q) "Query"
 #    query=String
-sub Query($$) {
+sub Query($$;$) {
     my $len;
     ( $len, $_[0]{'query'} ) = unpack( 'xNZ*', $_[1] );
 
@@ -869,7 +892,7 @@ sub Query($$) {
 
 # message: B(Z) "ReadyForQuery"
 #   status=Char
-sub ReadyForQuery($$) {
+sub ReadyForQuery($$;$) {
     return 0 if length $_[1] < 6;
 
     $_[0]{'status'} = substr( $_[1], 5, 1 );
@@ -888,7 +911,7 @@ sub ReadyForQuery($$) {
 #     type_mod=int32 (see pg_attribute.atttypmod)
 #     format=int16 (0:text or 1:binary)
 #   )[num_fields]
-sub RowDescription($$) {
+sub RowDescription($$;$) {
     my @fields;
     my $i = 0;
     my $msg;
@@ -914,19 +937,19 @@ sub RowDescription($$) {
 }
 
 # message: SSLAnswer (B)
-sub SSLAnswer($$) {
+sub SSLAnswer($$;$) {
     $_[0]{'ssl_answer'} = substr( $_[1], 0, 1 );
 
     return 1;
 }
 
-sub SSLRequest($$) { return 8 }
+sub SSLRequest($$;$) { return 8 }
 
 # message: StartupMessage (F)
 #   status=Char
 #   (param=String
 #   value=String){1,}\x00
-sub StartupMessage($$) {
+sub StartupMessage($$;$) {
     my $msg;
     my $len = unpack( 'N', $_[1] );
     my %params;
@@ -949,9 +972,9 @@ sub StartupMessage($$) {
     return $len;
 }
 
-sub Sync($$) { return 5 }
+sub Sync($$;$) { return 5 }
 
-sub Terminate($$) { return 5 }
+sub Terminate($$;$) { return 5 }
 
 BEGIN {
     *CopyBothResponse = \&CopyInResponse;
