@@ -150,7 +150,8 @@ sub new {
         'port'       => defined $args{'port'} ? $args{'port'} : '5432',
         'msg_count'  => 0,
         'protocol'   => defined $args{'protocol'} ? $args{'protocol'} : '3',
-        'sessions'   => {}
+        'sessions'   => {},
+        'can_detect_sr' => 0
     };
 
     # Converts the dot'ed IPADDR of the host to decimal
@@ -162,6 +163,9 @@ sub new {
     foreach my $func ( keys %{ $args{'procs'} } ) {
         $self->{$func} = $args{'procs'}->{$func};
     }
+
+    $self->{'can_detect_sr'} = 1 if defined ($self->{'CopyBothResponse'})
+        or (defined ($self->{'CopyData'}) and defined ($self->{'CopyDone'}));
 
     if ( $self->{'protocol'} eq '2' ) {
         eval 'use pgShark::protocol_2';
@@ -586,6 +590,40 @@ sub pgsql_dissect {
             $msg_len
                 = &{ get_msg_parser( $type ) }( $pg_msg, $monolog->{'data'},
                 $sess );
+
+            # Simple streaming replication auto-detect. If both sides are
+            # talking over a CopyData stream before the Copy mode is done,
+            # then we are in replication mode !
+            if ($self->{'can_detect_sr'} and not $sess->{'replication'}) {
+                debug(1, "LOG: trying to detect streaming replication for session %s\n"
+                    , $sess_hash
+                ) unless defined $sess->{'copy_from'};
+
+                if ($type eq 'CopyDone') {
+                    delete $sess->{'copy_from'};
+                }
+                elsif ($type eq 'CopyData'
+                    and not defined $sess->{'copy_from'})
+                {
+                    $sess->{'copy_from'} = $from;
+                }
+                elsif ($type eq 'CopyData') {
+                    unless ($sess->{'copy_from'} eq $from) {
+                        $sess->{'replication'} = 1;
+
+                        debug(1, "LOG: streaming replication detected for session %s!\n"
+                            , $sess_hash
+                        );
+
+                        # recompute type and parsing
+                        $type = $from eq 'B'
+                            ? get_msg_type_backend( $monolog->{'data'}, $sess )
+                            : get_msg_type_frontend( $monolog->{'data'}, $sess );
+                        $msg_len = &{ get_msg_parser( $type ) }
+                            ( $pg_msg, $monolog->{'data'}, $sess );
+                    }
+                }
+            }
 
             # we don't have enough data for the current message (0)
             # or an error occured (<0)

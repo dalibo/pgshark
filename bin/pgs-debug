@@ -311,6 +311,13 @@ sub Flush {
     printf "FLUSH\n\n";
 }
 
+sub HotStandbyFeedback {
+	my $pg_msg = shift;
+	prelude($pg_msg);
+
+	printf "HOT-STANDBY FEEDBACK\n\n";
+}
+
 sub NoData {
     my $pg_msg = shift;
     prelude( $pg_msg );
@@ -382,6 +389,13 @@ sub PortalSuspended {
     printf "PORTAL SUSPENDED\n\n";
 }
 
+sub PrimaryKeepalive {
+	my $pg_msg = shift;
+	prelude($pg_msg);
+
+	printf "PRIMARY KEEP-ALIVE\n\n";
+}
+
 sub Query {
     my $pg_msg = shift;
     prelude( $pg_msg );
@@ -446,6 +460,13 @@ sub SSLRequest {
     printf "SSL REQUEST\n\n";
 }
 
+sub StandbyStatusUpdate {
+	my $pg_msg = shift;
+	prelude($pg_msg);
+
+	printf "STANDBY STATUS UPDATE\n\n";
+}
+
 sub StartupMessage {
     my $pg_msg = shift;
     my $i      = 0;
@@ -471,6 +492,13 @@ sub Terminate {
     prelude( $pg_msg );
 
     printf "DISCONNECT\n\n";
+}
+
+sub XLogData {
+	my $pg_msg = shift;
+	prelude($pg_msg);
+
+	printf "XLOG DATA len=%d\n\n", length($pg_msg->{'data'});
 }
 
 Getopt::Long::Configure('bundling');
@@ -551,7 +579,12 @@ $shark = pgShark->new(
             'SSLRequest'           => \&SSLRequest,
             'StartupMessage'       => \&StartupMessage,
             'Sync'                 => \&Sync,
-            'Terminate'            => \&Terminate
+            'Terminate'            => \&Terminate,
+            # replication messages
+            'HotStandbyFeedback'   => \&HotStandbyFeedback,
+            'PrimaryKeepalive'     => \&PrimaryKeepalive,
+            'StandbyStatusUpdate'  => \&StandbyStatusUpdate,
+            'XLogData'             => \&XLogData
         },
         'host'     => $args{'host'},
         'port'     => $args{'port'},
