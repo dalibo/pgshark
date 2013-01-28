@@ -302,7 +302,7 @@ sub process_all {
 # Data payloads are reconstructed based on TCP seq/ack sequences.
 sub process_packet {
     my ( $self, $pckt_hdr, $pckt ) = @_;
-    my ( $sess_hash, $curr_sess, $from, $is_fin );
+    my ( $sess_hash, $monolog, $from, $is_fin );
 
     $self->{'pckt_count'}++;
 
@@ -398,11 +398,11 @@ sub process_packet {
         return;
     }
 
-    $curr_sess = $self->{'sessions'}{$sess_hash}{$from};
+    $monolog = $self->{'sessions'}{$sess_hash}{$from};
 
-    $curr_sess->{'next_seq'} = $seqnum;
+    $monolog->{'next_seq'} = $seqnum;
 
-    push @{ $curr_sess->{'segs'} },
+    push @{ $monolog->{'segs'} },
         (
         {   'seq'  => $seqnum,
             'len'  => $tcp_len,
@@ -411,31 +411,31 @@ sub process_packet {
         );
 
     debug( 5, "TCP/IP: %s-%s: segment in the buff: %d\n",
-        $sess_hash, $from, scalar @{ $curr_sess->{'segs'} } );
+        $sess_hash, $from, scalar @{ $monolog->{'segs'} } );
 
     # we loop over existing tcp segments trying to find the best one to
     # reconstruct the data
     my $i = 0;
-    foreach my $segment ( @{ $curr_sess->{'segs'} } ) {
+    foreach my $segment ( @{ $monolog->{'segs'} } ) {
 
         # normal
-        if ( $curr_sess->{'next_seq'} == $segment->{'seq'} ) {
+        if ( $monolog->{'next_seq'} == $segment->{'seq'} ) {
 
             debug( 5, "TCP/IP: %s-%s: perfect sequence\n",
                 $sess_hash, $from );
 
             # add data to the current session's buffer
-            $curr_sess->{'data'} .= $segment->{'data'};
-            $curr_sess->{'next_seq'}
-                = $curr_sess->{'next_seq'} + $segment->{'len'};
+            $monolog->{'data'} .= $segment->{'data'};
+            $monolog->{'next_seq'}
+                = $monolog->{'next_seq'} + $segment->{'len'};
 
-            splice @{ $curr_sess->{'segs'} }, $i, 1;
+            splice @{ $monolog->{'segs'} }, $i, 1;
         }
 
         # tcp's data begins in past but finish in future
         elsif (
-            ( $curr_sess->{'next_seq'} >= $segment->{'seq'} )
-            and ( $curr_sess->{'next_seq'}
+            ( $monolog->{'next_seq'} >= $segment->{'seq'} )
+            and ( $monolog->{'next_seq'}
                 < $segment->{'seq'} + $segment->{'len'} )
             )
         {
@@ -445,23 +445,23 @@ sub process_packet {
                 $sess_hash,
                 $from
             );
-            my $offset = $curr_sess->{'next_seq'} - $segment->{'seq'};
+            my $offset = $monolog->{'next_seq'} - $segment->{'seq'};
 
             # add data to the current session's buffer
-            $curr_sess->{'data'} .= substr( $segment->{'data'}, $offset );
-            $curr_sess->{'next_seq'}
-                = $curr_sess->{'next_seq'} + $segment->{'len'} - $offset;
+            $monolog->{'data'} .= substr( $segment->{'data'}, $offset );
+            $monolog->{'next_seq'}
+                = $monolog->{'next_seq'} + $segment->{'len'} - $offset;
 
-            splice @{ $curr_sess->{'segs'} }, $i, 1;
+            splice @{ $monolog->{'segs'} }, $i, 1;
         }
 
         # tcp segment already done, drop it
-        elsif ( $curr_sess->{'next_seq'}
+        elsif ( $monolog->{'next_seq'}
             >= $segment->{'seq'} + $segment->{'len'} )
         {
             debug( 5, "TCP/IP: %s-%s: segment in the past.\n",
                 $sess_hash, $from );
-            splice @{ $curr_sess->{'segs'} }, $i, 1;
+            splice @{ $monolog->{'segs'} }, $i, 1;
         }
 
         # tcp's in the future, we keep it in the segment buffer
@@ -471,7 +471,7 @@ sub process_packet {
                 "TCP/IP: %s-%s:  tcp's in the future, next_seq: %d, seq: %d-%d.\n",
                 $sess_hash,
                 $from,
-                $curr_sess->{'next_seq'},
+                $monolog->{'next_seq'},
                 $segment->{'seq'},
                 $segment->{'seq'} + $segment->{'len'}
             );
@@ -543,11 +543,12 @@ sub pgsql_dissect {
     my $self         = shift;
     my $pg_msg_orig  = shift;
     my $sess_hash    = $pg_msg_orig->{'sess_hash'};
-    my $from = $pg_msg_orig->{'from'};
+    my $from         = $pg_msg_orig->{'from'};
 
-    my $curr_sess = $self->{'sessions'}{$sess_hash}{$from};
+    my $sess = $self->{'sessions'}{$sess_hash};
+    my $monolog = $self->{'sessions'}{$sess_hash}{$from};
 
-    my $data_len = length $curr_sess->{'data'};
+    my $data_len = length $monolog->{'data'};
 
     do {
 
@@ -556,8 +557,8 @@ sub pgsql_dissect {
         my $msg_len;
         my $type
             = $from eq 'B'
-            ? get_msg_type_backend( $curr_sess->{'data'}, $curr_sess )
-            : get_msg_type_frontend( $curr_sess->{'data'}, $curr_sess );
+            ? get_msg_type_backend( $monolog->{'data'}, $sess )
+            : get_msg_type_frontend( $monolog->{'data'}, $sess );
 
         if ( not defined $type ) {
             debug(
@@ -565,7 +566,7 @@ sub pgsql_dissect {
                 "NOTICE: buffer full of junk or empty (data available: %d)...waiting for more bits.\n",
                 $data_len
             );
-            debug( 6, "DEBUG: last packet was: %s\n", $curr_sess->{'data'} );
+            debug( 6, "DEBUG: last packet was: %s\n", $monolog->{'data'} );
             return 0;
         }
 
@@ -575,7 +576,7 @@ sub pgsql_dissect {
                 "WARNING: dropped alien packet at timestamp %s!\n",
                 $pg_msg->{'timestamp'}
             );
-            debug( 6, "DEBUG: alien packet was: %s\n", $curr_sess->{'data'} );
+            debug( 6, "DEBUG: alien packet was: %s\n", $monolog->{'data'} );
             return -1;
         }
 
@@ -583,21 +584,21 @@ sub pgsql_dissect {
             $pg_msg->{'type'} = $type;
 
             $msg_len
-                = &{ get_msg_parser( $type ) }( $pg_msg, $curr_sess->{'data'},
-                $curr_sess );
+                = &{ get_msg_parser( $type ) }( $pg_msg, $monolog->{'data'},
+                $sess );
 
             # we don't have enough data for the current message (0)
             # or an error occured (<0)
             return $msg_len if $msg_len < 1;
 
             # extract the message data from the buffer
-            $pg_msg->{'data'} = substr( $curr_sess->{'data'}, 0, $msg_len );
+            $pg_msg->{'data'} = substr( $monolog->{'data'}, 0, $msg_len );
 
             # callback for this message type
             &{ $self->{$type} }( $pg_msg );
         }
         else {
-            $msg_len = get_msg_len( $type, $curr_sess->{'data'}, $curr_sess );
+            $msg_len = get_msg_len( $type, $monolog->{'data'}, $sess );
         }
 
         # we don't have enough data for the current message (0)
@@ -629,22 +630,22 @@ sub pgsql_dissect {
             );
 
             delete $self->{'sessions'}{$sess_hash};
-            $curr_sess = undef;
+            $monolog = undef;
             return 0;
         }
 
-        if ( $type eq 'SSLAnswer' and $curr_sess->{'data'} =~ /^Y/ ) {
+        if ( $type eq 'SSLAnswer' and $monolog->{'data'} =~ /^Y/ ) {
             debug( 3,
                 "PGSQL: session %s will be encrypted so we ignore it.\n",
                 $sess_hash );
             delete $self->{'sessions'}{$sess_hash};
-            $curr_sess = undef;
-            $self->{'sessions'}->{$sess_hash} = 'SSL';
+            $monolog = undef;
+            $self->{'sessions'}{$sess_hash} = 'SSL';
             return 0;
         }
 
         # remove processed data from the buffer
-        $curr_sess->{'data'} = substr( $curr_sess->{'data'}, $msg_len );
+        $monolog->{'data'} = substr( $monolog->{'data'}, $msg_len );
         $data_len -= $msg_len;
 
     } while ( $data_len > 0 );
