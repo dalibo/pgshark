@@ -31,7 +31,7 @@ my $t_errors = 0;
 
 my %args = (
 	'interface' => undef,
-	'host' => '127.0.0.1',
+	'host' => undef,
 	'port' => 5432,
 	'delay' =>  5,
 	'2' => 0,

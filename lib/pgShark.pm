@@ -118,10 +118,15 @@ the following settings:
         }
     }
 
-pgShark is not able to detect in a network dump which IP address is the server
-and on which port it is listening. Defaults are PostgreSQL's ones, ie.
-127.0.0.1:5432. Make sure to always set the proper host/port or pgShark will
-not be able to decode your PostgreSQL traffic.
+When 'host' key is not given, pgShark will wait for a message coming from
+the backend or the frontend with no doubt before calling user callbacks.
+Depending on the network activity, it can takes more or less time and messages
+might be lost (usually, COPY related ones). If you really need *ALL* messages,
+set the 'host' key explicitly.
+
+pgShark is not able to detect which port the server is listening. Default is
+PostgreSQL's ones, ie. 5432. Make sure to always set the proper port or
+pgShark will just filter out your PostgreSQL traffic if it's not on 5432.
 
 If not defined, the protocol version by default is 3.
 
@@ -144,7 +149,7 @@ sub new {
     $id++;
 
     my $self = {
-        'host' => defined $args{'host'} ? $args{'host'} : '127.0.0.1',
+        'host' => defined $args{'host'} ? $args{'host'} : undef,
         'id' => $id,
         'pckt_count' => 0,
         'port'       => defined $args{'port'} ? $args{'port'} : '5432',
@@ -156,8 +161,10 @@ sub new {
 
     # Converts the dot'ed IPADDR of the host to decimal
     # to dirct compare with address given from libpcap
-    my ( $na, $nb, $nc, $nd ) = split /\./, $self->{'host'};
-    $self->{'host'} = ( $na << 24 ) + ( $nb << 16 ) + ( $nc << 8 ) + ($nd);
+    if ( defined $self->{'host'} ) {
+        my ( $na, $nb, $nc, $nd ) = split /\./, $self->{'host'};
+        $self->{'host'} = ( $na << 24 ) + ( $nb << 16 ) + ( $nc << 8 ) + ($nd);
+    }
 
     # register callbacks for given pgsql messages
     foreach my $func ( keys %{ $args{'procs'} } ) {
@@ -267,6 +274,34 @@ sub close {
     delete $pcaps{ $self->{'id'} };
 }
 
+sub detect_backend($) {
+    my $self   = $_[0];
+    my $data   = $_[1];
+    my $ip_src = $_[2];
+    my $ip_dst = $_[3];
+
+    my $type_backend  = get_msg_type_backend($data, {})  // '';
+    my $type_frontend = get_msg_type_frontend($data, {}) // '';
+
+    debug( 2, "INFO: detecting backend, found B(%s) and F(%s).\n", $type_backend, $type_frontend );
+
+    $self->{'host'} = $ip_src if $type_backend and $type_frontend eq '';
+    $self->{'host'} = $ip_dst if $type_frontend and $type_backend eq '';
+
+    if (defined $self->{'host'}) {
+        debug( 1, "LOG: found the backend (was: %s)!\n",
+            dec2dot($self->{'host'})
+        );
+        return 1;
+    }
+
+    debug( 1, "LOG: could not the backend (was: %s -> %s)...\n",
+        dec2dot($ip_src), dec2dot($ip_dst),
+    );
+
+    return 0;
+}
+
 =item *
 B<process_all ()>
 
@@ -359,6 +394,9 @@ sub process_packet {
         "IP:TCP %s:%d->%s:%d, seqnum: %d, acknum: %d, len: %d, FIN: %b\n",
         $src_ip, $src_port, $dest_ip, $dest_port, $seqnum, $acknum, $tcp_len,
         $is_fin );
+
+    return unless defined $self->{'host'}
+        or $self->detect_backend($data, $src_ip, $dest_ip);
 
    # pgShark must track every sessions to be able to dissect their data
    # without mixing them. Sessions related data are kept in
@@ -595,16 +633,15 @@ sub pgsql_dissect {
             # talking over a CopyData stream before the Copy mode is done,
             # then we are in replication mode !
             if ($self->{'can_detect_sr'} and not $sess->{'replication'}) {
-                debug(1, "LOG: trying to detect streaming replication for session %s\n"
-                    , $sess_hash
-                ) unless defined $sess->{'copy_from'};
-
                 if ($type eq 'CopyDone') {
                     delete $sess->{'copy_from'};
                 }
                 elsif ($type eq 'CopyData'
                     and not defined $sess->{'copy_from'})
                 {
+                    debug(1, "LOG: trying to detect streaming replication for session %s\n"
+                    , $sess_hash
+                    );
                     $sess->{'copy_from'} = $from;
                 }
                 elsif ($type eq 'CopyData') {
