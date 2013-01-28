@@ -182,8 +182,8 @@ sub get_msg_parser($) {
 =item *
 B<get_msg_len ($type, $data, \%state)>
 
-Returns the length of the message of given as second parameter with type given
-as first parameter.
+Returns the length of the message of given as second parameter according to the
+type given as first parameter. Returns 0 when the message is not complete.
 
 The third parameter is used to keep track of session state.
 
@@ -192,14 +192,16 @@ The third parameter is used to keep track of session state.
 sub get_msg_len($$$) {
     my $type     = $_[0];
     my $raw_data = $_[1];
+    my $len      = length $_[1];
+    my $ret;
 
     # TODO: replace with a hash ?
 
-    return 16 if $type eq 'CancelRequest';
-    return 13 if $type eq 'BackendKeyData';
-    return 13 if $type eq 'AuthenticationMD5Password';
-    return 11 if $type eq 'AuthenticationCryptPassword';
-    return 9
+    return (16 < $len ? 16 : 0) if $type eq 'CancelRequest';
+    return (13 < $len ? 13 : 0) if $type eq 'BackendKeyData'
+        or $type eq 'AuthenticationMD5Password';
+    return (11 < $len ? 11 : 0) if $type eq 'AuthenticationCryptPassword';
+    return (9 < $len ? 9 : 0)
         if $type eq 'AuthenticationOk'
             or $type eq 'AuthenticationKerberosV4'
             or $type eq 'AuthenticationKerberosV5'
@@ -207,9 +209,9 @@ sub get_msg_len($$$) {
             or $type eq 'AuthenticationSCMCredential'
             or $type eq 'AuthenticationGSS'
             or $type eq 'AuthenticationSSPI';
-    return 8 if $type eq 'SSLRequest';
-    return 6 if $type eq 'ReadyForQuery';
-    return 5
+    return (8 < $len ? 8 : 0) if $type eq 'SSLRequest';
+    return (6 < $len ? 6 : 0) if $type eq 'ReadyForQuery';
+    return (5 < $len ? 5 : 0)
         if $type eq 'BindComplete'
             or $type eq 'CloseComplete'
             or $type eq 'CopyDone'
@@ -223,9 +225,11 @@ sub get_msg_len($$$) {
 
     return 1 if $type eq 'SSLAnswer';
 
-    return $type eq 'StartupMessage'
+    $ret = $type eq 'StartupMessage'
         ? unpack( 'N',  $raw_data )
         : unpack( 'xN', $raw_data ) + 1;
+
+    return ($ret < $len) ? $ret : 0;
 }
 
 =item *

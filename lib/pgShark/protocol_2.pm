@@ -161,17 +161,18 @@ sub get_msg_parser($) {
 =item *
 B<get_msg_len ($type, $data, \%state)>
 
-Returns the length of the message of given as second parameter with type given
-as first parameter.
+Returns the length of the message of given as second parameter according to the
+type given as first parameter. Returns 0 when the message is not complete.
 
 The third parameter is used to keep track of session state.
 
 =cut
 
 sub get_msg_len($$$) {
-    my $type     = shift;
-    my $raw_data = shift;
-    my $curr_sess = shift;
+    my $type      = $_[0];
+    my $raw_data  = $_[1];
+    my $curr_sess = $_[2];
+    my $len       = length $_[1];
 
     return 1 if $type eq 'CopyInResponse'
         or $type eq 'CopyOutResponse'
@@ -179,24 +180,28 @@ sub get_msg_len($$$) {
         or $type eq 'Terminate'
         or $type eq 'SSLAnswer';
 
-    return 5 if $type eq 'AuthenticationOk'
+    return (5 < $len ? 5 : 0) if $type eq 'AuthenticationOk'
         or $type eq 'AuthenticationKerberosV4'
         or $type eq 'AuthenticationKerberosV5'
         or $type eq 'AuthenticationSCMCredential'
         or $type eq 'AuthenticationCleartextPassword';
 
-    return 7 if $type eq 'AuthenticationCryptPassword';
+    return (7 < $len ? 7 : 0) if $type eq 'AuthenticationCryptPassword';
     
-    return 8 if $type eq 'SSLRequest';
+    return (8 < $len ? 8 : 0) if $type eq 'SSLRequest';
 
-    return 9 if $type eq 'AuthenticationMD5Password'
+    return (9 < $len ? 9 : 0) if $type eq 'AuthenticationMD5Password'
         or $type eq 'BackendKeyData';
 
-    return 16 if $type eq 'CancelRequest';
+    return (16 < $len ? 16 : 0) if $type eq 'CancelRequest';
 
-    return 296 if $type eq 'StartupMessage';
+    return (296 < $len ? 296 : 0) if $type eq 'StartupMessage';
 
-    return &{ $msg_len{$type} }($raw_data, $curr_sess) if defined $msg_len{$type};
+    if (defined $msg_len{$type}) {
+        my $ret = &{ $msg_len{$type} }($raw_data, $curr_sess) ;
+
+        return ($ret < $len) ? $ret : 0;
+    }
         
     return -1;
 }
