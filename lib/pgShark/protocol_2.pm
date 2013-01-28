@@ -196,7 +196,7 @@ sub get_msg_len($$$) {
 
     return 296 if $type eq 'StartupMessage';
 
-    &{ $msg_len{$type} }($raw_data, $curr_sess) if defined $msg_len{$type};
+    return &{ $msg_len{$type} }($raw_data, $curr_sess) if defined $msg_len{$type};
         
     return -1;
 }
