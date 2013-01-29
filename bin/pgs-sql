@@ -11,7 +11,6 @@ use strict;
 use warnings;
 
 use pgShark;
-use pgShark::Utils;
 use Getopt::Long;
 use Pod::Usage;
 use POSIX;
@@ -352,13 +351,13 @@ if ( $args{'line_prefix'} ne '' ) {
     push @prefix_keys, sub {
 
         #print Dumper($_[0]);
-        my $src_ip = dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
+        my $src_ip = pgShark::dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
         ${ $_[0] } =~ s/$re_H/$src_ip/g;
         }
         if ( $prefix =~ $re_H );
 
     push @prefix_keys, sub {
-        my $dest_ip = dec2dot( $_[1]->{'tcpip'}->{'dest_ip'} );
+        my $dest_ip = pgShark::dec2dot( $_[1]->{'tcpip'}->{'dest_ip'} );
         ${ $_[0] } =~ s/$re_h/$dest_ip/g;
         }
         if ( $prefix =~ $re_h );
@@ -369,14 +368,14 @@ if ( $args{'line_prefix'} ne '' ) {
         if ( $prefix =~ $re_k );
 
     push @prefix_keys, sub {
-        my $src_ip   = dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
+        my $src_ip   = pgShark::dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
         my $src_port = $_[1]->{'tcpip'}->{'src_port'};
         ${ $_[0] } =~ s/$re_R/$src_ip:$src_port/g;
         }
         if ( $prefix =~ $re_R );
 
     push @prefix_keys, sub {
-        my $dest_ip   = dec2dot( $_[1]->{'tcpip'}->{'dest_ip'} );
+        my $dest_ip   = pgShark::dec2dot( $_[1]->{'tcpip'}->{'dest_ip'} );
         my $dest_port = $_[1]->{'tcpip'}->{'dest_port'};
         ${ $_[0] } =~ s/$re_r/$dest_ip:$dest_port/g;
         }

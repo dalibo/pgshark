@@ -2,10 +2,8 @@
 # license terms, see the LICENSE file.
 
 #TODO
-#  * catch INT/KILL signals to interrupt live capture
 #  * optionally allow use of Net::Pcap::Reassemble, see sub process_all
 #  * handling TCP seq counter overflow
-#  * detect server ?
 
 =head1 pgShark
 
@@ -56,7 +54,6 @@ package pgShark;
 use strict;
 use warnings;
 use Net::Pcap qw(:functions);
-use pgShark::Utils;
 use POSIX ':signal_h';
 use Math::BigInt;
 use Exporter;
@@ -64,8 +61,8 @@ use Pod::Usage;
 use Carp;
 our $VERSION   = 0.2;
 our @ISA       = ('Exporter');
-our @EXPORT    = qw/PCAP_FILTER_TEMPLATE/;
-our @EXPORT_OK = qw/PCAP_FILTER_TEMPLATE/;
+our @EXPORT    = qw/PCAP_FILTER_TEMPLATE dec2dot normalize_query/;
+our @EXPORT_OK = qw/PCAP_FILTER_TEMPLATE dec2dot normalize_query/;
 
 BEGIN {
     # set the DEBUG constant to 0 or 1
@@ -130,6 +127,8 @@ sub dprint ($$@) {
 
 =item *
 B<new (\%settings)>
+
+B<Static method>.
 
 Creates a new pgShark object and returns it. It takes a hash as parameter with
 the following settings:
@@ -773,6 +772,58 @@ sub pgsql_dissect {
     } while ( $data_len > 0 );
 
     return 0;
+}
+
+=item *
+B<dec2dot ($ip_addr)>
+
+B<Static method>.
+
+Convert a decimal IP address representation given as first parameter to the
+human notation "ww.xx.yy.zz".
+
+=cut
+
+sub dec2dot {
+    my $addr = shift;
+    return sprintf "%s.%s.%s.%s", $addr>>24, $addr>>16 & 255, $addr>>8 & 255, $addr & 255;
+}
+
+=item *
+B<normalize_query ($query)>
+
+B<Static method>.
+
+Returns the normalized version of the query given as first parameter.
+
+=cut
+
+sub normalize_query {
+	my $query = shift;
+
+	chomp $query;
+
+	#remove bad escaped quotes in text so they are not in our way
+	#for other cleaning stuffs. We'll take care of others '' later
+	$query =~ s/\\'//g while $query =~ /\\'/;
+	#remove multi spaces
+	$query =~ s/\s+/ /g;
+	#empty text
+	$query =~ s/'[^']*'/''/g;
+	#remove all remaining '' (that were escaping ')
+	#left behind the previous substitution
+	$query =~ s/''('')+/''/g;
+	#remove numbers
+	$query =~ s/([^a-zA-Z0-9_\$-])-?([0-9]+)/${1}0/g;
+	#remove hexa numbers
+	$query =~ s/([^a-z_\$-])0x[0-9a-f]{1,10}/${1}0x/gi;
+	#remove IN (values)
+	$query =~ s/(IN\s*)\([^\)]*\)/${1}0x/gi;
+	#rewrite params, some of them might have been drop in a IN parameter
+	my $pi=1;
+	$query =~ s/\$[0-9]+/'$'.$pi++/gie;
+
+	return $query;
 }
 
 DESTROY {

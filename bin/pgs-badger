@@ -449,7 +449,7 @@ sub NoticeResponse {
 sub Parse {
     my $pg_msg = shift;
 
-    my $norm_query = normalize_query( $pg_msg->{'query'} );
+    my $norm_query = pgShark::normalize_query( $pg_msg->{'query'} );
     my $query_hash = md5_base64($norm_query);
 
     my $session = get_session($pg_msg);
@@ -534,7 +534,7 @@ sub Query {
 
     my $session = get_session($pg_msg);
 
-    my $norm_query = normalize_query( $pg_msg->{'query'} );
+    my $norm_query = pgShark::normalize_query( $pg_msg->{'query'} );
     my $query_hash = md5_base64($norm_query);
 
     if ( not defined $query_stats->{$query_hash} ) {

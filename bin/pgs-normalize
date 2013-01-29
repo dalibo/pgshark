@@ -39,7 +39,7 @@ my %args = (
 sub normalize {
     my $query = shift;
 
-    $query = normalize_query($query);
+    $query = pgShark::normalize_query($query);
 
     my $query_hash = md5_base64($query);
 
