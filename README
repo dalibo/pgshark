@@ -6,29 +6,29 @@ SYNOPSIS
     A simple exemple to count the number of connections and disconnections
     on localhost, live version:
 
-            use pgShark;
-        
-            my ($cnx, $dcnx) = (0, 0);
-            my $dev = 'lo';
-            my $err;
-        
-            $shark = pgShark->new({
-                    'procs' => {
-                            'AuthenticationOk' => sub {$cnx++},
-                            'Terminate' => sub {$dcnx++},
-                    },
-                    'host' => '127.0.0.1',
-                    'port' => 5432
-            });
-        
-            die "Can not open interface $dev:\n$err" if $shark->live($dev, \$err);
-        
-            # on live capture, a ctrl-c interrupt the loop
-            $shark->process_all();
-        
-            $shark->close();
-        
-            printf "Number of connections/disconnections: %u/%u\n", $cnx, $dcnx;
+        use pgShark;
+
+        my ($cnx, $dcnx) = (0, 0);
+        my $dev = 'lo';
+        my $err;
+
+        $shark = pgShark->new({
+            'procs' => {
+                'AuthenticationOk' => sub {$cnx++},
+                'Terminate' => sub {$dcnx++},
+            },
+            'host' => '127.0.0.1',
+            'port' => 5432
+        });
+
+        die "Can not open interface $dev:\n$err" if $shark->live($dev, \$err);
+
+        # on live capture, a ctrl-c interrupt the loop
+        $shark->process_all();
+
+        $shark->close();
+
+        printf "Number of connections/disconnections: %u/%u\n", $cnx, $dcnx;
 
 DESCRIPTION
     This Perl module is able to study PostgreSQL traffic captured from a
@@ -48,22 +48,28 @@ METHODS
         Creates a new pgShark object and returns it. It takes a hash as
         parameter with the following settings:
 
-                {
-                        'host' => IP address of the server
-                        'port' => Port of the PostgreSQL server
-                        'protocol' => the protocol version, ie. 2 or 3
-                        'procs' => {
-                                # Hash of callbacks for each messages.
-                                'message name' => \&callback
-                                ...
-                        }
+            {
+                'host' => IP address of the server
+                'port' => Port of the PostgreSQL server
+                'protocol' => the protocol version, ie. 2 or 3
+                'procs' => {
+                    # Hash of callbacks for each messages.
+                    'message name' => \&callback
+                    ...
                 }
+                'debug' => $level
+            }
 
-        pgShark is not able to detect in a network dump which IP address is
-        the server and on which port it is listening. Defaults are
-        PostgreSQL's ones, ie. 127.0.0.1:5432. Make sure to always set the
-        proper host/port or pgShark will not be able to decode your
-        PostgreSQL traffic.
+        When 'host' key is not given, pgShark will wait for a message coming
+        from the backend or the frontend with no doubt before calling user
+        callbacks. Depending on the network activity, it can takes more or
+        less time and messages might be lost (usually, COPY related ones).
+        If you really need *ALL* messages, set the 'host' key explicitly.
+
+        pgShark is not able to detect which port the server is listening.
+        Default is PostgreSQL's ones, ie. 5432. Make sure to always set the
+        proper port or pgShark will just filter out your PostgreSQL traffic
+        if it's not on 5432.
 
         If not defined, the protocol version by default is 3.
 
@@ -73,14 +79,12 @@ METHODS
 
           http://www.postgresql.org/docs/current/static/protocol-message-formats.html
 
-        Some more messages type has been added to catch those that are not
-        defined explicitly in the protocol.
+        One messages type has been added to both protocols: SSLAnswer.
 
-        In protocol v3: CancelRequest, SSLRequest, SSLAnswer and
-        StartupMessage In protocol v2: CancelRequest, SSLRequest, SSLAnswer,
-        StartupMessage, PasswordPacket, CopyDataRows
-
-        See section PROTOCOL for details about messages.
+        The 'debug' key in settings can be set between 0 and 6, 0 is the
+        default with no debug message, 6 is the most verbose. Because of
+        internal performance consideration, you MUST set the environment
+        variable DEBUG to '1' to actually activate the debugging messages.
 
     *   live ($interface, \$err)
 
@@ -108,77 +112,37 @@ METHODS
         Loop over all available packets from the previously opened pcap
         handle.
 
-    *   parse_v3 (\%pg_msg, $from_backend, $data)
+    *   dec2dot ($ip_addr)
 
         Static method.
 
-        Parse and dissect a buffer, looking for a valid pgsql v3 message,
-        and set the given hashref as first parameter with the message
-        properties. Properties set in the given hashref depend on the
-        message type. See the method code comments for more information
-        about them.
+        Convert a decimal IP address representation given as first parameter
+        to the human notation "ww.xx.yy.zz".
 
-        The second parameter tells the method who sent the given data so it
-        is able to parse them properly: the backend (1) or the frontend (0).
-
-        The data to parsed are given in the third parameter.
-
-        This method is static, so it can be used outside of the class for
-        any other purpose.
-
-        CAUTION: This function MUST returns the total length of the parsed
-        message so it can be removed from the TCP monolog buffer. 0 means
-        lack of data to process the current message. On error, returns -1
-
-    *   parse_v2 (\%pg_msg, $from_backend, $data, \%state)
+    *   normalize_query ($query)
 
         Static method.
 
-        Parse and dissect a buffer, looking for a valid pgsql v2 message,
-        and set the given hashref as first parameter with the message
-        properties. Properties set in the given hashref depend on the
-        message type. See the method code comments for more information
-        about them.
-
-        The second parameter tells the method who sent the given data so it
-        is able to parse them properly: the backend (1) or the frontend (0).
-
-        The data to parsed are given in the third parameter.
-
-        Unlike the protocole version 3, version 2 is stateful. Because of
-        this, this is the responsability of the caller to keep track of the
-        state of each sessions by giving a hashref as fourth parameter. This
-        hashref **MUST** concern the ONLY current session (Frontend/Backend
-        couple) data are parsed for. This fourth parameter does not exists
-        in the protocol v3 version of this method as v3 is a stateless
-        protocol.
-
-        This method is static, so it can be used outside of the class for
-        any other purpose.
-
-        The method tries to keep some compatibility with messages type
-        returned from the v3 parser. Here is how messages are mapped between
-        v2 and v3:
-
-          "AsciiRow"               => "DataRow"
-          "BinaryRow"              => "DataRow"
-          "CompletedResponse"      => "CommandComplete"
-          "CopyDataRows"           => "CopyData"
-          "FunctionResultResponse" => "FunctionCallResponse"
-          "FunctionVoidResponse"   => "FunctionCallResponse"
-          "StartupPacket"          => "StartupMessage"
-
-        CAUTION: message "CursorResponse" is protocol v2 only !
-
-        CAUTION: This function MUST returns the total length of the parsed
-        message so it can be removed from the TCP monolog buffer. 0 means
-        lack of data to process the current message. On error, returns -1
-
-        Caution: this parser hadn't been tested enough to be considered
-        stable. We need some pcap file to make some tests !
+        Returns the normalized version of the query given as first
+        parameter.
 
 BINARIES
     For details, see the output of parameter "--help" for each of them.
+
+    *   pgs-badger
+
+        This script analyse the pcap traffics and outputs various statistics
+        about what was found in PostgreSQL protocol.
+
+        The report contains most popular queries, slowest cumulated ones,
+        slowest queries ever, classification of queries by type, sessions
+        time, number of connexion, errors, notices, etc.
+
+        The network dump could be live or from a pcap file (using tcpdump
+        for instance).
+
+        In a futur version this script is supposed to talk with pgbadger
+        directly !
 
     *   pgs-debug
 
@@ -193,7 +157,9 @@ BINARIES
         list of unique queries, whatever the number of time they have been
         sent by clients and whatever their parameters were.
 
-    *   "pgs-record" filters network traffic and dump PostgreSQL related
+    *   pgs-record
+
+        "pgs-record" filters network traffic and dump PostgreSQL related
         activity to a pcap file. The pcap file can then be processed with
         all available pgShark tools.
 
@@ -230,20 +196,14 @@ BINARIES
         to names them. Presently, this script doesn't support cursors nor
         COPY messages.
 
-    *   pgs-badger
+    *   pgs-stat
 
-        This script analyse the pcap traffics and outputs various statistics
-        about what was found in PostgreSQL protocol.
+        Outputs various informations about PostgreSQL activity on the
+        network on a given sampling period.
 
-        The report contains most popular queries, slowest cumulated ones,
-        slowest queries ever, classification of queries by type, sessions
-        time, number of connexion, errors, notices, etc.
-
-        The network dump could be live or from a pcap file (using tcpdump
-        for instance).
-
-        In a futur version this script is supposed to talk with pgbadger
-        directly !
+SEE ALSO
+    This module rely on two modules to parse message of protocols v2 and v3:
+    pgShark::protocol_2 and pgShark::protocol_3.
 
 LICENSING
     This program is open source, licensed under the simplified BSD license.

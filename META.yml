@@ -15,14 +15,17 @@ name: pgShark
 provides:
   pgShark:
     file: lib/pgShark.pm
-    version: 0.1
-  pgShark::Utils:
-    file: lib/pgShark/Utils.pm
-    version: 0.1
+    version: 0.2
+  pgShark::protocol_2:
+    file: lib/pgShark/protocol_2.pm
+    version: 0.2
+  pgShark::protocol_3:
+    file: lib/pgShark/protocol_3.pm
+    version: 0.2
 requires:
   Digest::MD5: 0
   Net::Pcap: 0
   perl: v5.8.0
 resources:
   license: http://opensource.org/licenses/bsd-license.php
-version: 0.1
+version: 0.2
