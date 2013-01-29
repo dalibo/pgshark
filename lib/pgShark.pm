@@ -53,12 +53,12 @@ package pgShark;
 
 use strict;
 use warnings;
+use Carp;
+use Exporter;
 use Net::Pcap qw(:functions);
 use POSIX ':signal_h';
 use Math::BigInt;
-use Exporter;
 use Pod::Usage;
-use Carp;
 our $VERSION   = 0.2;
 our @ISA       = ('Exporter');
 our @EXPORT    = qw/PCAP_FILTER_TEMPLATE dec2dot normalize_query/;
@@ -77,13 +77,10 @@ BEGIN {
 
 # see tcpdump(8) section 'EXAMPLES'
 use constant PCAP_FILTER_TEMPLATE =>
-
     # catch TCP traffic with given port
     '(tcp and port %s) and ( '
-
     # ignore packet with no data...
     . '(((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0) '
-
     # ...but the one with FIN or RST flags
     . 'or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0) ' . ')';
 
@@ -99,7 +96,7 @@ my %pcaps;
 sigaction SIGINT, new POSIX::SigAction(
     sub {
         foreach my $i ( keys %pcaps ) {
-            pcap_breakloop( $pcaps{$i} );
+            Net::Pcap::pcap_breakloop( $pcaps{$i} );
         }
     },
     undef,
@@ -231,8 +228,8 @@ sub _setFilter {
 
     return 1 unless defined $pcaps{ $self->{'id'} } and $filter;
 
-    pcap_compile( $pcaps{ $self->{'id'} }, \$c_filter, $filter, 0, 0 );
-    pcap_setfilter( $pcaps{ $self->{'id'} }, $c_filter );
+    Net::Pcap::pcap_compile( $pcaps{ $self->{'id'} }, \$c_filter, $filter, 0, 0 );
+    Net::Pcap::pcap_setfilter( $pcaps{ $self->{'id'} }, $c_filter );
 
     return 0;
 }
@@ -255,7 +252,7 @@ sub live {
 
     return 1
         unless $pcaps{ $self->{'id'} }
-            = pcap_open_live( $interface, 65535, 0, 0, \$err );
+            = Net::Pcap::pcap_open_live( $interface, 65535, 0, 0, \$err );
 
     dprint 2, 'PCAP: capturing on interface "%s".', $interface if DEBUG;
 
@@ -281,7 +278,7 @@ sub open {
     my $err  = shift;
 
     return 1
-        unless $pcaps{ $self->{'id'} } = pcap_open_offline( $file, \$err );
+        unless $pcaps{ $self->{'id'} } = Net::Pcap::pcap_open_offline( $file, \$err );
 
     dprint 2, 'PCAP: pcap file "%s" opened.', $file if DEBUG;
 
@@ -301,7 +298,7 @@ pgShark::live() or pgShark::open() methods.
 sub close {
     my $self = shift;
 
-    pcap_close( $pcaps{ $self->{'id'} } ) if exists $pcaps{ $self->{'id'} };
+    Net::Pcap::pcap_close( $pcaps{ $self->{'id'} } ) if exists $pcaps{ $self->{'id'} };
 
     dprint 2, "PCAP: pcap stream %u closed.", $self->{'id'} if DEBUG;
 
@@ -351,7 +348,7 @@ sub process_all {
     dprint 2, "PCAP: start to loop over captured packet." if DEBUG;
 
     ## slightly better perfs without Net::Pcap::Reassemble
-    pcap_loop( $pcaps{ $self->{'id'} }, -1, \&process_packet, $self )
+    Net::Pcap::pcap_loop( $pcaps{ $self->{'id'} }, -1, \&process_packet, $self )
         if exists $pcaps{ $self->{'id'} };
 }
 

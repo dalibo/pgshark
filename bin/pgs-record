@@ -30,7 +30,7 @@ my %args = (
 # Catch SIGINT to stop immediatly pcap_loop amongs all pgShark objects.
 sigaction SIGINT, new POSIX::SigAction(
     sub {
-        pcap_breakloop($pcap);
+        Net::Pcap::pcap_breakloop($pcap);
 
     },
     undef,
@@ -86,7 +86,7 @@ print "Argument '--buffer' is ignored when tcpdump is not available!\n"
 
 # open a live capture on given interface
 if ( $args{'interface'} ne '' ) {
-    $pcap = pcap_open_live( $args{'interface'}, 65535, 0, 0, \$read_err )
+    $pcap = Net::Pcap::pcap_open_live( $args{'interface'}, 65535, 0, 0, \$read_err )
         or die("Can not open interface '$args{'interface'}':\n$read_err");
 }
 
@@ -97,19 +97,19 @@ else {
     # read from stdin if no pcap file given
     $args{'read'} = '-' if $args{'read'} eq '';
 
-    $pcap = pcap_open_offline( $args{'read'}, \$read_err )
+    $pcap = Net::Pcap::pcap_open_offline( $args{'read'}, \$read_err )
         or die("Can not read from file '$args{'read'}':\n$read_err");
 }
 
-pcap_compile( $pcap, \$c_filter, $filter, 0, 0 );
-pcap_setfilter( $pcap, $c_filter );
+pNet::Pcap::cap_compile( $pcap, \$c_filter, $filter, 0, 0 );
+Net::Pcap::pcap_setfilter( $pcap, $c_filter );
 
-$fd_pcap = pcap_dump_open( $pcap, $args{'write'} )
-    or die pcap_geterr($pcap);
+$fd_pcap = Net::Pcap::pcap_dump_open( $pcap, $args{'write'} )
+    or die Net::Pcap::pcap_geterr($pcap);
 
-pcap_loop( $pcap, -1, \&pcap_dump, $fd_pcap );
+Net::Pcap::pcap_loop( $pcap, -1, \&pcap_dump, $fd_pcap );
 
-pcap_stats( $pcap, \%pcap_stats );
+Net::Pcap::pcap_stats( $pcap, \%pcap_stats );
 
 printf STDERR
     "\n%d packets captured\n%d packets dropped by libpcap\n%d packets dropped by kernel\n",
@@ -117,9 +117,9 @@ printf STDERR
     $pcap_stats{'ps_drop'},
     $pcap_stats{'ps_ifdrop'};
 
-pcap_dump_close($fd_pcap);
+Net::Pcap::pcap_dump_close($fd_pcap);
 
-pcap_close($pcap);
+Net::Pcap::pcap_close($pcap);
 
 exit 0;
 
