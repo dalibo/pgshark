@@ -65,6 +65,7 @@ our @EXPORT    = qw/PCAP_FILTER_TEMPLATE dec2dot normalize_query/;
 our @EXPORT_OK = qw/PCAP_FILTER_TEMPLATE dec2dot normalize_query/;
 
 BEGIN {
+
     # set the DEBUG constant to 0 or 1
     # When 0, optimize away all debug messages at compile time
     eval q{
@@ -77,10 +78,13 @@ BEGIN {
 
 # see tcpdump(8) section 'EXAMPLES'
 use constant PCAP_FILTER_TEMPLATE =>
+
     # catch TCP traffic with given port
     '(tcp and port %s) and ( '
+
     # ignore packet with no data...
     . '(((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0) '
+
     # ...but the one with FIN or RST flags
     . 'or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0) ' . ')';
 
@@ -103,19 +107,18 @@ sigaction SIGINT, new POSIX::SigAction(
     &POSIX::SA_RESETHAND & &POSIX::SA_RESTART
 ) or die "Error setting SIGINT handler: $!\n";
 
-
 sub dprint ($$@) {
     return if $debug < $_[0];
 
-    my $lvl = shift;
-	my $frmt = shift;
-	my @vars = ( @_ );
+    my $lvl  = shift;
+    my $frmt = shift;
+    my @vars = (@_);
 
-	if ($lvl == 6) {
-		tr/\x00-\x1F\x7F-\xFF/./ foreach (@vars);
-	}
+    if ( $lvl == 6 ) {
+        tr/\x00-\x1F\x7F-\xFF/./ foreach (@vars);
+    }
 
-	carp sprintf "[%d] $frmt", $lvl, @vars;
+    carp sprintf "[%d] $frmt", $lvl, @vars;
 }
 
 =head1 METHODS
@@ -190,7 +193,8 @@ sub new {
     # to dirct compare with address given from libpcap
     if ( defined $self->{'host'} ) {
         my ( $na, $nb, $nc, $nd ) = split /\./, $self->{'host'};
-        $self->{'host'} = ( $na << 24 ) + ( $nb << 16 ) + ( $nc << 8 ) + ($nd);
+        $self->{'host'}
+            = ( $na << 24 ) + ( $nb << 16 ) + ( $nc << 8 ) + ($nd);
     }
 
     # register callbacks for given pgsql messages
@@ -198,8 +202,10 @@ sub new {
         $self->{$func} = $args{'procs'}->{$func};
     }
 
-    $self->{'can_detect_sr'} = 1 if defined ($self->{'CopyBothResponse'})
-        or (defined ($self->{'CopyData'}) and defined ($self->{'CopyDone'}));
+    $self->{'can_detect_sr'} = 1
+        if defined( $self->{'CopyBothResponse'} )
+            or (    defined( $self->{'CopyData'} )
+                and defined( $self->{'CopyDone'} ) );
 
     if ( $self->{'protocol'} eq '2' ) {
         eval 'use pgShark::protocol_2';
@@ -222,13 +228,14 @@ sub new {
 sub _setFilter {
     my $self     = shift;
     my $c_filter = undef;
-    my $filter   = sprintf PCAP_FILTER_TEMPLATE, $self->{'port'} ;
+    my $filter   = sprintf PCAP_FILTER_TEMPLATE, $self->{'port'};
 
     dprint 2, "PCAP: set filter to: %s", $filter if DEBUG;
 
     return 1 unless defined $pcaps{ $self->{'id'} } and $filter;
 
-    Net::Pcap::pcap_compile( $pcaps{ $self->{'id'} }, \$c_filter, $filter, 0, 0 );
+    Net::Pcap::pcap_compile( $pcaps{ $self->{'id'} },
+        \$c_filter, $filter, 0, 0 );
     Net::Pcap::pcap_setfilter( $pcaps{ $self->{'id'} }, $c_filter );
 
     return 0;
@@ -278,7 +285,8 @@ sub open {
     my $err  = shift;
 
     return 1
-        unless $pcaps{ $self->{'id'} } = Net::Pcap::pcap_open_offline( $file, \$err );
+        unless $pcaps{ $self->{'id'} }
+            = Net::Pcap::pcap_open_offline( $file, \$err );
 
     dprint 2, 'PCAP: pcap file "%s" opened.', $file if DEBUG;
 
@@ -298,7 +306,8 @@ pgShark::live() or pgShark::open() methods.
 sub close {
     my $self = shift;
 
-    Net::Pcap::pcap_close( $pcaps{ $self->{'id'} } ) if exists $pcaps{ $self->{'id'} };
+    Net::Pcap::pcap_close( $pcaps{ $self->{'id'} } )
+        if exists $pcaps{ $self->{'id'} };
 
     dprint 2, "PCAP: pcap stream %u closed.", $self->{'id'} if DEBUG;
 
@@ -311,23 +320,26 @@ sub detect_backend($) {
     my $ip_src = $_[2];
     my $ip_dst = $_[3];
 
-    my $type_backend  = get_msg_type_backend($data, {})  // '';
-    my $type_frontend = get_msg_type_frontend($data, {}) // '';
+    my $type_backend  = get_msg_type_backend( $data,  {} ) // '';
+    my $type_frontend = get_msg_type_frontend( $data, {} ) // '';
 
     dprint 2, "PGSQL: detecting backend, having B(%s) and F(%s).",
-        $type_backend, $type_frontend if DEBUG;
+        $type_backend, $type_frontend
+        if DEBUG;
 
-    $self->{'host'} = $ip_src if $type_backend and $type_frontend eq '';
-    $self->{'host'} = $ip_dst if $type_frontend and $type_backend eq '';
+    $self->{'host'} = $ip_src if $type_backend  and $type_frontend eq '';
+    $self->{'host'} = $ip_dst if $type_frontend and $type_backend  eq '';
 
-    if (defined $self->{'host'}) {
+    if ( defined $self->{'host'} ) {
         dprint 1, "PGSQL: found the backend (was: %s)!",
-            dec2dot($self->{'host'}) if DEBUG;
+            dec2dot( $self->{'host'} )
+            if DEBUG;
         return 1;
     }
 
     dprint 1, "PGSQL: could not detect the backend, was: %s -> %s.",
-        dec2dot($ip_src), dec2dot($ip_dst) if DEBUG;
+        dec2dot($ip_src), dec2dot($ip_dst)
+        if DEBUG;
 
     return 0;
 }
@@ -348,7 +360,8 @@ sub process_all {
     dprint 2, "PCAP: start to loop over captured packet." if DEBUG;
 
     ## slightly better perfs without Net::Pcap::Reassemble
-    Net::Pcap::pcap_loop( $pcaps{ $self->{'id'} }, -1, \&process_packet, $self )
+    Net::Pcap::pcap_loop( $pcaps{ $self->{'id'} },
+        -1, \&process_packet, $self )
         if exists $pcaps{ $self->{'id'} };
 }
 
@@ -426,10 +439,11 @@ sub process_packet {
         . "seqnum: %d, acknum: %d, len: %d, FIN: %b.",
         $self->{'pckt_count'}, $src_ip, $src_port, $dest_ip, $dest_port,
         $seqnum, $acknum, $tcp_len, $is_fin
-            if DEBUG;
+        if DEBUG;
 
-    return unless defined $self->{'host'}
-        or $self->detect_backend($data, $src_ip, $dest_ip);
+    return
+        unless defined $self->{'host'}
+            or $self->detect_backend( $data, $src_ip, $dest_ip );
 
    # pgShark must track every sessions to be able to dissect their data
    # without mixing them. Sessions related data are kept in
@@ -437,32 +451,32 @@ sub process_packet {
    # by its IP and origin port. We could add server ip and port to this hash,
    # but we are suppose to work with only one server.
     if ( $src_ip eq $self->{'host'} and $src_port == $self->{'port'} ) {
-        $from = 'B';
-        $sess_hash    = $dest_ip . $dest_port;
+        $from      = 'B';
+        $sess_hash = $dest_ip . $dest_port;
     }
     else {
-        $from = 'F';
-        $sess_hash    = $src_ip . $src_port;
+        $from      = 'F';
+        $sess_hash = $src_ip . $src_port;
     }
 
     if ($is_fin) {
         delete $self->{'sessions'}{$sess_hash};
         dprint 4,
-            "TCP/IP: session finished (FIN or RST).".
-            "Pgsql session dropped."
-                if DEBUG;
+            "TCP/IP: session finished (FIN or RST)."
+            . "Pgsql session dropped."
+            if DEBUG;
         return;
     }
 
     if ( not defined( $self->{'sessions'}->{$sess_hash} ) ) {
         dprint 3, "PGSQL: creating a new session %s.", $sess_hash if DEBUG;
         $self->{'sessions'}{$sess_hash} = {
-            'F' => { # frontend
+            'F' => {    # frontend
                 'data'     => '',    # raw tcp data
                 'next_seq' => -1,
                 'segs'     => [],    # segments buffer
             },
-            'B' => { # backend
+            'B' => {                 # backend
                 'data'     => '',    # raw tcp data
                 'next_seq' => -1,
                 'segs'     => [],    # segments buffer
@@ -489,7 +503,8 @@ sub process_packet {
         );
 
     dprint 5, "TCP/IP: %s-%s: segment in the buff: %d.",
-        $sess_hash, $from, scalar @{ $monolog->{'segs'} } if DEBUG;
+        $sess_hash, $from, scalar @{ $monolog->{'segs'} }
+        if DEBUG;
 
     # we loop over existing tcp segments trying to find the best one to
     # reconstruct the data
@@ -512,14 +527,15 @@ sub process_packet {
 
         # tcp's data begins in past but finish in future
         elsif (
-            ( $monolog->{'next_seq'} >= $segment->{'seq'} )
-            and ( $monolog->{'next_seq'}
-                < $segment->{'seq'} + $segment->{'len'} )
+                ( $monolog->{'next_seq'} >= $segment->{'seq'} )
+            and
+            ( $monolog->{'next_seq'} < $segment->{'seq'} + $segment->{'len'} )
             )
         {
             dprint 5,
                 "TCP/IP: %s-%s: segment start in the past but complete data.",
-                $sess_hash, $from if DEBUG;
+                $sess_hash, $from
+                if DEBUG;
 
             my $offset = $monolog->{'next_seq'} - $segment->{'seq'};
 
@@ -532,11 +548,11 @@ sub process_packet {
         }
 
         # tcp segment already done, drop it
-        elsif ( $monolog->{'next_seq'}
-            >= $segment->{'seq'} + $segment->{'len'} )
+        elsif (
+            $monolog->{'next_seq'} >= $segment->{'seq'} + $segment->{'len'} )
         {
-            dprint 5, "TCP/IP: %s-%s: segment in the past.",
-                $sess_hash, $from if DEBUG;
+            dprint 5, "TCP/IP: %s-%s: segment in the past.", $sess_hash, $from
+                if DEBUG;
             splice @{ $monolog->{'segs'} }, $i, 1;
         }
 
@@ -545,13 +561,12 @@ sub process_packet {
             dprint
                 5,
                 "TCP/IP: %s-%s:  tcp's in the future, "
-                ."next_seq: %d, seq: %d-%d.",
+                . "next_seq: %d, seq: %d-%d.",
                 $sess_hash,
                 $from,
                 $monolog->{'next_seq'},
-                $segment->{'seq'},
-                $segment->{'seq'} + $segment->{'len'}
-            if DEBUG;
+                $segment->{'seq'}, $segment->{'seq'} + $segment->{'len'}
+                if DEBUG;
         }
         $i++;
     }
@@ -617,12 +632,12 @@ sub process_packet {
 #                       message.
 #                       It already contains tcp and other global infos.
 sub pgsql_dissect {
-    my $self         = shift;
-    my $pg_msg_orig  = shift;
-    my $sess_hash    = $pg_msg_orig->{'sess_hash'};
-    my $from         = $pg_msg_orig->{'from'};
+    my $self        = shift;
+    my $pg_msg_orig = shift;
+    my $sess_hash   = $pg_msg_orig->{'sess_hash'};
+    my $from        = $pg_msg_orig->{'from'};
 
-    my $sess = $self->{'sessions'}{$sess_hash};
+    my $sess    = $self->{'sessions'}{$sess_hash};
     my $monolog = $self->{'sessions'}{$sess_hash}{$from};
 
     my $data_len = length $monolog->{'data'};
@@ -641,7 +656,7 @@ sub pgsql_dissect {
             dprint 3,
                 "PGSQL: waiting for more bits (data available: %d).",
                 $data_len
-                    if DEBUG;
+                if DEBUG;
 
             dprint 6, "PGSQL: last packet was:\n%s", $monolog->{'data'}
                 if DEBUG;
@@ -650,10 +665,10 @@ sub pgsql_dissect {
         }
 
         if ( $type eq '' ) {
-            dprint  3,
+            dprint 3,
                 "PGSQL: dropped alien packet at timestamp %s!",
                 $pg_msg->{'timestamp'}
-                    if DEBUG;
+                if DEBUG;
 
             dprint 6, "PGSQL: alien packet was:\n%s", $monolog->{'data'}
                 if DEBUG;
@@ -665,7 +680,7 @@ sub pgsql_dissect {
             $pg_msg->{'type'} = $type;
 
             $msg_len
-                = &{ get_msg_parser( $type ) }( $pg_msg, $monolog->{'data'},
+                = &{ get_msg_parser($type) }( $pg_msg, $monolog->{'data'},
                 $sess );
 
             # Simple streaming replication auto-detect. If both sides are
@@ -681,7 +696,7 @@ sub pgsql_dissect {
                     dprint 1,
                         "PGSQL: trying to detect replication for session %s.",
                         $sess_hash
-                            if DEBUG;
+                        if DEBUG;
 
                     $sess->{'copy_from'} = $from;
                 }
@@ -693,14 +708,15 @@ sub pgsql_dissect {
                     dprint 1,
                         "PGSQL: streaming replication for session %s!",
                         $sess_hash
-                            if DEBUG;
+                        if DEBUG;
 
                     # recompute type and parsing
-                    $type = $from eq 'B'
+                    $type
+                        = $from eq 'B'
                         ? get_msg_type_backend( $monolog->{'data'}, $sess )
                         : get_msg_type_frontend( $monolog->{'data'}, $sess );
-                    $msg_len = &{ get_msg_parser( $type ) }
-                        ( $pg_msg, $monolog->{'data'}, $sess );
+                    $msg_len = &{ get_msg_parser($type) }( $pg_msg,
+                        $monolog->{'data'}, $sess );
                 }
             }
 
@@ -712,7 +728,7 @@ sub pgsql_dissect {
             $pg_msg->{'data'} = substr( $monolog->{'data'}, 0, $msg_len );
 
             # callback for this message type
-            &{ $self->{$type} }( $pg_msg );
+            &{ $self->{$type} }($pg_msg);
         }
         else {
             $msg_len = get_msg_len( $type, $monolog->{'data'}, $sess );
@@ -730,21 +746,16 @@ sub pgsql_dissect {
             3,
             "PGSQL: pckt=%d, timestamp=%s, session=%s type=%s, msg_len=%d, data_len=%d.",
             $self->{'pckt_count'},
-            $pg_msg->{'timestamp'},
-            $sess_hash,
-            $type,
-            $msg_len,
-            $data_len
-                if DEBUG;
+            $pg_msg->{'timestamp'}, $sess_hash, $type, $msg_len, $data_len
+            if DEBUG;
 
         # if the message was Terminate, destroy the session
         if ( $type eq 'Terminate' ) {
             dprint
                 3,
                 "PGSQL: destroying session %s (remaining buffer was %d byte long).",
-                $sess_hash,
-                $data_len
-                    if DEBUG;
+                $sess_hash, $data_len
+                if DEBUG;
 
             delete $self->{'sessions'}{$sess_hash};
             $monolog = undef;
@@ -754,7 +765,8 @@ sub pgsql_dissect {
         if ( $type eq 'SSLAnswer' and $monolog->{'data'} =~ /^Y/ ) {
             dprint 3,
                 "PGSQL: session %s will be encrypted so we ignore it.",
-                $sess_hash if DEBUG;
+                $sess_hash
+                if DEBUG;
 
             delete $self->{'sessions'}{$sess_hash};
             $monolog = undef;
@@ -783,7 +795,8 @@ human notation "ww.xx.yy.zz".
 
 sub dec2dot {
     my $addr = shift;
-    return sprintf "%s.%s.%s.%s", $addr>>24, $addr>>16 & 255, $addr>>8 & 255, $addr & 255;
+    return sprintf "%s.%s.%s.%s", $addr >> 24, $addr >> 16 & 255,
+        $addr >> 8 & 255, $addr & 255;
 }
 
 =item *
@@ -796,31 +809,38 @@ Returns the normalized version of the query given as first parameter.
 =cut
 
 sub normalize_query {
-	my $query = shift;
+    my $query = shift;
 
-	chomp $query;
+    chomp $query;
 
-	#remove bad escaped quotes in text so they are not in our way
-	#for other cleaning stuffs. We'll take care of others '' later
-	$query =~ s/\\'//g while $query =~ /\\'/;
-	#remove multi spaces
-	$query =~ s/\s+/ /g;
-	#empty text
-	$query =~ s/'[^']*'/''/g;
-	#remove all remaining '' (that were escaping ')
-	#left behind the previous substitution
-	$query =~ s/''('')+/''/g;
-	#remove numbers
-	$query =~ s/([^a-zA-Z0-9_\$-])-?([0-9]+)/${1}0/g;
-	#remove hexa numbers
-	$query =~ s/([^a-z_\$-])0x[0-9a-f]{1,10}/${1}0x/gi;
-	#remove IN (values)
-	$query =~ s/(IN\s*)\([^\)]*\)/${1}0x/gi;
-	#rewrite params, some of them might have been drop in a IN parameter
-	my $pi=1;
-	$query =~ s/\$[0-9]+/'$'.$pi++/gie;
+    #remove bad escaped quotes in text so they are not in our way
+    #for other cleaning stuffs. We'll take care of others '' later
+    $query =~ s/\\'//g while $query =~ /\\'/;
 
-	return $query;
+    #remove multi spaces
+    $query =~ s/\s+/ /g;
+
+    #empty text
+    $query =~ s/'[^']*'/''/g;
+
+    #remove all remaining '' (that were escaping ')
+    #left behind the previous substitution
+    $query =~ s/''('')+/''/g;
+
+    #remove numbers
+    $query =~ s/([^a-zA-Z0-9_\$-])-?([0-9]+)/${1}0/g;
+
+    #remove hexa numbers
+    $query =~ s/([^a-z_\$-])0x[0-9a-f]{1,10}/${1}0x/gi;
+
+    #remove IN (values)
+    $query =~ s/(IN\s*)\([^\)]*\)/${1}0x/gi;
+
+    #rewrite params, some of them might have been drop in a IN parameter
+    my $pi = 1;
+    $query =~ s/\$[0-9]+/'$'.$pi++/gie;
+
+    return $query;
 }
 
 DESTROY {
@@ -831,7 +851,8 @@ DESTROY {
     }
 
     dprint 1, "pgShark: Total number of messages processed: %d.",
-        $self->{'msg_count'} if DEBUG;
+        $self->{'msg_count'}
+        if DEBUG;
 }
 
 1

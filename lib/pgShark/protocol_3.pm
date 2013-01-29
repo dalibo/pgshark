@@ -197,11 +197,12 @@ sub get_msg_len($$$) {
 
     # TODO: replace with a hash ?
 
-    return (16 < $len ? 16 : 0) if $type eq 'CancelRequest';
-    return (13 < $len ? 13 : 0) if $type eq 'BackendKeyData'
-        or $type eq 'AuthenticationMD5Password';
-    return (11 < $len ? 11 : 0) if $type eq 'AuthenticationCryptPassword';
-    return (9 < $len ? 9 : 0)
+    return ( 16 < $len ? 16 : 0 ) if $type eq 'CancelRequest';
+    return ( 13 < $len ? 13 : 0 )
+        if $type eq 'BackendKeyData'
+            or $type eq 'AuthenticationMD5Password';
+    return ( 11 < $len ? 11 : 0 ) if $type eq 'AuthenticationCryptPassword';
+    return ( 9 < $len ? 9 : 0 )
         if $type eq 'AuthenticationOk'
             or $type eq 'AuthenticationKerberosV4'
             or $type eq 'AuthenticationKerberosV5'
@@ -209,9 +210,9 @@ sub get_msg_len($$$) {
             or $type eq 'AuthenticationSCMCredential'
             or $type eq 'AuthenticationGSS'
             or $type eq 'AuthenticationSSPI';
-    return (8 < $len ? 8 : 0) if $type eq 'SSLRequest';
-    return (6 < $len ? 6 : 0) if $type eq 'ReadyForQuery';
-    return (5 < $len ? 5 : 0)
+    return ( 8 < $len ? 8 : 0 ) if $type eq 'SSLRequest';
+    return ( 6 < $len ? 6 : 0 ) if $type eq 'ReadyForQuery';
+    return ( 5 < $len ? 5 : 0 )
         if $type eq 'BindComplete'
             or $type eq 'CloseComplete'
             or $type eq 'CopyDone'
@@ -225,11 +226,12 @@ sub get_msg_len($$$) {
 
     return 1 if $type eq 'SSLAnswer';
 
-    $ret = $type eq 'StartupMessage'
+    $ret
+        = $type eq 'StartupMessage'
         ? unpack( 'N',  $raw_data )
         : unpack( 'xN', $raw_data ) + 1;
 
-    return ($ret < $len) ? $ret : 0;
+    return ( $ret < $len ) ? $ret : 0;
 }
 
 =item *
@@ -260,11 +262,11 @@ sub get_msg_type_backend($$) {
         return $authentication_codes{$code};
     }
 
-    if ($raw_data =~ /^d.{4}/) {
+    if ( $raw_data =~ /^d.{4}/ ) {
         return 'CopyData' unless defined $state->{'replication'};
         return undef if length $raw_data < 6;
 
-        my $type = unpack('xxxxxA', $raw_data);
+        my $type = unpack( 'xxxxxA', $raw_data );
 
         return 'XLogData'         if $type eq 'w';
         return 'PrimaryKeepalive' if $type eq 'k';
@@ -297,15 +299,15 @@ sub get_msg_type_frontend($$) {
     my $state    = $_[1];
 
     # the message has a type byte
-    return $frontend_msg_type{ $1 }
+    return $frontend_msg_type{$1}
         if $raw_data =~ $frontend_type_re;
 
-    if ($raw_data =~ /^d.{4}/) {
+    if ( $raw_data =~ /^d.{4}/ ) {
         return 'CopyData' unless defined $state->{'replication'};
 
         return undef if length $raw_data < 6;
 
-        my $type = unpack('xxxxxA', $raw_data);
+        my $type = unpack( 'xxxxxA', $raw_data );
 
         return 'StandbyStatusUpdate' if $type eq 'r';
         return 'HotStandbyFeedback'  if $type eq 'h';
@@ -355,7 +357,7 @@ sub pgsql_parser_backend($$$) {
     my $pg_msg   = $_[0];
     my $raw_data = $_[1];
     my $state    = $_[2];
-    my $type     = get_msg_type_backend($raw_data, $state);
+    my $type     = get_msg_type_backend( $raw_data, $state );
 
     return 0 if not defined $type;
 
@@ -397,11 +399,12 @@ it can be removed from the TCP monolog buffer. 0 means lack of data to
 process the current message. On error, returns -1
 
 =cut
+
 sub pgsql_parser_frontend($$$) {
     my $pg_msg   = $_[0];
     my $raw_data = $_[1];
     my $state    = $_[2];
-    my $type     = get_msg_type_frontend($raw_data, $state);
+    my $type     = get_msg_type_frontend( $raw_data, $state );
 
     return 0 if not defined $type;
 
@@ -499,7 +502,7 @@ sub AuthenticationGSSContinue($$$) {
 
     return 0 if $len + 1 > length $_[1];
 
-    $_[0]{'code'}      = 8;
+    $_[0]{'code'} = 8;
     $_[0]{'auth_data'} = substr( $_[1], 9, $len - 8 );
     return $len + 1;
 }
@@ -540,8 +543,8 @@ sub Bind($$$) {
     # we add 1 bytes for both portal and name that are null-terminated
     # + 2 bytes of int16 for $num_formats
     $msg = substr( $raw_data,
-              5
-            + length( $pg_msg->{'portal'} ) + 1
+              5 
+            + length( $pg_msg->{'portal'} ) + 1 
             + length( $pg_msg->{'name'} )
             + 1
             + 2 );
@@ -628,7 +631,6 @@ sub CopyBothResponse($$$) {
     return CopyInResponse(@_);
 }
 
-
 # message: B(d) or F(d) "CopyData"
 #   row=Byte[n]
 sub CopyData($$$) {
@@ -669,8 +671,9 @@ sub CopyInResponse($$$) {
     return 0 if $len > length $_[1];
 
     ( $_[0]{'copy_format'}, @fields_formats ) = unpack( 'x5Cn/n', $_[1] );
+
     # we can unpack in network order, make sure the format is 0 or 1
-    $_[0]{'copy_format'} = ($_[0]{'copy_format'} != 0);
+    $_[0]{'copy_format'}    = ( $_[0]{'copy_format'} != 0 );
     $_[0]{'num_fields'}     = scalar(@fields_formats);
     $_[0]{'fields_formats'} = [@fields_formats];
 
@@ -973,7 +976,7 @@ sub ReadyForQuery($$$) {
 #   )[num_fields]
 sub RowDescription($$$) {
     my @fields;
-    my $i   = 0;
+    my $i = 0;
     my $msg;
     my $len = unpack( 'xN', $_[1] ) + 1;
 
@@ -1047,8 +1050,8 @@ sub XLogData($$$) {
 }
 
 BEGIN {
-    *CopyOutResponse  = \&CopyInResponse;
-    *NoticeResponse   = \&ErrorResponse;
+    *CopyOutResponse = \&CopyInResponse;
+    *NoticeResponse  = \&ErrorResponse;
 }
 
 1

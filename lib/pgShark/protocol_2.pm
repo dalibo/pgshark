@@ -32,31 +32,34 @@ use warnings;
 use Exporter;
 use Pod::Usage;
 
-our $VERSION   = 0.2;
-our @ISA       = ('Exporter');
-our @EXPORT    = qw/pgsql_parser_backend pgsql_parser_frontend
+our $VERSION = 0.2;
+our @ISA     = ('Exporter');
+our @EXPORT  = qw/pgsql_parser_backend pgsql_parser_frontend
     get_msg_type_frontend get_msg_type_backend get_msg_parser get_msg_len/;
 our @EXPORT_OK = qw/pgsql_parser_backend pgsql_parser_frontend
     get_msg_type_frontend get_msg_type_backend get_msg_parser get_msg_len/;
 
 my %frontend_msg_type = (
+
     # CancelRequest has no code
     # CopyDataRows has no code
     'F' => 'FunctionCall',
+
     # PasswordPacket has no code
     'Q' => 'Query',
+
     # SSLRequest has no code
     # StartupPacket has no code
     'X' => 'Terminate'
 );
 
 my %backend_msg_type = (
-    'D' => 'DataRow', # aka AsciiRow in v2
+    'D' => 'DataRow',                # aka AsciiRow in v2
     'R' => 'Authentication',
     'K' => 'BackendKeyData',
-    'B' => 'DataRow', # aka BinaryRow in v2
-    'C' => 'CommandComplete', # aka CompletedResponse in v2
-    # CopyDataRows has no code
+    'B' => 'DataRow',                # aka BinaryRow in v2
+    'C' => 'CommandComplete',        # aka CompletedResponse in v2
+                                     # CopyDataRows has no code
     'G' => 'CopyInResponse',
     'H' => 'CopyOutResponse',
     'P' => 'CursorResponse',
@@ -113,31 +116,31 @@ my %parsers = (
 );
 
 my %msg_len = (
-    'DataRow'                => \&DataRow_len,
-    'CommandComplete'        => \&CommandComplete_len,
-    'CopyData'               => \&CopyData_len,
-    'CursorResponse'         => \&CursorResponse_len,
-    'ErrorResponse'          => \&ErrorResponse_len,
-    'FunctionCall'           => \&FunctionCall_len,
-    'FunctionCallResponse'   => \&FunctionCallResponse_len,
-    'NotificationResponse'   => \&NotificationResponse_len,
-    'PasswordPacket'         => \&PasswordPacket_len,
-    'Query'                  => \&Query_len,
-    'RowDescription'         => \&RowDescription_len
+    'DataRow'              => \&DataRow_len,
+    'CommandComplete'      => \&CommandComplete_len,
+    'CopyData'             => \&CopyData_len,
+    'CursorResponse'       => \&CursorResponse_len,
+    'ErrorResponse'        => \&ErrorResponse_len,
+    'FunctionCall'         => \&FunctionCall_len,
+    'FunctionCallResponse' => \&FunctionCallResponse_len,
+    'NotificationResponse' => \&NotificationResponse_len,
+    'PasswordPacket'       => \&PasswordPacket_len,
+    'Query'                => \&Query_len,
+    'RowDescription'       => \&RowDescription_len
 );
 
 # all known messages minus V and R which needs more work
 # and G & H which needs to set some state
 my $backend_type_re = qr/^([DKBCPIEVNAZT])/;
 
-my $sslanswer_re    = qr/^[NY]$/;
-my $end_copy_re     = qr/^\\.\n/s;
-my $query_re        = qr/^Q/s;
-my $function_re     = qr/^F\x00/;
-my $func_resp_re    = qr/^V([G0])/;
-my $terminate_re    = qr/^X/;
-my $copymode_re     = qr/^([GH])/;
-my $auth_re         = qr/^R.{4}/s;
+my $sslanswer_re = qr/^[NY]$/;
+my $end_copy_re  = qr/^\\.\n/s;
+my $query_re     = qr/^Q/s;
+my $function_re  = qr/^F\x00/;
+my $func_resp_re = qr/^V([G0])/;
+my $terminate_re = qr/^X/;
+my $copymode_re  = qr/^([GH])/;
+my $auth_re      = qr/^R.{4}/s;
 
 =item *
 B<get_msg_parser ($data)>
@@ -174,35 +177,38 @@ sub get_msg_len($$$) {
     my $curr_sess = $_[2];
     my $len       = length $_[1];
 
-    return 1 if $type eq 'CopyInResponse'
-        or $type eq 'CopyOutResponse'
-        or $type eq 'ReadyForQuery'
-        or $type eq 'Terminate'
-        or $type eq 'SSLAnswer';
+    return 1
+        if $type eq 'CopyInResponse'
+            or $type eq 'CopyOutResponse'
+            or $type eq 'ReadyForQuery'
+            or $type eq 'Terminate'
+            or $type eq 'SSLAnswer';
 
-    return (5 < $len ? 5 : 0) if $type eq 'AuthenticationOk'
-        or $type eq 'AuthenticationKerberosV4'
-        or $type eq 'AuthenticationKerberosV5'
-        or $type eq 'AuthenticationSCMCredential'
-        or $type eq 'AuthenticationCleartextPassword';
+    return ( 5 < $len ? 5 : 0 )
+        if $type eq 'AuthenticationOk'
+            or $type eq 'AuthenticationKerberosV4'
+            or $type eq 'AuthenticationKerberosV5'
+            or $type eq 'AuthenticationSCMCredential'
+            or $type eq 'AuthenticationCleartextPassword';
 
-    return (7 < $len ? 7 : 0) if $type eq 'AuthenticationCryptPassword';
-    
-    return (8 < $len ? 8 : 0) if $type eq 'SSLRequest';
+    return ( 7 < $len ? 7 : 0 ) if $type eq 'AuthenticationCryptPassword';
 
-    return (9 < $len ? 9 : 0) if $type eq 'AuthenticationMD5Password'
-        or $type eq 'BackendKeyData';
+    return ( 8 < $len ? 8 : 0 ) if $type eq 'SSLRequest';
 
-    return (16 < $len ? 16 : 0) if $type eq 'CancelRequest';
+    return ( 9 < $len ? 9 : 0 )
+        if $type eq 'AuthenticationMD5Password'
+            or $type eq 'BackendKeyData';
 
-    return (296 < $len ? 296 : 0) if $type eq 'StartupMessage';
+    return ( 16 < $len ? 16 : 0 ) if $type eq 'CancelRequest';
 
-    if (defined $msg_len{$type}) {
-        my $ret = &{ $msg_len{$type} }($raw_data, $curr_sess) ;
+    return ( 296 < $len ? 296 : 0 ) if $type eq 'StartupMessage';
 
-        return ($ret < $len) ? $ret : 0;
+    if ( defined $msg_len{$type} ) {
+        my $ret = &{ $msg_len{$type} }( $raw_data, $curr_sess );
+
+        return ( $ret < $len ) ? $ret : 0;
     }
-        
+
     return -1;
 }
 
@@ -219,19 +225,20 @@ state of each session.
 =cut
 
 sub get_msg_type_backend($$) {
-    my $raw_data = shift;
+    my $raw_data  = shift;
     my $curr_sess = shift;
 
     return 'SSLAnswer' if $raw_data =~ $sslanswer_re;
 
-    if (defined $curr_sess->{'copy_mode'}) {
+    if ( defined $curr_sess->{'copy_mode'} ) {
         delete $curr_sess->{'copy_mode'} if $raw_data =~ $end_copy_re;
 
-        return 'CopyData'; # aka CopyDataRows in v2;
+        return 'CopyData';    # aka CopyDataRows in v2;
     }
 
-    if ($raw_data =~ /^T/) {
+    if ( $raw_data =~ /^T/ ) {
         $curr_sess->{'num_fields'} = unpack( 'xn', $raw_data );
+
         # use Data::Dumper;
         # print Dumper($curr_sess->{'num_fields'});
         return 'RowDescription';
@@ -239,7 +246,7 @@ sub get_msg_type_backend($$) {
 
     return $backend_msg_type{$1} if $raw_data =~ $backend_type_re;
 
-    if ($raw_data =~ $copymode_re) {
+    if ( $raw_data =~ $copymode_re ) {
         $curr_sess->{'copy_mode'} = 1;
         return $backend_msg_type{$1};
     }
@@ -248,8 +255,10 @@ sub get_msg_type_backend($$) {
     if ( $raw_data =~ $auth_re ) {
         my $code = unpack( 'xN', $raw_data );
 
-        $curr_sess->{'ask_passwd'} = 1 if $code == 3
-            or $code == 4 or $code == 5;
+        $curr_sess->{'ask_passwd'} = 1
+            if $code == 3
+                or $code == 4
+                or $code == 5;
 
         return $authentication_codes{$code};
     }
@@ -271,10 +280,10 @@ state of each session.
 =cut
 
 sub get_msg_type_frontend($$) {
-    my $raw_data = shift;
+    my $raw_data  = shift;
     my $curr_sess = shift;
 
-    if (defined $curr_sess->{'copy_mode'}) {
+    if ( defined $curr_sess->{'copy_mode'} ) {
         delete $curr_sess->{'copy_mode'} if $raw_data =~ $end_copy_re;
 
         return 'CopyData';
@@ -285,11 +294,11 @@ sub get_msg_type_frontend($$) {
         return 'PasswordPacket';
     }
 
-    return 'Query' if $raw_data =~ $query_re;
+    return 'Query'        if $raw_data =~ $query_re;
     return 'FunctionCall' if $raw_data =~ $function_re;
-    return 'Terminate' if $raw_data =~ $terminate_re;
+    return 'Terminate'    if $raw_data =~ $terminate_re;
 
-    if (length $raw_data >= 8) {
+    if ( length $raw_data >= 8 ) {
         my $code;
         $code = unpack( 'x4N', $raw_data );
 
@@ -332,28 +341,30 @@ it can be removed from the TCP monolog buffer. 0 means lack of data to
 process the current message. On error, returns -1
 
 =cut
+
 sub pgsql_parser_backend($$$) {
     my $pg_msg    = shift;
     my $raw_data  = shift;
     my $curr_sess = shift;
-    my $type      = get_msg_type_backend($raw_data, $curr_sess);
+    my $type      = get_msg_type_backend( $raw_data, $curr_sess );
 
     printf STDERR "type: $type\n";
 
-    return 0  if not defined $type;
+    return 0 if not defined $type;
     return -1 if $type eq '';
 
     $pg_msg->{'type'} = $type;
 
-    return 1 if $type eq 'CopyInResponse'
-        or $type eq 'CopyOutResponse'
-        or $type eq 'ReadyForQuery';
+    return 1
+        if $type eq 'CopyInResponse'
+            or $type eq 'CopyOutResponse'
+            or $type eq 'ReadyForQuery';
 
-    return 2 if $type eq 'EmptyQueryResponse';;
+    return 2 if $type eq 'EmptyQueryResponse';
 
     return &{ $parsers{$type} }( $pg_msg, $raw_data, $curr_sess )
         if ( defined $parsers{$type} );
-    
+
     return -1;
 }
 
@@ -383,15 +394,16 @@ it can be removed from the TCP monolog buffer. 0 means lack of data to
 process the current message. On error, returns -1
 
 =cut
+
 sub pgsql_parser_frontend($$$) {
     my $pg_msg    = shift;
     my $raw_data  = shift;
     my $curr_sess = shift;
-    my $type      = get_msg_type_frontend($raw_data, $curr_sess);
+    my $type      = get_msg_type_frontend( $raw_data, $curr_sess );
 
     printf STDERR "type: $type\n";
 
-    return 0  if not defined $type;
+    return 0 if not defined $type;
     return -1 if $type eq '';
 
     $pg_msg->{'type'} = $type;
@@ -402,11 +414,12 @@ sub pgsql_parser_frontend($$$) {
 
     return &{ $parsers{$type} }( $pg_msg, $raw_data, $curr_sess )
         if ( defined $parsers{$type} );
-    
+
     return -1;
 }
 
 sub CommandComplete_len ($$) {
+
     # add type + null terminated String
     my $msg_len = length( unpack( 'xZ*', $_[1] ) ) + 2;
 
@@ -449,7 +462,7 @@ sub DataRow_len ($$) {
         next unless $field_notnull[$i] eq '1';
 
         return 0 if $msg_len + 4 > $data_len;
-        
+
         $msg_len += unpack( "x${msg_len}N", $raw_data );
 
         return 0 if $msg_len > $data_len;
@@ -467,9 +480,9 @@ sub ErrorResponse_len ($$) {
 }
 
 sub FunctionCall_len ($$) {
-    my $pg_msg = $_[0];
+    my $pg_msg   = $_[0];
     my $raw_data = $_[1];
-    my $msg_len = 0;
+    my $msg_len  = 0;
     my $num_args = 0;
     my $data_len = length $raw_data;
 
@@ -527,10 +540,10 @@ sub Query_len ($$) {
 }
 
 sub RowDescription_len ($$) {
-    my $raw_data = $_[0];
+    my $raw_data  = $_[0];
     my $curr_sess = $_[1];
-    my $data_len = length $raw_data;
-    my $i = 0;
+    my $data_len  = length $raw_data;
+    my $i         = 0;
     my $msg;
     my $msg_len;
     my $num_fields;
@@ -545,10 +558,10 @@ sub RowDescription_len ($$) {
 
     $msg_len = 3;
 
-    while ( $i < $num_fields and $msg) {
+    while ( $i < $num_fields and $msg ) {
         my $len = 11 + length unpack( 'Z*', $msg );
 
-        return 0 if length $msg < $len; 
+        return 0 if length $msg < $len;
 
         $msg = substr( $msg, $len );
         $msg_len += $len;
@@ -562,7 +575,7 @@ sub RowDescription_len ($$) {
 }
 
 sub DataRow($$$) {
-    my $pg_msg  = $_[0];
+    my $pg_msg    = $_[0];
     my $raw_data  = $_[1];
     my $curr_sess = $_[2];
     my $num_bytes = 1 + int( $curr_sess->{'num_fields'} / 8 );
@@ -664,16 +677,16 @@ sub AuthenticationMD5Password($$$) {
     $_[2]{'ask_passwd'} = 1;
     return 9;
 }
-       
+
 # AuthenticationSCMCredential
-#   code=int32 
+#   code=int32
 sub AuthenticationSCMCredential($$$) {
     $_[0]{'code'} = 6;
     return 5;
 }
 
 # message: B(K) "BackendKeyData"
-sub BackendKeyData($$$) {    
+sub BackendKeyData($$$) {
     ( $_[0]{'pid'}, $_[0]{'key'} ) = unpack( 'xNN', $_[1] );
     return 9;
 }
@@ -771,9 +784,9 @@ sub ErrorResponse($$$) {
 #   args[]=(len=int32,value=Byte[len])[nb_args]
 # TODO: NOT TESTED yet
 sub FunctionCall($$$) {
-    my $pg_msg = $_[0];
+    my $pg_msg   = $_[0];
     my $raw_data = $_[1];
-    my $msg_len = 0;
+    my $msg_len  = 0;
     my $data_len = length $raw_data;
     my @args;
     my $msg;
@@ -820,10 +833,9 @@ sub FunctionCallResponse($$$) {
     my $msg_len;
 
     $_[0]{'status'} = unpack( 'xA', $_[1] );
-    
 
-    if ($_[0]{'status'} eq '0') {
-        $_[0]{'len'} = 0;
+    if ( $_[0]{'status'} eq '0' ) {
+        $_[0]{'len'}   = 0;
         $_[0]{'value'} = undef;
         return 2;
     }
@@ -907,11 +919,11 @@ sub ReadyForQuery($$$) {
 #     format=undef (NOT in proto v2)
 #   )[num_fields]
 sub RowDescription($$$) {
-    my $pg_msg = $_[0];
-    my $raw_data = $_[1];
+    my $pg_msg    = $_[0];
+    my $raw_data  = $_[1];
     my $curr_sess = $_[2];
-    my $data_len = length $raw_data;
-    my $i = 0;
+    my $data_len  = length $raw_data;
+    my $i         = 0;
     my @fields;
     my $msg;
     my $msg_len;
@@ -925,7 +937,7 @@ sub RowDescription($$$) {
 
     $msg_len = 3;
 
-    while ( $i < $pg_msg->{'num_fields'} and $msg) {
+    while ( $i < $pg_msg->{'num_fields'} and $msg ) {
 
         my ( $type, $type_len, $type_mod );
         my @field;
@@ -937,7 +949,7 @@ sub RowDescription($$$) {
 
         $msg = substr( $msg, $len );
 
-        return 0 if length $msg < 10; 
+        return 0 if length $msg < 10;
 
         ( $type, $type_len, $type_mod ) = unpack( 'NnN', $msg );
 
@@ -980,9 +992,10 @@ sub StartupMessage($$$) {
     return 0 if length $_[1] < 296;
 
     $_[0]{'version'} = 2;
+
     # $_[0]{'params'}{'database'} = substr( $_[1], 8,  64 );
     # $_[0]{'params'}{'user'}     = substr( $_[1], 72, 64 );
-    $_[0]{'params'}{'database'} = unpack( 'x8Z*', $_[1] );
+    $_[0]{'params'}{'database'} = unpack( 'x8Z*',  $_[1] );
     $_[0]{'params'}{'user'}     = unpack( 'x72Z*', $_[1] );
 
     return 296;
