@@ -103,8 +103,6 @@ sub Bind {
     my @params;
     my $sess_hash = $pg_msg->{'sess_hash'};
 
-    debug( 2, "SQL: call process_bind\n" );
-
     my $prepname   = prep_name( $pg_msg->{'name'},   $sess_hash );
     my $portalname = prep_name( $pg_msg->{'portal'}, $sess_hash );
 
@@ -168,8 +166,6 @@ sub Close {
     my $pg_msg    = shift;
     my $sess_hash = $pg_msg->{'sess_hash'};
 
-    debug( 2, "SQL: call process_close\n" );
-
     my $prepname = prep_name( $pg_msg->{'name'}, $sess_hash );
 
     # we ignore closing portals as it doesn't make sense in SQL
@@ -192,8 +188,6 @@ sub Close {
 sub Execute {
     my $pg_msg    = shift;
     my $sess_hash = $pg_msg->{'sess_hash'};
-
-    debug( 2, "SQL: call process_execute\n" );
 
     my $portalname = prep_name( $pg_msg->{'name'}, $sess_hash );
 
@@ -220,10 +214,6 @@ sub Execute {
 sub Parse {
     my $pg_msg    = shift;
     my $sess_hash = $pg_msg->{'sess_hash'};
-
-    debug( 2,
-        "SQL: call process_parse (name, query) = ('$pg_msg->{'name'}', $pg_msg->{'query'})\n"
-    );
 
     my $prepname = prep_name( $pg_msg->{'name'}, $sess_hash );
 
@@ -252,8 +242,6 @@ sub Query {
     my $pg_msg    = shift;
     my $sess_hash = $pg_msg->{'sess_hash'};
 
-    debug( 2, "SQL: call process_query\n" );
-
     printf_prefix "%s;\n", $pg_msg, $pg_msg->{'query'};
 }
 
@@ -278,8 +266,6 @@ sub Terminate {
 
     my $pg_msg    = shift;
     my $sess_hash = $pg_msg->{'sess_hash'};
-
-    debug( 2, "SQL: call process_disconnect\n" );
 
     delete $prepd->{$sess_hash};
 }
@@ -313,10 +299,6 @@ pod2usage(
 ) if $args{'2'} and $args{'3'};
 
 $args{'protocol'} = $args{'2'} ? 2 : 3;
-
-$SIG{'__WARN__'} = sub {
-    warn $_[0] if $args{'debug'};
-};
 
 $shark = pgShark->new(
     {   'procs' => {

@@ -131,10 +131,6 @@ if ( defined $args{'output-queries'} ) {
         or die("Can not open file $args{'output-queries'}: $!");
 }
 
-$SIG{'__WARN__'} = sub {
-    warn $_[0] if $args{'debug'};
-};
-
 $shark = pgShark->new(
     {   'procs' => {
             'Parse' => \&Parse,
@@ -174,8 +170,9 @@ $shark->close();
 # we could do something funnier like this trivial report...
 # 	print "$normalized->{$_}->{count} :\n$normalized->{$_}->{query}\n\n"
 # 		foreach (keys %{ $normalized });
-warn "-- Number of normalized queries found: "
-    . scalar( keys %{$normalized} ) . "\n";
+printf STDERR  "-- Number of normalized queries found: %d\n",
+    scalar( keys %{$normalized} )
+    if $args{'debug'};
 
 exit 0;
 

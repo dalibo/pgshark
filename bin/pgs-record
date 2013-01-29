@@ -58,10 +58,6 @@ pod2usage(
     -exitval => 1
 ) if $args{'interface'} ne '' and $args{'read'} ne '';
 
-$SIG{'__WARN__'} = sub {
-    warn $_[0] if $args{'debug'};
-};
-
 $filter = sprintf( pgShark::PCAP_FILTER_TEMPLATE, $args{'port'} );
 
 system 'tcpdump -c 0 2>/dev/null';
@@ -73,7 +69,8 @@ if ( $? == 1 ) {
     push @tcpdump_args, ( '-i', $args{'interface'} ) if $args{'interface'};
     push @tcpdump_args, ( '-r', $args{'read'} )      if $args{'read'};
     push @tcpdump_args, "$filter";
-    warn join ' ', @tcpdump_args;
+    printf STDERR "DEBUG: tcpdump args: %s\n",
+        join ' ', @tcpdump_args if $args{'debug'};
     system @tcpdump_args;
 
     $? = $? >> 8;

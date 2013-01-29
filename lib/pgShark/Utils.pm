@@ -8,37 +8,11 @@ use warnings;
 use Exporter;
 our $VERSION = 0.1;
 our @ISA = ('Exporter');
-our @EXPORT = qw/debug set_debug normalize_query get_debug_lvl dec2dot/;
-
-my $debug_lvl = 0;
+our @EXPORT = qw/normalize_query dec2dot/;
 
 sub dec2dot {
     my $addr = shift;
     return sprintf "%s.%s.%s.%s", $addr>>24, $addr>>16 & 255, $addr>>8 & 255, $addr & 255;
-}
-
-sub get_debug_lvl {
-	return $debug_lvl;
-}
-
-sub set_debug {
-	my $lvl = shift;
-	$debug_lvl = $lvl;
-
-	debug(1, "debug level set to $debug_lvl.\n");
-}
-
-sub debug {
-	my $lvl = shift;
-	return if $debug_lvl < $lvl;
-	my $frmt = shift;
-	my @from = caller(1);
-	my @vars = ( @_ );
-	$from[2] = (caller(0))[2];
-	if ($lvl == 6) {
-		tr/\x00-\x1F\x7F-\xFF/./ foreach (@vars);
-	}
-	printf(STDERR "[%d] in %s:%d, %s:\n  $frmt\n", $lvl, $from[1], $from[2], $from[3], @vars);
 }
 
 #normalize query

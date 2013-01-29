@@ -349,7 +349,7 @@ sub CommandComplete {
         $qtype_stats->{ $command[0] }++;
     }
     else {
-        debug( 1, "Unknown command complete answer: %s\n", $command[0] );
+        # Unknown command complete answer
         $qtype_stats->{'others'}++;
     }
 
@@ -646,10 +646,6 @@ pod2usage(
 ) if $args{'2'} and $args{'3'};
 
 $args{'protocol'} = $args{'2'} ? 2 : 3;
-
-$SIG{'__WARN__'} = sub {
-    warn $_[0] if $args{'debug'};
-};
 
 $shark = pgShark->new(
     {   'procs' => {
