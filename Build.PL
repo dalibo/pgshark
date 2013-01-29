@@ -17,7 +17,15 @@ my $build = Module::Build->new(
     create_makefile_pl => 'traditional',
     dist_version_from  => 'lib/pgShark.pm',
     dist_abstract      => 'Messing with PostgreSQL network traffic',
-    dist_author        => 'Jehan-Guillaume (ioguix) de Rorthais <jgdr@dalibo.com>'
+    #dist_author        => 'Jehan-Guillaume (ioguix) de Rorthais <jgdr@dalibo.com>',
+    author_from        => 'lib/pgShark.pm',
+    meta_merge         => {
+        resources => {
+            homepage     => 'https://github.com/dalibo/pgshark',
+            bugtracker   => 'https://github.com/dalibo/pgshark/issues',
+            repository  => 'https://github.com/dalibo/pgshark'
+        }
+  },
 );
 
 $build->create_build_script;

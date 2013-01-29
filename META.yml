@@ -1,7 +1,9 @@
 ---
 abstract: 'Messing with PostgreSQL network traffic'
 author:
-  - 'Jehan-Guillaume (ioguix) de Rorthais <jgdr@dalibo.com>'
+  - 'Jehan-Guillaume de Rorthais <jgdr@dalibo.com>'
+  - 'Nicolas Thauvin <nicolas.thauvin@dalibo.com>'
+  - 'Guillaume Lelarge <guillaume.lelarge@dalibo.com>'
 build_requires: {}
 configure_requires:
   Module::Build: 0.38
@@ -27,5 +29,8 @@ requires:
   Net::Pcap: 0
   perl: v5.8.0
 resources:
+  bugtracker: https://github.com/dalibo/pgshark/issues
+  homepage: https://github.com/dalibo/pgshark
   license: http://opensource.org/licenses/bsd-license.php
+  repository: https://github.com/dalibo/pgshark
 version: 0.2

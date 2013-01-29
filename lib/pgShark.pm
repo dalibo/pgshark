@@ -5,7 +5,7 @@
 #  * optionally allow use of Net::Pcap::Reassemble, see sub process_all
 #  * handling TCP seq counter overflow
 
-=head1 pgShark
+=head1 NAME
 
 pgShark - pgShark is a Perl module able to mess with PostgreSQL network traffic
 
@@ -953,10 +953,11 @@ license terms, see the LICENSE provided with the sources.
 
 =head1 AUTHORS
 
-Authors:
+Jehan-Guillaume de Rorthais <jgdr@dalibo.com>
 
-  * Jehan-Guillaume de Rorthais
-  * Nicolas Thauvin
+Nicolas Thauvin <nicolas.thauvin@dalibo.com>
+
+Guillaume Lelarge <guillaume.lelarge@dalibo.com>
 
 Copyright: (C) 2012-2013 Jehan-Guillaume de Rorthais - All rights reserved.
 
