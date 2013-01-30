@@ -1,0 +1,20 @@
+         Installation instructions for pgShark
+
+To install the pgShark module and sample scripts provided with it, just do:
+
+  perl Build.PL
+  ./Build
+  ./Build install  (this step may need to be done as the superuser)
+
+The documentation for each provided script is available using this command:
+
+  perldoc SCRIPT_NAME
+
+Where SCRIPT_NAME is one of the following: pgs-record, pgs-replay, pgs-sql,
+pgs-debug, pgs-normalize, pgs-badger or pgs-stat.
+
+For devel documentation, see:
+
+  perldoc pgShark
+  perldoc pgShark::protocol_2
+  perldoc pgShark::protocol_3
