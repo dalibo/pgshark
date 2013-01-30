@@ -185,6 +185,7 @@ sub new {
         'msg_count'  => 0,
         'protocol'   => defined $args{'protocol'} ? $args{'protocol'} : '3',
         'sessions'   => {},
+        'callbacks'   => {},
         'can_detect_sr' => 0
     };
 
@@ -198,7 +199,7 @@ sub new {
 
     # register callbacks for given pgsql messages
     foreach my $func ( keys %{ $args{'procs'} } ) {
-        $self->{$func} = $args{'procs'}->{$func};
+        $self->{'callbacks'}{$func} = $args{'procs'}->{$func};
     }
 
     $self->{'can_detect_sr'} = 1
@@ -690,7 +691,7 @@ sub pgsql_dissect {
             return -1;
         }
 
-        if ( defined $self->{$type} ) {
+        if ( defined $self->{'callbacks'}{$type} ) {
             $pg_msg->{'type'} = $type;
 
             $msg_len
@@ -742,7 +743,7 @@ sub pgsql_dissect {
             $pg_msg->{'data'} = substr( $monolog->{'data'}, 0, $msg_len );
 
             # callback for this message type
-            &{ $self->{$type} }($pg_msg);
+            &{ $self->{'callbacks'}{$type} }($pg_msg);
         }
         else {
             $msg_len = get_msg_len( $type, $monolog->{'data'}, $sess );
