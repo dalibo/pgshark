@@ -2,7 +2,6 @@
 # license terms, see the LICENSE file.
 
 #TODO
-#  * optionally allow use of Net::Pcap::Reassemble, see sub process_all
 #  * handling TCP seq counter overflow
 
 =head1 NAME
@@ -305,9 +304,24 @@ pgShark::live() or pgShark::open() methods.
 
 sub close {
     my $self = shift;
+    my %pcap_stats;
 
-    Net::Pcap::pcap_close( $pcaps{ $self->{'id'} } )
-        if exists $pcaps{ $self->{'id'} };
+    return unless exists $pcaps{ $self->{'id'} };
+
+    Net::Pcap::pcap_stats( $pcaps{ $self->{'id'} }, \%pcap_stats );
+
+    dprint 1, "pgShark: Total number of messages processed: %d.",
+        $self->{'msg_count'};
+
+    dprint 1,
+        "pgShark: Statistics: \n  %d packets captured\n"
+        ."  %d packets dropped by libpcap\n"
+        ."  %d packets dropped by kernel",
+        $pcap_stats{'ps_recv'},
+        $pcap_stats{'ps_drop'},
+        $pcap_stats{'ps_ifdrop'};
+
+    Net::Pcap::pcap_close( $pcaps{ $self->{'id'} } );
 
     dprint 2, "PCAP: pcap stream %u closed.", $self->{'id'} if DEBUG;
 
@@ -846,13 +860,7 @@ sub normalize_query {
 DESTROY {
     my $self = shift;
 
-    if ( exists $pcaps{ $self->{'id'} } ) {
-        $self->close();
-    }
-
-    dprint 1, "pgShark: Total number of messages processed: %d.",
-        $self->{'msg_count'}
-        if DEBUG;
+    $self->close() if exists $pcaps{ $self->{'id'} };
 }
 
 1
