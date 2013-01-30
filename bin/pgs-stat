@@ -5,9 +5,11 @@
 use strict;
 use warnings;
 use pgShark;
+use Pod::Usage;
 use Getopt::Long;
 use POSIX ':signal_h';
 
+my $delay = 5;
 my $err = '';
 my $i = 0;
 my $cnx = 0;
@@ -31,11 +33,11 @@ my $t_errors = 0;
 
 my %args = (
 	'interface' => undef,
-	'host' => undef,
-	'port' => 5432,
-	'delay' =>  5,
-	'2' => 0,
-	'3' => 0
+	'host'      => undef,
+	'port'      => 5432,
+	'debug'     => 0,
+	'2'         => 0,
+	'3'         => 0
 );
 
 Getopt::Long::Configure('bundling');
@@ -43,13 +45,33 @@ GetOptions(\%args, qw{
 	interface|i=s
 	host|h=s
 	port|p=s
-	delay|d=i
+	debug|d+
 	2+
 	3+
 });
 
-die "Options -2 and -3 are mutal exclusives.\n" if $args{'2'} and $args{'3'};
-die "You must specify an interface" unless $args{'interface'};
+pod2usage(
+    -message => "Options -2 and -3 are mutal exclusives.\n",
+    -exitval => 1
+) if $args{'2'} and $args{'3'};
+
+pod2usage(
+    -message => "You must specify an interface.\n",
+    -exitval => 1
+) unless $args{'interface'};
+
+pod2usage(
+    -message => "Unable to process unknown additionnal parameters.\n"
+		. "$#ARGV additionnal parameters!",
+    -exitval => 1
+) if @ARGV > 1;
+
+pod2usage(
+    -message => "Wrong DELAY value ($ARGV[0]).\n",
+    -exitval => 1
+) if @ARGV and $ARGV[0] !~ /^[0-9]+$/;
+
+$delay = sprintf '%d', $ARGV[0] if $#ARGV == 0;
 
 $args{'protocol'} = $args{'2'}? 2 : 3;
 
@@ -78,7 +100,7 @@ sigaction SIGALRM, new POSIX::SigAction(sub {
 
 	header() if $i % 35 == 0;
 
-	alarm $args{'delay'};
+	alarm $delay;
 }) or die "Error setting SIGALRM handler: $!\n";
 
 my $shark = pgShark->new({
@@ -95,7 +117,8 @@ my $shark = pgShark->new({
 	},
 	'host' => $args{'host'},
 	'port' => $args{'port'},
-	'protocol' => $args{'protocol'}
+	'protocol' => $args{'protocol'},
+	'debug' => $args{'debug'}
 });
 
 ($shark->live($args{'interface'}, \$err) == 0)
@@ -103,7 +126,7 @@ my $shark = pgShark->new({
 
 header();
 
-alarm $args{'delay'};
+alarm $delay;
 
 $shark->process_all();
 
@@ -118,7 +141,7 @@ exit 0;
 
 __END__
 
-=head1 pgs-stat
+=head1 NAME
 
 pgs-stat - Prints out various informations on a sampling period of 5 seconds per
 default.
@@ -131,7 +154,7 @@ Belongs to the pgShark scripts collection.
 
 =item pgs-stat --help
 
-=item pgs-stat [-2|-3] [--interface DEV] [--host IPADDR] [--port PORT] [--delay DELAY]
+=item pgs-stat [-2|-3] [--interface DEV] [--host IPADDR] [--port PORT] [DELAY]
 
 =back
 
@@ -161,10 +184,6 @@ Use PostgreSQL v2.0 protocol.
 
 Use PostgreSQL v3.0 protocol. This is the default.
 
-=item B<-d>, B<--delay> <DELAY>
-
-Gives the delay in second between two samples. By default set to '5'.
-
 =item B<-h>, B<--host> <ip address>
 
 Gives the IP address of the PostgreSQL server. By default, set to '127.0.0.1'.
@@ -176,6 +195,10 @@ Capture PostgreSQL traffic directly from the given network interface.
 =item B<-p>, B<--port> <port>
 
 Gives the port the PostgreSQL backend is listening on. By default, set to 5432
+
+=item B<DELAY>
+
+Gives the delay in second between two samples. By default set to '5'.
 
 =back
 
