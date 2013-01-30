@@ -622,7 +622,7 @@ exit 0;
 
 __END__
 
-=head1 pgs-debug
+=head1 NAME
 
 pgs-debug - Prints out properties of pgsql messages found in a pcap dump.
 
@@ -701,7 +701,9 @@ C<pgs-debug --port 5490 --host 192.168.42.5 -r /tmp/tcp_5490.pcap> (2)
 
 =head1 AUTHORS
 
-Jehan-Guillaume (ioguix) de Rorthais, jgdr at dalibo dot com.
+Jehan-Guillaume (ioguix) de Rorthais <jgdr@dalibo.com>.
+
+Guillaume Lelarge <guillaume.lelarge@dalibo.com>.
 
 Dalibo's team.
 

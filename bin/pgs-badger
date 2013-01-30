@@ -931,7 +931,7 @@ sub END {
 
 __END__
 
-=head1 pgs-badger
+=head1 NAME
 
 pgs-badger - Outputs various statistics from pgsql messages
 

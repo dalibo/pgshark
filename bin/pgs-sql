@@ -428,7 +428,7 @@ exit 0;
 
 __END__
 
-=head1 pgs-sql
+=head1 NAME
 
 pgs-sql - Build SQL output from pgsql messages when possible
 

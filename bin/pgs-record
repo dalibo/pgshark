@@ -125,7 +125,7 @@ exit 0;
 
 __END__
 
-=head1 pgs-record
+=head1 NAME
 
 pgs-record - Create a pcap dump for offline use with pgShark tools.
 

@@ -341,7 +341,7 @@ exit 0;
 
 __END__
 
-=head1 pgs-replay
+=head1 NAME
 
 pgs-replay - Replays pgsql messages
 

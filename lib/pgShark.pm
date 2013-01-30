@@ -861,6 +861,31 @@ __END__
 
 =back
 
+=head1 WARNING
+
+Because pgShark rely on pcap library, it can not guaranty 100% of the network
+traffic will be captured and processed. Deopending on the hardware and
+buffers sizes, some network packets might be dropped by libpcap, hence
+corrupting pgShark processing. From L<http://www.tcpdump.org/tcpdump_man.html>:
+
+    Packets "dropped by kernel" (this is the number of packets that were
+    dropped, due to a lack of buffer space, by the packet capture mechanism in
+    the OS on which tcpdump is running, if the OS reports that information to
+    applications; if not, it will be reported as 0).
+
+In consequence, pgShark can ignore corrupted messages or worst, only have its
+first part, passing some incomplete data to the script rely on it.
+
+Because of that, it is NOT recommanded to use pgShark in some mission
+critical scripts. As instance, it is not possible to use pgShark module to
+create a safe proxy or replication script.
+
+Despite this potential lack of accuracy, there's a lot more use case where
+pgShark will be very usefull, especialy on the monitoring, dissecting,
+studying, metrics and so on fronts.
+
+See section BINARIES for some examples.
+
 =head1 BINARIES
 
 For details, see the output of parameter C<--help> for each of them.

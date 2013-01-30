@@ -178,7 +178,7 @@ exit 0;
 
 __END__
 
-=head1 pgs-normalize
+=head1 NAME
 
 pgs-normalize - Normalize queries and prepared queries from pgsql messages
 
