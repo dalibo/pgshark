@@ -77,13 +77,10 @@ BEGIN {
 
 # see tcpdump(8) section 'EXAMPLES'
 use constant PCAP_FILTER_TEMPLATE =>
-
-    # catch TCP traffic with given port
-    '(tcp and port %s) and ( '
-
+    # catch IPv4 TCP traffic with given port
+    'ip and (tcp and port %s) and ( '
     # ignore packet with no data...
     . '(((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0) '
-
     # ...but the one with FIN or RST flags
     . 'or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0) ' . ')';
 
@@ -400,27 +397,18 @@ sub process_all {
 #
 # Data payloads are reconstructed based on TCP seq/ack sequences.
 sub process_packet {
-    my ( $self, $pckt_hdr, $pckt ) = @_;
+    my ( $self, $pckt_hdr, $data ) = @_;
     my ( $sess_hash, $monolog, $from, $is_fin );
 
     $self->{'pckt_count'}++;
 
-    my ( $eth_type, $data ) = unpack( 'x12na*', $pckt );
-
-    # ignore non-IP packets
-    return unless defined $data and defined $eth_type and $eth_type == 0x0800;
+    $data = substr( $data, 14 );
 
     # decode the IP payload
-    my ( $ip_hlen, $ip_len, $ip_proto, $src_ip, $dest_ip );
-    ( $ip_hlen, $ip_len, $ip_proto, $src_ip, $dest_ip, $data )
-        = unpack( 'CxnxxxxxCxxNNa*', $data );
+    my ( $ip_hlen, $ip_len, $src_ip, $dest_ip );
 
-    # ignore non-TCP packets
-    unless ( $ip_proto == 6 ) {
-        dprint 4, "TCP/IP: packet %u is not in TCP.", $self->{'pckt_count'}
-            if DEBUG;
-        return;
-    }
+    ( $ip_hlen, $ip_len, $src_ip, $dest_ip, $data )
+        = unpack( 'CxnxxxxxxxxNNa*', $data );
 
     $ip_hlen = $ip_hlen & 0x0f;
     $ip_hlen = 5 if $ip_hlen < 5;    # precaution against bad header
@@ -428,9 +416,10 @@ sub process_packet {
     $data = substr( $data, ( $ip_hlen - 5 ) * 4, $ip_len - 4 * $ip_hlen );
 
     # decode the TCP payload
-    my ( $src_port, $dest_port, $seqnum, $acknum, $tcp_hlen, $tcp_len );
-    ( $src_port, $dest_port, $seqnum, $acknum, $tcp_hlen, $data )
-        = unpack( "nnNNnx6a*", $data );
+    my ( $src_port, $dest_port, $seqnum, $tcp_hlen, $tcp_len );
+
+    ( $src_port, $dest_port, $seqnum, $tcp_hlen, $data )
+        = unpack( "nnNx4nx6a*", $data );
 
     # Extract flags
     # Flags closing connexion (FIN/RST)
@@ -450,10 +439,9 @@ sub process_packet {
     }
 
     dprint 4,
-        "TCP/IP: packet %u %s:%d->%s:%d, "
-        . "seqnum: %d, acknum: %d, len: %d, FIN: %b.",
+        "TCP/IP: packet %u %s:%d->%s:%d, seqnum: %d, len: %d, FIN: %b.",
         $self->{'pckt_count'}, $src_ip, $src_port, $dest_ip, $dest_port,
-        $seqnum, $acknum, $tcp_len, $is_fin
+        $seqnum, $tcp_len, $is_fin
         if DEBUG;
 
     return
