@@ -11,7 +11,6 @@
 use strict;
 use warnings;
 use pgShark;
-use pgShark::Utils;
 use Getopt::Long;
 use Digest::MD5 qw(md5_base64);
 use Pod::Usage;
@@ -50,7 +49,7 @@ sub normalize {
         };
     }
     else {
-        $normalized->{$query_hash}->{count}++;
+        $normalized->{$query_hash}{count}++;
     }
 
     return $query_hash;
@@ -63,9 +62,9 @@ sub Parse {
 
     my $query_hash = normalize( $pg_msg->{query} );
 
-    if ( $normalized->{$query_hash}->{count} == 1 ) {
+    if ( $normalized->{$query_hash}{count} == 1 ) {
         print $OUT_NORM
-            "PREPARE xxx(...) AS $normalized->{$query_hash}->{query}\n\n";
+            "PREPARE xxx(...) AS $normalized->{$query_hash}{query}\n\n";
         print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
     }
 }
@@ -75,8 +74,8 @@ sub Query {
 
     my $query_hash = normalize( $pg_msg->{query} );
 
-    if ( $normalized->{$query_hash}->{count} == 1 ) {
-        print $OUT_NORM "$normalized->{$query_hash}->{query}\n\n";
+    if ( $normalized->{$query_hash}{count} == 1 ) {
+        print $OUT_NORM "$normalized->{$query_hash}{query}\n\n";
         print $OUT_RAW "$pg_msg->{query}\n\n" if defined $OUT_RAW;
     }
 }
@@ -168,7 +167,7 @@ $shark->process_all();
 $shark->close();
 
 # we could do something funnier like this trivial report...
-# 	print "$normalized->{$_}->{count} :\n$normalized->{$_}->{query}\n\n"
+# 	print "$normalized->{$_}{count} :\n$normalized->{$_}{query}\n\n"
 # 		foreach (keys %{ $normalized });
 printf STDERR  "-- Number of normalized queries found: %d\n",
     scalar( keys %{$normalized} )

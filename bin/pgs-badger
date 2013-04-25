@@ -50,7 +50,6 @@ use strict;
 use warnings;
 use Data::Dumper;
 use pgShark;
-use pgShark::Utils;
 use Getopt::Long;
 use Pod::Usage;
 use Digest::MD5 qw(md5_base64);
