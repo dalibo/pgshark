@@ -15,6 +15,8 @@ use Getopt::Long;
 use Pod::Usage;
 use POSIX;
 
+$| = 1;
+
 my $prefix = '';
 my @prefix_keys;
 my $shark;
