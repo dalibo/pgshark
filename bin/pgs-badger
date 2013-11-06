@@ -24,7 +24,6 @@
 #
 # * add prepare/bind/exec times to prepd stmt the top-10s tables
 # * add data transfert time per query
-# * add min/avg/max number of row per query
 #
 # == queries ==
 #
@@ -69,17 +68,20 @@ my %args        = (
     '3'         => 0
 );
 my $stats = {            # global statistics
-    'first_message'  => 0,
-    'last_message'   => 0,
-    'total_notices'  => 0,
-    'total_errors'   => 0,
-    'total_cancels'  => 0,
-    'total_queries'  => 0,
-    'errors'         => {},
-    'notices'        => {},
-    'total_sessions' => 0,    # total sessions seen
-    'total_cnx'      => 0,    # number of connexions seen
-    'total_discnx'   => 0     # number of disconnexions seen
+    'first_message'   => 0,
+    'last_message'    => 0,
+    'total_notices'   => 0,
+    'total_errors'    => 0,
+    'total_cancels'   => 0,
+    'total_sess_time' => 0,
+    'total_busy_time' => 0,
+    'total_queries'   => 0,
+    'total_rows'      => 0,
+    'errors'          => {},
+    'notices'         => {},
+    'total_sessions'  => 0,    # total sessions seen
+    'total_cnx'       => 0,    # number of connexions seen
+    'total_discnx'    => 0     # number of disconnexions seen
 };
 my $qtype_stats = {           # query types statistics
     'SELECT'    => 0,
@@ -120,8 +122,6 @@ my $sess_stats = {    # sessions statistics
     'min_busy_ratio'  => 9**9**9,
     'avg_busy_ratio'  => 0,
     'max_busy_ratio'  => 0,
-    'total_sess_time' => 0,
-    'total_busy_time' => 0,
 
     # auth time
     'auth_min_time' => 9**9**9,
@@ -137,7 +137,6 @@ my $sess_stats = {    # sessions statistics
     'min_rows'   => 9**9**9,
     'avg_rows'   => 0,
     'max_rows'   => 0,
-    'total_rows' => 0,
 
     # stats about fields per query
     'min_fields' => 9**9**9,
@@ -145,13 +144,27 @@ my $sess_stats = {    # sessions statistics
     'max_fields' => 0
 };
 
+my $db_stats   = { };
+my $user_stats = { };
+
+sub round {
+  my $res = sprintf '%.2f', $_[0];
+  $res = int($res) if $res =~ /00$/;
+  return $res;
+}
+
 sub get_session {
-    my $pg_msg = shift;
-    my $hash   = $pg_msg->{'sess_hash'};
+    my $pg_msg     = shift;
+    my $hash       = $pg_msg->{'sess_hash'};
 
     if ( not defined $sessions->{$hash} ) {
+        my $dbname   = $pg_msg->{'params'}{'database'};
+        my $username = $pg_msg->{'params'}{'user'};
+
         $sessions->{$hash} = {
-            'stats' => {
+            'dbname'   => $dbname,
+            'username' => $username,
+            'stats'  => {
                 'ts_start'      => $pg_msg->{'timestamp'},
                 'busy_time'     => 0,
                 'queries_count' => 0,
@@ -164,7 +177,42 @@ sub get_session {
             }
         };
 
-        $stats->{'total_sessions'}++;
+        $stats->{'total_cnx'}++;
+    }
+
+    if ( not defined $db_stats->{$sessions->{$hash}{'dbname'}} ) {
+        my $dbname   = $pg_msg->{'params'}{'database'};
+        my $username = $pg_msg->{'params'}{'user'};
+
+        $db_stats->{$dbname} = {
+            'cnx'             => 0,
+            'sessions'        => 0,
+            'total_queries'   => 0,
+            'min_queries'     => 0,
+            'avg_queries'     => 0,
+            'max_queries'     => 0,
+            'total_notices'   => 0,
+            'min_notices'     => 0,
+            'max_notices'     => 0,
+            'total_errors'    => 0,
+            'min_errors'      => 0,
+            'max_errors'      => 0,
+            'total_time'      => 0,
+            'min_sess_time'   => 9**9**9,
+            'avg_sess_time'   => 0,
+            'max_sess_time'   => 0,
+            'min_busy_ratio'  => 9**9**9,
+            'avg_busy_ratio'  => 0,
+            'max_busy_ratio'  => 0,
+            'total_busy_time' => 0,
+            'min_busy_time'   => 0,
+            'avg_busy_time'   => 0,
+            'max_busy_time'   => 0,
+            'total_rows'      => 0,
+            'min_rows'        => 0,
+            'avg_rows'        => 0,
+            'max_rows'        => 0,
+        };
     }
 
     $stats->{'first_message'} = $pg_msg->{'timestamp'}
@@ -179,15 +227,20 @@ sub record_session_stats {
     my $session = shift;
     my $interval;
 
-    $stats->{'total_queries'} += $session->{'stats'}{'queries_count'};
-    $stats->{'total_notices'} += $session->{'stats'}{'notices_count'};
-    $stats->{'total_errors'}  += $session->{'stats'}{'errors_count'};
+    ## cumulated stats
+    $stats->{'total_queries'}   += $session->{'stats'}{'queries_count'};
+    $stats->{'total_notices'}   += $session->{'stats'}{'notices_count'};
+    $stats->{'total_errors'}    += $session->{'stats'}{'errors_count'};
+    $stats->{'total_busy_time'} += $session->{'stats'}{'busy_time'};
+    $stats->{'total_rows'}      += $session->{'stats'}{'rows_count'};
 
     $interval
         = $session->{'stats'}{'ts_end'} - $session->{'stats'}{'ts_start'};
 
-    $sess_stats->{'total_sess_time'} += $interval;
+    $stats->{'total_sess_time'} += $interval;
 
+    ## sessions stats
+    # min/avg/max session time
     $sess_stats->{'min_sess_time'} = $interval
         if $sess_stats->{'min_sess_time'} > $interval;
     $sess_stats->{'max_sess_time'} = $interval
@@ -198,7 +251,7 @@ sub record_session_stats {
         ) + $interval
     ) / $stats->{'total_sessions'};
 
-    # busy session in s
+    # min/avg/max busy time in s
     $sess_stats->{'min_busy_time'} = $session->{'stats'}{'busy_time'}
         if $sess_stats->{'min_busy_time'} > $session->{'stats'}{'busy_time'};
     $sess_stats->{'max_busy_time'} = $session->{'stats'}{'busy_time'}
@@ -209,7 +262,7 @@ sub record_session_stats {
         ) + $session->{'stats'}{'busy_time'}
     ) / $stats->{'total_sessions'};
 
-    # busy in ratio
+    # min/avg/max busy ratio
     my $busy_ratio = 100*($session->{'stats'}{'busy_time'}/$interval);
     $sess_stats->{'min_busy_ratio'} = $busy_ratio
         if $sess_stats->{'min_busy_ratio'} > $busy_ratio;
@@ -221,8 +274,7 @@ sub record_session_stats {
         ) + $busy_ratio
     ) / $stats->{'total_sessions'};
 
-    $sess_stats->{'total_busy_time'} += $session->{'stats'}{'busy_time'};
-
+    # min/avg/max query per session
     $sess_stats->{'min_queries'} = $session->{'stats'}{'queries_count'}
         if $sess_stats->{'min_queries'}
             > $session->{'stats'}{'queries_count'};
@@ -234,6 +286,7 @@ sub record_session_stats {
         ( $sess_stats->{'avg_queries'} * ( $stats->{'total_sessions'} - 1 ) )
         + $session->{'stats'}{'queries_count'} ) / $stats->{'total_sessions'};
 
+    # min/avg/max rows per session
     $sess_stats->{'min_rows'} = $session->{'stats'}{'rows_count'}
         if $sess_stats->{'min_rows'} > $session->{'stats'}{'rows_count'};
     $sess_stats->{'max_rows'} = $session->{'stats'}{'rows_count'}
@@ -241,8 +294,8 @@ sub record_session_stats {
     $sess_stats->{'avg_rows'}
         = ( ( $sess_stats->{'avg_rows'} * ( $stats->{'total_sessions'} - 1 ) )
         + $session->{'stats'}{'rows_count'} ) / $stats->{'total_sessions'};
-    $sess_stats->{'total_rows'} += $session->{'stats'}{'rows_count'};
 
+    # min/avg/max fields per query
     $sess_stats->{'min_fields'} = $session->{'stats'}{'min_fields'}
         if $sess_stats->{'min_fields'} > $session->{'stats'}{'min_fields'};
     $sess_stats->{'max_fields'} = $session->{'stats'}{'max_fields'}
@@ -252,16 +305,98 @@ sub record_session_stats {
         ( $sess_stats->{'avg_fields'} * ( $stats->{'total_sessions'} - 1 ) )
         + $session->{'stats'}{'fields_count'} ) / $stats->{'total_sessions'};
 
+    # min/max notices per session
     $sess_stats->{'min_notices'} = $session->{'stats'}{'notices_count'}
         if $session->{'stats'}{'notices_count'}
             < $sess_stats->{'min_notices'};
     $sess_stats->{'max_notices'} = $session->{'stats'}{'notices_count'}
         if $session->{'stats'}{'notices_count'}
             > $sess_stats->{'max_notices'};
+
+    # min/max errors per session
     $sess_stats->{'min_errors'} = $session->{'stats'}{'errors_count'}
         if $sess_stats->{'min_errors'} > $session->{'stats'}{'errors_count'};
     $sess_stats->{'max_errors'} = $session->{'stats'}{'errors_count'}
         if $sess_stats->{'max_errors'} < $session->{'stats'}{'errors_count'};
+
+    ## db stats
+    my $dbname = $session->{'dbname'};
+    my $dbname_stats = $db_stats->{$dbname};
+
+    $dbname_stats->{'total_time'}      += $interval;
+    $dbname_stats->{'total_busy_time'} += $session->{'stats'}{'busy_time'};
+    $dbname_stats->{'total_queries'}   += $session->{'stats'}{'queries_count'};
+    $dbname_stats->{'total_rows'}      += $session->{'stats'}{'rows_count'};
+    $dbname_stats->{'total_notices'}   += $session->{'stats'}{'notices_count'};
+    $dbname_stats->{'total_errors'}    += $session->{'stats'}{'errors_count'};
+
+    # min/avg/max session time per db
+    $dbname_stats->{'min_sess_time'} = $interval
+        if $dbname_stats->{'min_sess_time'} > $interval;
+    $dbname_stats->{'max_sess_time'} = $interval
+        if $dbname_stats->{'max_sess_time'} < $interval;
+    $dbname_stats->{'avg_sess_time'} = (
+        (   $dbname_stats->{'avg_sess_time'}
+                * ( $dbname_stats->{'sessions'} - 1 )
+        ) + $interval
+    ) / $dbname_stats->{'sessions'};
+
+    # min/avg/max busy time in s per db
+    $dbname_stats->{'min_busy_time'} = $session->{'stats'}{'busy_time'}
+        if $dbname_stats->{'min_busy_time'} > $session->{'stats'}{'busy_time'};
+    $dbname_stats->{'max_busy_time'} = $session->{'stats'}{'busy_time'}
+        if $dbname_stats->{'max_busy_time'} < $session->{'stats'}{'busy_time'};
+    $dbname_stats->{'avg_busy_time'} = (
+        (   $dbname_stats->{'avg_busy_time'}
+                * ( $dbname_stats->{'sessions'} - 1 )
+        ) + $session->{'stats'}{'busy_time'}
+    ) / $dbname_stats->{'sessions'};
+
+    # min/avg/max busy ratio per session per db
+    $dbname_stats->{'min_busy_ratio'} = $busy_ratio
+        if $dbname_stats->{'min_busy_ratio'} > $busy_ratio;
+    $dbname_stats->{'max_busy_ratio'} = $busy_ratio
+        if $dbname_stats->{'max_busy_ratio'} < $busy_ratio;
+    $dbname_stats->{'avg_busy_ratio'} = (
+        (   $dbname_stats->{'avg_busy_ratio'}
+                * ( $dbname_stats->{'sessions'} - 1 )
+        ) + $busy_ratio
+    ) / $dbname_stats->{'sessions'};
+
+    # min/avg/max query per session per db
+    $dbname_stats->{'min_queries'} = $session->{'stats'}{'queries_count'}
+        if $dbname_stats->{'min_queries'}
+            > $session->{'stats'}{'queries_count'};
+    $dbname_stats->{'max_queries'} = $session->{'stats'}{'queries_count'}
+        if $dbname_stats->{'max_queries'}
+            < $session->{'stats'}{'queries_count'};
+    $dbname_stats->{'avg_queries'}
+        = (
+        ( $dbname_stats->{'avg_queries'} * ( $dbname_stats->{'sessions'} - 1 ) )
+        + $session->{'stats'}{'queries_count'} ) / $dbname_stats->{'sessions'};
+
+    # min/avg/max rows per session per db
+    $dbname_stats->{'min_rows'} = $session->{'stats'}{'rows_count'}
+        if $dbname_stats->{'min_rows'} > $session->{'stats'}{'rows_count'};
+    $dbname_stats->{'max_rows'} = $session->{'stats'}{'rows_count'}
+        if $dbname_stats->{'max_rows'} < $session->{'stats'}{'rows_count'};
+    $dbname_stats->{'avg_rows'}
+        = ( ( $dbname_stats->{'avg_rows'} * ( $dbname_stats->{'sessions'} - 1 ) )
+        + $session->{'stats'}{'rows_count'} ) / $dbname_stats->{'sessions'};
+
+    # min/max notices per session per db
+    $dbname_stats->{'min_notices'} = $session->{'stats'}{'notices_count'}
+        if $session->{'stats'}{'notices_count'}
+            < $dbname_stats->{'min_notices'};
+    $dbname_stats->{'max_notices'} = $session->{'stats'}{'notices_count'}
+        if $session->{'stats'}{'notices_count'}
+            > $dbname_stats->{'max_notices'};
+
+    # min/max errors per session per db
+    $dbname_stats->{'min_errors'} = $session->{'stats'}{'errors_count'}
+        if $dbname_stats->{'min_errors'} > $session->{'stats'}{'errors_count'};
+    $dbname_stats->{'max_errors'} = $session->{'stats'}{'errors_count'}
+        if $dbname_stats->{'max_errors'} < $session->{'stats'}{'errors_count'};
 }
 
 ## handle command F(B) (Bind)
@@ -384,18 +519,33 @@ sub CommandComplete {
         my $interval = $pg_msg->{'timestamp'}
             - $session->{'running'}{'exec'}{'ts_start'};
         my $query_stat = $session->{'running'}{'exec'}{'query_stat'};
+        my $rows = $session->{'running'}{'exec'}{'rows'};
 
         $query_stat->{'count'}++;
         $query_stat->{'min_time'} = $interval
-            if ( $query_stat->{'min_time'} > $interval );
-        $query_stat->{'max_time'} = $interval
-            if ( $query_stat->{'max_time'} < $interval );
+            if $query_stat->{'min_time'} > $interval;
+
+        if ( $query_stat->{'max_time'} < $interval ) {
+            $query_stat->{'max_time'} = $interval;
+            $query_stat->{'max_time_rows'} = $rows;
+        }
+
         $query_stat->{'avg_time'}
             = ( ( $query_stat->{'avg_time'} * ( $query_stat->{'count'} - 1 ) )
             + $interval ) / $query_stat->{'count'};
+
         $query_stat->{'total_time'} += $interval;
+
         $query_stat->{'disp'} += abs( $query_stat->{'avg_time'} - $interval )
             / $query_stat->{'count'};
+
+        $query_stat->{'min_rows'} = $rows
+            if $query_stat->{'min_rows'} > $rows;
+        $query_stat->{'max_rows'} = $rows
+            if $query_stat->{'max_rows'} < $rows;
+        $query_stat->{'avg_rows'}
+            = ( ( $query_stat->{'avg_rows'} * ( $query_stat->{'count'} - 1 ) )
+            + $rows ) / $query_stat->{'count'};
 
         delete $session->{'running'}{'exec'};
 
@@ -418,6 +568,10 @@ sub DataRow {
     my $session = get_session($pg_msg);
 
     $session->{'stats'}{'rows_count'}++;
+
+    if ( defined $session->{'running'}{'exec'} ) {
+        $session->{'running'}{'exec'}{'rows'}++;
+    }
 }
 
 ## handle command B(E) (ErrorResponse)
@@ -447,7 +601,8 @@ sub Execute {
     if ( defined $session->{'portals'}{ $pg_msg->{'name'} } ) {
 
         $session->{'running'}{'exec'} = {
-            'ts_start' => $pg_msg->{'timestamp'},
+            'ts_start'   => $pg_msg->{'timestamp'},
+            'rows'       => 0,
             'query_stat' =>
                 $prepd_stats->{ $session->{'portals'}{ $pg_msg->{'name'} } }
         };
@@ -502,6 +657,10 @@ sub Parse {
             'max_time'      => -1,
             'avg_time'      => 0,
             'total_time'    => 0,
+            'min_rows'      => 9**9**9,
+            'max_rows'      => 0,
+            'avg_rows'      => 0,
+            'total_rows'    => 0,
             'disp'          => 0,
             ## TODO
             # add samples
@@ -567,13 +726,17 @@ sub Query {
     if ( not defined $query_stats->{$query_hash} ) {
 
         $query_stats->{$query_hash} = {
-            'query'    => $norm_query,
-            'count'    => 0,          # will be increased when result received
-            'min_time' => 9**9**9,
-            'max_time' => -1,
-            'avg_time' => 0,
-            'disp'     => 0,
+            'query'      => $norm_query,
+            'count'      => 0,          # will be increased when result received
+            'min_time'   => 9**9**9,
+            'max_time'   => -1,
+            'avg_time'   => 0,
+            'disp'       => 0,
             'total_time' => 0,
+            'total_rows' => 0,
+            'min_rows'   => 9**9**9,
+            'max_rows'   => 0,
+            'avg_rows'   => 0,
             ## TODO
             # add samples
             # add min/max/avg nb of records returned
@@ -582,6 +745,7 @@ sub Query {
 
     $session->{'running'}{'exec'} = {
         'ts_start'   => $pg_msg->{'timestamp'},
+        'rows'       => 0,
         'query_stat' => $query_stats->{$query_hash}
     };
 }
@@ -595,7 +759,7 @@ sub AuthenticationOk {
 
     my $interval = $pg_msg->{'timestamp'} - $session->{'stats'}{'ts_start'};
 
-    $stats->{'total_cnx'}++;
+    $stats->{'total_sessions'}++;
 
     $sess_stats->{'auth_min_time'} = $interval
         if ( $sess_stats->{'auth_min_time'} > $interval );
@@ -604,6 +768,9 @@ sub AuthenticationOk {
         + $interval ) / $stats->{'total_cnx'};
     $sess_stats->{'auth_max_time'} = $interval
         if ( $sess_stats->{'auth_max_time'} < $interval );
+
+    ## db stats
+    $db_stats->{$session->{'dbname'}}{'sessions'}++;
 }
 
 ## handle command B(T)
@@ -627,6 +794,8 @@ sub StartupMessage {
 
     # build the session and set its start time
     my $session = get_session($pg_msg);
+
+    $db_stats->{$session->{'dbname'}}{'cnx'}++;
 }
 
 ## handle command F(X) (Terminate)
@@ -752,23 +921,22 @@ sub END {
         exit 0;
     }
 
-    printf "First message:              %s\n",
+    printf "First message:                  %s\n",
         scalar( localtime( $stats->{'first_message'} ) );
-    printf "Last message:               %s\n",
+    printf "Last message:                   %s\n",
         scalar( localtime( $stats->{'last_message'} ) );
-    printf "Number of cancel requests:  %s\n", $stats->{'total_cancels'};
-    printf "Total number of sessions:   %d\n", $stats->{'total_sessions'};
-    printf "Number connections:         %d\n", $stats->{'total_cnx'};
-    printf "Number of disconnections:   %d\n", $stats->{'total_discnx'};
-    printf "Cumulated sessions time:    %.6f s\n",
-        $sess_stats->{'total_sess_time'};
-    printf "Cumulated busy time:        %.6f s\n",
-        $sess_stats->{'total_busy_time'};
-    printf "Total busy ratio:           %.6f %%\n",
+    printf "Number of cancel requests:      %s\n", $stats->{'total_cancels'};
+    printf "Number of sessions/connections: %d/%d\n", $stats->{'total_sessions'}, $stats->{'total_cnx'};
+    printf "Number of disconnections:       %d\n", $stats->{'total_discnx'};
+    printf "Cumulated sessions time:        %.6f s\n",
+        $stats->{'total_sess_time'};
+    printf "Cumulated busy time:            %.6f s\n",
+        $stats->{'total_busy_time'};
+    printf "Total busy ratio:               %.6f %%\n",
         100 
-        * $sess_stats->{'total_busy_time'}
-        / $sess_stats->{'total_sess_time'};
-    printf "Total number of rows:       %d\n", $sess_stats->{'total_rows'};
+        * $stats->{'total_busy_time'}
+        / $stats->{'total_sess_time'};
+    printf "Total number of rows:           %d\n", $stats->{'total_rows'};
 
     print "\n\n==== Notices & Errors ====\n\n";
 
@@ -784,7 +952,8 @@ sub END {
     @top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} }
         values %{ $stats->{'notices'} };
 
-    print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
+    print "Rank\tTimes raised\t     Level\t      Code\tMessage\n"
+        if @top_most_frequent;
     for ( my $i = 0; $i < 10; $i++ ) {
         if ( defined $top_most_frequent[$i] ) {
             printf "%4d\t%12d\t%10s\t%10s\t%s\n",
@@ -800,7 +969,8 @@ sub END {
     @top_most_frequent = sort { $b->{'count'} <=> $a->{'count'} }
         values %{ $stats->{'errors'} };
 
-    print "Rank\tTimes raised\t     Level\t      Code\tMessage\n";
+    print "Rank\tTimes raised\t     Level\t      Code\tMessage\n"
+        if @top_most_frequent;
     for ( my $i = 0; $i < 10; $i++ ) {
         if ( defined $top_most_frequent[$i] ) {
             printf "%4d\t%12d\t%10s\t%10s\t%s\n",
@@ -814,40 +984,108 @@ sub END {
     print "\n\n==== Sessions ====\n\n";
 
     printf
-        "Min/Avg/Max authentication time (s):                   %.6f / %.6f / %.6f\n",
+        "Min/Avg/Max authentication time (s):        %.6f / %.6f / %.6f\n",
         $sess_stats->{'auth_min_time'},
         $sess_stats->{'auth_avg_time'},
         $sess_stats->{'auth_max_time'};
     printf
-        "Min/Avg/Max busy ratio (%%):                         %.6f / %.6f / %.6f\n",
+        "Min/Avg/Max busy ratio (%%):                 %.6f / %.6f / %.6f\n",
         $sess_stats->{'min_busy_ratio'},
         $sess_stats->{'avg_busy_ratio'},
         $sess_stats->{'max_busy_ratio'};
     printf
-        "Min/Avg/Max busy time (s):                         %.6f / %.6f / %.6f\n",
+        "Min/Avg/Max busy time (s):                  %.6f / %.6f / %.6f\n",
         $sess_stats->{'min_busy_time'},
         $sess_stats->{'avg_busy_time'},
         $sess_stats->{'max_busy_time'};
     printf
-        "Min/Avg/Max sessions time (s):                         %.6f / %.6f / %.6f\n",
+        "Min/Avg/Max sessions time (s):              %.6f / %.6f / %.6f\n",
         $sess_stats->{'min_sess_time'},
         $sess_stats->{'avg_sess_time'},
         $sess_stats->{'max_sess_time'};
     printf
-        "Min/Avg/Max number of queries per sessions:            %d / %.2f / %d\n",
+        "Min/Avg/Max number of queries per sessions: %d / %.2f / %d\n",
         $sess_stats->{'min_queries'},
         $sess_stats->{'avg_queries'},
         $sess_stats->{'max_queries'};
     printf
-        "Min/Avg/Max number of fields per session and queries:  %d / %d / %d\n",
+        "Min/Avg/Max number of fields per session:   %d / %d / %d\n",
         $sess_stats->{'min_fields'},
         $sess_stats->{'avg_fields'},
         $sess_stats->{'max_fields'};
     printf
-        "Min/Avg/Max number of rows per sessions:               %d / %.2f / %d\n",
+        "Min/Avg/Max number of rows per sessions:    %d / %.2f / %d\n",
         $sess_stats->{'min_rows'},
         $sess_stats->{'avg_rows'},
         $sess_stats->{'max_rows'};
+
+    print "\n===== Databases =====\n\n";
+
+    foreach my $dbname (sort keys %{$db_stats} ) {
+        my $dbname_stats = $db_stats->{$dbname};
+
+        print "\n==== $dbname ====\n\n";
+
+        print "\n=== Global stats for '$dbname' ===\n\n";
+
+        printf "# sessions/connections: ",
+            $dbname_stats->{'sessions'},
+            $dbname_stats->{'cnx'};
+        printf "Total sessions time:    %.6f s\n",
+            $dbname_stats->{'total_time'};
+        printf "Total busy time:        %.6f s\n",
+            $dbname_stats->{'total_busy_time'};
+        printf "Total busy ratio:       %.6f %%\n",
+            100 
+            * $dbname_stats->{'total_busy_time'}
+            / $dbname_stats->{'total_time'};
+        printf "Number of queries:      %d\n",
+            $dbname_stats->{'total_queries'};
+        printf "Number of rows:         %d\n",
+            $dbname_stats->{'total_rows'};
+        printf "Number of notices:      %d\n",
+            $dbname_stats->{'total_notices'};
+        printf "Number of errors:       %d\n",
+            $dbname_stats->{'total_errors'};
+
+        print "\n=== Sessions stats for '$dbname' ===\n\n";
+
+        printf
+            "Min/Avg/Max busy ratio (%%):     %.6f / %.6f / %.6f\n",
+            $dbname_stats->{'min_busy_ratio'},
+            $dbname_stats->{'avg_busy_ratio'},
+            $dbname_stats->{'max_busy_ratio'};
+        printf
+            "Min/Avg/Max busy time (s):      %.6f / %.6f / %.6f\n",
+            $dbname_stats->{'min_busy_time'},
+            $dbname_stats->{'avg_busy_time'},
+            $dbname_stats->{'max_busy_time'};
+        printf
+            "Min/Avg/Max sessions time (s):  %.6f / %.6f / %.6f\n",
+            $dbname_stats->{'min_sess_time'},
+            $dbname_stats->{'avg_sess_time'},
+            $dbname_stats->{'max_sess_time'};
+
+        printf
+            "Min/Avg/Max number of queries:  %d / %.2f / %d\n",
+            $dbname_stats->{'min_queries'},
+            $dbname_stats->{'avg_queries'},
+            $dbname_stats->{'max_queries'};
+        printf
+            "Min/Avg/Max number of rows:     %d / %.2f / %d\n",
+            $dbname_stats->{'min_rows'},
+            $dbname_stats->{'avg_rows'},
+            $dbname_stats->{'max_rows'};
+
+        printf
+            "Min/Max notices:                %d/%d\n",
+            $dbname_stats->{'min_notices'},
+            $dbname_stats->{'max_notices'};
+        printf
+            "Min/Max errors per sessions:    %d/%d\n",
+            $dbname_stats->{'min_errors'},
+            $dbname_stats->{'max_errors'};
+    }
 
     print "\n===== Queries =====\n\n";
 
@@ -882,37 +1120,47 @@ sub END {
         = sort { $b->{'count'} <=> $a->{'count'} } values %{$prepd_stats};
 
     print "=== Top slowest queries ===\n\n";
-    print "Rank\tDuration(s)\tQuery\n";
+    print "Rank\tDuration(s)\tRows      \nQuery\n";
     for ( my $i = 0; $i < 10; $i++ ) {
         if ( defined $top_slowest[$i] ) {
-            printf "%4d\t%12.5f\t%s\n",
-                $i + 1, $top_slowest[$i]{'max_time'},
+            printf "%4d\t%12.5f\t%-10d\t%s\n",
+                $i + 1,
+                $top_slowest[$i]{'max_time'},
+                $top_slowest[$i]{'max_time_rows'},
                 $top_slowest[$i]{'query'};
         }
     }
 
     print "\n\n=== Queries that took up the most time ===\n\n";
     print
-        "Rank\ttotal Duration(s)\ttimes executed\tAv. duration (s)\tQuery\n";
+        "Rank\ttotal Duration(s)\ttimes executed\tAv. duration (s)\t"
+        ."Rows min/avg/max    \tQuery\n";
     for ( my $i = 0; $i < 10; $i++ ) {
         if ( defined $top_most_time[$i] ) {
-            printf "%4d\t%18.5f\t%14d\t%17.5f\t%s\n",
+            printf "%4d\t%18.5f\t%14d\t%17.5f\t%-20s\t%s\n",
                 $i + 1, $top_most_time[$i]{'total_time'},
                 $top_most_time[$i]{'count'},
                 $top_most_time[$i]{'avg_time'},
+                $top_most_time[$i]{'min_rows'} .'/'.
+                round($top_most_time[$i]{'avg_rows'}) .'/'.
+                $top_most_time[$i]{'max_rows'},
                 $top_most_time[$i]{'query'};
         }
     }
 
     print "\n\n=== Most frequent queries ===\n\n";
     print
-        "Rank\ttimes executed\ttotal Duration(s)\tAv. duration (s)\tQuery\n";
+        "Rank\ttimes executed\ttotal Duration(s)\tAv. duration (s)\t"
+        ."Rows min/avg/max    \tQuery\n";
     for ( my $i = 0; $i < 10; $i++ ) {
         if ( defined $top_most_frequent[$i] ) {
-            printf "%4d\t%14d\t%18.5f\t%17.5f\t%s\n",
+            printf "%4d\t%14d\t%18.5f\t%17.5f\t%-20s\t%s\n",
                 $i + 1, $top_most_frequent[$i]{'count'},
                 $top_most_frequent[$i]{'total_time'},
                 $top_most_frequent[$i]{'avg_time'},
+                $top_most_frequent[$i]{'min_rows'} .'/'.
+                round($top_most_frequent[$i]{'avg_rows'}) .'/'.
+                $top_most_frequent[$i]{'max_rows'},
                 $top_most_frequent[$i]{'query'};
         }
     }
@@ -964,6 +1212,7 @@ sub END {
 
     # print Dumper($stats);
     # print Dumper($sess_stats);
+    # print Dumper($db_stats);
     # print Dumper($qtype_stats);
     # print Dumper($query_stats);
     # print Dumper($prepd_stats);
