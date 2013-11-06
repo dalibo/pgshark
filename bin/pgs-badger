@@ -114,6 +114,12 @@ my $sess_stats = {    # sessions statistics
     'min_sess_time'   => 9**9**9,
     'avg_sess_time'   => 0,
     'max_sess_time'   => 0,
+    'min_busy_time'   => 9**9**9,
+    'avg_busy_time'   => 0,
+    'max_busy_time'   => 0,
+    'min_busy_ratio'  => 9**9**9,
+    'avg_busy_ratio'  => 0,
+    'max_busy_ratio'  => 0,
     'total_sess_time' => 0,
     'total_busy_time' => 0,
 
@@ -181,6 +187,7 @@ sub record_session_stats {
         = $session->{'stats'}{'ts_end'} - $session->{'stats'}{'ts_start'};
 
     $sess_stats->{'total_sess_time'} += $interval;
+
     $sess_stats->{'min_sess_time'} = $interval
         if $sess_stats->{'min_sess_time'} > $interval;
     $sess_stats->{'max_sess_time'} = $interval
@@ -190,6 +197,30 @@ sub record_session_stats {
                 * ( $stats->{'total_sessions'} - 1 )
         ) + $interval
     ) / $stats->{'total_sessions'};
+
+    # busy session in s
+    $sess_stats->{'min_busy_time'} = $session->{'stats'}{'busy_time'}
+        if $sess_stats->{'min_busy_time'} > $session->{'stats'}{'busy_time'};
+    $sess_stats->{'max_busy_time'} = $session->{'stats'}{'busy_time'}
+        if $sess_stats->{'max_busy_time'} < $session->{'stats'}{'busy_time'};
+    $sess_stats->{'avg_busy_time'} = (
+        (   $sess_stats->{'avg_busy_time'}
+                * ( $stats->{'total_sessions'} - 1 )
+        ) + $session->{'stats'}{'busy_time'}
+    ) / $stats->{'total_sessions'};
+
+    # busy in ratio
+    my $busy_ratio = 100*($session->{'stats'}{'busy_time'}/$interval);
+    $sess_stats->{'min_busy_ratio'} = $busy_ratio
+        if $sess_stats->{'min_busy_ratio'} > $busy_ratio;
+    $sess_stats->{'max_busy_ratio'} = $busy_ratio
+        if $sess_stats->{'max_busy_ratio'} < $busy_ratio;
+    $sess_stats->{'avg_busy_ratio'} = (
+        (   $sess_stats->{'avg_busy_ratio'}
+                * ( $stats->{'total_sessions'} - 1 )
+        ) + $busy_ratio
+    ) / $stats->{'total_sessions'};
+
     $sess_stats->{'total_busy_time'} += $session->{'stats'}{'busy_time'};
 
     $sess_stats->{'min_queries'} = $session->{'stats'}{'queries_count'}
@@ -787,6 +818,16 @@ sub END {
         $sess_stats->{'auth_min_time'},
         $sess_stats->{'auth_avg_time'},
         $sess_stats->{'auth_max_time'};
+    printf
+        "Min/Avg/Max busy ratio (%%):                         %.6f / %.6f / %.6f\n",
+        $sess_stats->{'min_busy_ratio'},
+        $sess_stats->{'avg_busy_ratio'},
+        $sess_stats->{'max_busy_ratio'};
+    printf
+        "Min/Avg/Max busy time (s):                         %.6f / %.6f / %.6f\n",
+        $sess_stats->{'min_busy_time'},
+        $sess_stats->{'avg_busy_time'},
+        $sess_stats->{'max_busy_time'};
     printf
         "Min/Avg/Max sessions time (s):                         %.6f / %.6f / %.6f\n",
         $sess_stats->{'min_sess_time'},
