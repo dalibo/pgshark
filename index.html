@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <link href='https://fonts.googleapis.com/css?family=Chivo:900' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen" />
+    <link rel="stylesheet" type="text/css" href="stylesheets/pygment_trac.css" media="screen" />
+    <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print" />
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <title>pgShark by dalibo</title>
+  </head>
+
+  <body>
+    <div id="container">
+      <div class="inner">
+
+        <header>
+          <h1>pgShark</h1>
+          <h2>Messing with PostgreSQL network traffic to make some usefull things</h2>
+        </header>
+
+        <section id="downloads" class="clearfix">
+          <a href="https://github.com/dalibo/pgshark/zipball/master" id="download-zip" class="button"><span>Download .zip</span></a>
+          <a href="https://github.com/dalibo/pgshark/tarball/master" id="download-tar-gz" class="button"><span>Download .tar.gz</span></a>
+          <a href="https://github.com/dalibo/pgshark" id="view-on-github" class="button"><span>View on GitHub</span></a>
+        </section>
+
+        <hr>
+
+        <section id="main_content">
+          <p>NAME
+    pgShark - pgShark is a Perl module able to mess with PostgreSQL network
+    traffic</p>
+
+<p>SYNOPSIS
+    A simple exemple to count the number of connections and disconnections
+    on localhost, live version:</p>
+
+<pre><code>    use pgShark;
+
+    my ($cnx, $dcnx) = (0, 0);
+    my $dev = 'lo';
+    my $err;
+
+    $shark = pgShark-&gt;new({
+        'procs' =&gt; {
+            'AuthenticationOk' =&gt; sub {$cnx++},
+            'Terminate' =&gt; sub {$dcnx++},
+        },
+        'host' =&gt; '127.0.0.1',
+        'port' =&gt; 5432
+    });
+
+    die "Can not open interface $dev:\n$err" if $shark-&gt;live($dev, \$err);
+
+    # on live capture, a ctrl-c interrupt the loop
+    $shark-&gt;process_all();
+
+    $shark-&gt;close();
+
+    printf "Number of connections/disconnections: %u/%u\n", $cnx, $dcnx;
+</code></pre>
+
+<p>DESCRIPTION
+    This Perl module is able to study PostgreSQL traffic captured from a
+    network interface and call various functions for each messages of the
+    protocol. The network dump could be live or from a pcap file (using
+    tcpdump as instance).</p>
+
+<pre><code>pgShark comes with various sample scripts able to do various things with
+these network dumps. See help page of each of them for more
+informations.
+</code></pre>
+
+<p>METHODS
+    *   new (\%settings)</p>
+
+<pre><code>    Static method.
+
+    Creates a new pgShark object and returns it. It takes a hash as
+    parameter with the following settings:
+
+        {
+            'host' =&gt; IP address of the server
+            'port' =&gt; Port of the PostgreSQL server
+            'protocol' =&gt; the protocol version, ie. 2 or 3
+            'procs' =&gt; {
+                # Hash of callbacks for each messages.
+                'message name' =&gt; \&amp;callback
+                ...
+            }
+            'debug' =&gt; $level
+        }
+
+    When 'host' key is not given, pgShark will wait for a message coming
+    from the backend or the frontend with no doubt before calling user
+    callbacks. Depending on the network activity, it can takes more or
+    less time and messages might be lost (usually, COPY related ones).
+    If you really need *ALL* messages, set the 'host' key explicitly.
+
+    pgShark is not able to detect which port the server is listening.
+    Default is PostgreSQL's ones, ie. 5432. Make sure to always set the
+    proper port or pgShark will just filter out your PostgreSQL traffic
+    if it's not on 5432.
+
+    If not defined, the protocol version by default is 3.
+
+    The 'procs' hash associate a callback to each messages of the
+    PostgreSQL protocol you are interested in. See the following link
+    about available message names and definitions:
+
+      http://www.postgresql.org/docs/current/static/protocol-message-formats.html
+
+    One messages type has been added to both protocols: SSLAnswer.
+
+    The 'debug' key in settings can be set between 0 and 6, 0 is the
+    default with no debug message, 6 is the most verbose. Because of
+    internal performance consideration, you MUST set the environment
+    variable DEBUG to '1' to actually activate the debugging messages.
+
+*   live ($interface, \$err)
+
+    Open a live capture on given interface from first parameter. The
+    second parameter is a reference to a string. It will be filled with
+    the error message if the method fails.
+
+    Returns 0 on success, 1 on failure
+
+*   open ($file, \$err)
+
+    Open a given pcap file from first parameter. The second parameter is
+    a reference to a string. It will be filled with the error message if
+    the method fails.
+
+    Returns 0 on success, 1 on failure.
+
+*   close ()
+
+    Close the pcap handle previously opened with this object using
+    either pgShark::live() or pgShark::open() methods.
+
+*   process_all ()
+
+    Loop over all available packets from the previously opened pcap
+    handle.
+
+*   dec2dot ($ip_addr)
+
+    Static method.
+
+    Convert a decimal IP address representation given as first parameter
+    to the human notation "ww.xx.yy.zz".
+
+*   normalize_query ($query)
+
+    Static method.
+
+    Returns the normalized version of the query given as first
+    parameter.
+</code></pre>
+
+<p>BINARIES
+    For details, see the output of parameter "--help" for each of them.</p>
+
+<pre><code>*   pgs-badger
+
+    This script analyse the pcap traffics and outputs various statistics
+    about what was found in PostgreSQL protocol.
+
+    The report contains most popular queries, slowest cumulated ones,
+    slowest queries ever, classification of queries by type, sessions
+    time, number of connexion, errors, notices, etc.
+
+    The network dump could be live or from a pcap file (using tcpdump
+    for instance).
+
+    In a futur version this script is supposed to talk with pgbadger
+    directly !
+
+*   pgs-debug
+
+    Outputs the PostgreSQL messages in human readable format. Useful to
+    analyze what is in a network dump before using pgshark on some other
+    duties.
+
+*   pgs-normalize
+
+    The "pgs-normalize" script tries to normalize queries and prepared
+    statements and output them to stdout. Its purpose is to give you a
+    list of unique queries, whatever the number of time they have been
+    sent by clients and whatever their parameters were.
+
+*   pgs-record
+
+    "pgs-record" filters network traffic and dump PostgreSQL related
+    activity to a pcap file. The pcap file can then be processed with
+    all available pgShark tools.
+
+    "pgs-record" rely on perl Net::Pcap module. However, unlike
+    Net::Pcap, "tcpdump" is able to set a bigger capture buffer using
+    recent libpcap. Default buffer size is often too small to be able to
+    dump all tcp datagram quickly enough. Because of this buffer size
+    (1MB), on high loaded systems, you might loose packets. Therefor, by
+    default, "pgs-record" will try to act as a wrapper around c&lt;tcpdump&gt;
+    if it is available on the system and set the buffer to "32M".
+
+    Capturing high throughput traffic, make sure your CPU, disks and
+    memory are good enough to deal with the amount of data. You might
+    want to set the capture buffer to 256MB or more and redirect
+    directly to a file for future use.
+
+*   pgs-replay
+
+    &lt;pgs-replay&gt; send the PostgreSQL messages to a given PostgreSQL
+    cluster. The network dump could be live or from a pcap file (using
+    tcpdump for instance).
+
+    This script only supports protocol v3, making it compatilible with
+    versions 7.4 to 9.2 of PostgreSQL.
+
+    This script currently does not support any kind of authentication on
+    the remote PostgreSQL cluster where messages are send. Make sure it
+    can connect using ident, peer or trust.
+
+*   pgs-sql
+
+    Writes captured queries on stdout. Because of the SQL language
+    doesn't support unnamed prepared statement, this script actually try
+    to names them. Presently, this script doesn't support cursors nor
+    COPY messages.
+
+*   pgs-stat
+
+    Outputs various informations about PostgreSQL activity on the
+    network on a given sampling period.
+</code></pre>
+
+<p>SEE ALSO
+    This module rely on two modules to parse message of protocols v2 and v3:
+    pgShark::protocol_2 and pgShark::protocol_3.</p>
+
+<p>LICENSING
+    This program is open source, licensed under the simplified BSD license.
+    For license terms, see the LICENSE provided with the sources.</p>
+
+<p>AUTHORS
+    Jehan-Guillaume de Rorthais <a href="mailto:jgdr@dalibo.com">jgdr@dalibo.com</a></p>
+
+<pre><code>Nicolas Thauvin &lt;nicolas.thauvin@dalibo.com&gt;
+
+Guillaume Lelarge &lt;guillaume.lelarge@dalibo.com&gt;
+
+Copyright: (C) 2012-2013 Jehan-Guillaume de Rorthais - All rights
+reserved.
+
+Dalibo's team. http://www.dalibo.org
+</code></pre>
+        </section>
+
+        <footer>
+          pgShark is maintained by <a href="https://github.com/dalibo">dalibo</a><br>
+          This page was generated by <a href="http://pages.github.com">GitHub Pages</a>. Tactile theme by <a href="https://twitter.com/jasonlong">Jason Long</a>.
+        </footer>
+
+        
+      </div>
+    </div>
+  </body>
+</html>
