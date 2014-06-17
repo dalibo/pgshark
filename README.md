@@ -1,11 +1,14 @@
-NAME
-    pgShark - pgShark is a Perl module able to mess with PostgreSQL network
+
+    
+    pgShark is a Perl module able to mess with PostgreSQL network
     traffic
 
-SYNOPSIS
-    A simple exemple to count the number of connections and disconnections
-    on localhost, live version:
+Synopsis
+==================
 
+A simple exemple to count the number of connections and disconnections on localhost, live version:
+
+```perl
         use pgShark;
 
         my ($cnx, $dcnx) = (0, 0);
@@ -29,18 +32,23 @@ SYNOPSIS
         $shark->close();
 
         printf "Number of connections/disconnections: %u/%u\n", $cnx, $dcnx;
+```
 
-DESCRIPTION
-    This Perl module is able to study PostgreSQL traffic captured from a
-    network interface and call various functions for each messages of the
-    protocol. The network dump could be live or from a pcap file (using
-    tcpdump as instance).
+Description
+=========================
 
-    pgShark comes with various sample scripts able to do various things with
-    these network dumps. See help page of each of them for more
-    informations.
+This Perl module is able to study PostgreSQL traffic captured from a
+network interface and call various functions for each messages of the
+protocol. The network dump could be live or from a pcap file (using
+tcpdump as instance).
 
-METHODS
+pgShark comes with various sample scripts able to do various things with
+these network dumps. See help page of each of them for more
+informations.
+
+Methods
+================================
+
     *   new (\%settings)
 
         Static method.
@@ -126,7 +134,9 @@ METHODS
         Returns the normalized version of the query given as first
         parameter.
 
-BINARIES
+Binaries
+==================
+
     For details, see the output of parameter "--help" for each of them.
 
     *   pgs-badger
@@ -201,22 +211,28 @@ BINARIES
         Outputs various informations about PostgreSQL activity on the
         network on a given sampling period.
 
-SEE ALSO
+See also
+===========
+
     This module rely on two modules to parse message of protocols v2 and v3:
     pgShark::protocol_2 and pgShark::protocol_3.
 
 LICENSING
+================
+
     This program is open source, licensed under the simplified BSD license.
     For license terms, see the LICENSE provided with the sources.
 
 AUTHORS
+============
+
     Jehan-Guillaume de Rorthais <jgdr@dalibo.com>
 
     Nicolas Thauvin <nicolas.thauvin@dalibo.com>
 
     Guillaume Lelarge <guillaume.lelarge@dalibo.com>
 
-    Copyright: (C) 2012-2013 Jehan-Guillaume de Rorthais - All rights
+    Copyright: (C) 2012-2014 Jehan-Guillaume de Rorthais - All rights
     reserved.
 
     Dalibo's team. http://www.dalibo.org
