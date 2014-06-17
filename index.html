@@ -1,84 +1,85 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
-    <meta charset='utf-8'>
+    <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="chrome=1">
-    <link href='https://fonts.googleapis.com/css?family=Chivo:900' rel='stylesheet' type='text/css'>
-    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen" />
-    <link rel="stylesheet" type="text/css" href="stylesheets/pygment_trac.css" media="screen" />
-    <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print" />
+    <title>pgShark by dalibo</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
     <!--[if lt IE 9]>
     <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
     <![endif]-->
-    <title>pgShark by dalibo</title>
   </head>
-
   <body>
-    <div id="container">
-      <div class="inner">
+    <div class="wrapper">
+      <header>
+        <h1>pgShark</h1>
+        <p>Messing with PostgreSQL network traffic to make some usefull things</p>
 
-        <header>
-          <h1>pgShark</h1>
-          <h2>Messing with PostgreSQL network traffic to make some usefull things</h2>
-        </header>
+        <p class="view"><a href="https://github.com/dalibo/pgshark">View the Project on GitHub <small>dalibo/pgshark</small></a></p>
 
-        <section id="downloads" class="clearfix">
-          <a href="https://github.com/dalibo/pgshark/zipball/master" id="download-zip" class="button"><span>Download .zip</span></a>
-          <a href="https://github.com/dalibo/pgshark/tarball/master" id="download-tar-gz" class="button"><span>Download .tar.gz</span></a>
-          <a href="https://github.com/dalibo/pgshark" id="view-on-github" class="button"><span>View on GitHub</span></a>
-        </section>
 
-        <hr>
-
-        <section id="main_content">
-          <p>NAME
-    pgShark - pgShark is a Perl module able to mess with PostgreSQL network
-    traffic</p>
-
-<p>SYNOPSIS
-    A simple exemple to count the number of connections and disconnections
-    on localhost, live version:</p>
-
-<pre><code>    use pgShark;
-
-    my ($cnx, $dcnx) = (0, 0);
-    my $dev = 'lo';
-    my $err;
-
-    $shark = pgShark-&gt;new({
-        'procs' =&gt; {
-            'AuthenticationOk' =&gt; sub {$cnx++},
-            'Terminate' =&gt; sub {$dcnx++},
-        },
-        'host' =&gt; '127.0.0.1',
-        'port' =&gt; 5432
-    });
-
-    die "Can not open interface $dev:\n$err" if $shark-&gt;live($dev, \$err);
-
-    # on live capture, a ctrl-c interrupt the loop
-    $shark-&gt;process_all();
-
-    $shark-&gt;close();
-
-    printf "Number of connections/disconnections: %u/%u\n", $cnx, $dcnx;
+        <ul>
+          <li><a href="https://github.com/dalibo/pgshark/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/dalibo/pgshark/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/dalibo/pgshark">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <pre><code>pgShark is a Perl module able to mess with PostgreSQL network
+traffic
 </code></pre>
 
-<p>DESCRIPTION
-    This Perl module is able to study PostgreSQL traffic captured from a
-    network interface and call various functions for each messages of the
-    protocol. The network dump could be live or from a pcap file (using
-    tcpdump as instance).</p>
+<h1>
+<a name="synopsis" class="anchor" href="#synopsis"><span class="octicon octicon-link"></span></a>Synopsis</h1>
 
-<pre><code>pgShark comes with various sample scripts able to do various things with
+<p>A simple exemple to count the number of connections and disconnections on localhost, live version:</p>
+
+<div class="highlight highlight-perl"><pre>        <span class="k">use</span> <span class="n">pgShark</span><span class="p">;</span>
+
+        <span class="k">my</span> <span class="p">(</span><span class="nv">$cnx</span><span class="p">,</span> <span class="nv">$dcnx</span><span class="p">)</span> <span class="o">=</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">);</span>
+        <span class="k">my</span> <span class="nv">$dev</span> <span class="o">=</span> <span class="s">'lo'</span><span class="p">;</span>
+        <span class="k">my</span> <span class="nv">$err</span><span class="p">;</span>
+
+        <span class="nv">$shark</span> <span class="o">=</span> <span class="n">pgShark</span><span class="o">-&gt;</span><span class="k">new</span><span class="p">({</span>
+            <span class="s">'procs'</span> <span class="o">=&gt;</span> <span class="p">{</span>
+                <span class="s">'AuthenticationOk'</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span><span class="nv">$cnx</span><span class="o">++</span><span class="p">},</span>
+                <span class="s">'Terminate'</span> <span class="o">=&gt;</span> <span class="k">sub </span><span class="p">{</span><span class="nv">$dcnx</span><span class="o">++</span><span class="p">},</span>
+            <span class="p">},</span>
+            <span class="s">'host'</span> <span class="o">=&gt;</span> <span class="s">'127.0.0.1'</span><span class="p">,</span>
+            <span class="s">'port'</span> <span class="o">=&gt;</span> <span class="mi">5432</span>
+        <span class="p">});</span>
+
+        <span class="nb">die</span> <span class="s">"Can not open interface $dev:\n$err"</span> <span class="k">if</span> <span class="nv">$shark</span><span class="o">-&gt;</span><span class="n">live</span><span class="p">(</span><span class="nv">$dev</span><span class="p">,</span> <span class="o">\</span><span class="nv">$err</span><span class="p">);</span>
+
+        <span class="c1"># on live capture, a ctrl-c interrupt the loop</span>
+        <span class="nv">$shark</span><span class="o">-&gt;</span><span class="n">process_all</span><span class="p">();</span>
+
+        <span class="nv">$shark</span><span class="o">-&gt;</span><span class="nb">close</span><span class="p">();</span>
+
+        <span class="nb">printf</span> <span class="s">"Number of connections/disconnections: %u/%u\n"</span><span class="p">,</span> <span class="nv">$cnx</span><span class="p">,</span> <span class="nv">$dcnx</span><span class="p">;</span>
+</pre></div>
+
+<h1>
+<a name="description" class="anchor" href="#description"><span class="octicon octicon-link"></span></a>Description</h1>
+
+<p>This Perl module is able to study PostgreSQL traffic captured from a
+network interface and call various functions for each messages of the
+protocol. The network dump could be live or from a pcap file (using
+tcpdump as instance).</p>
+
+<p>pgShark comes with various sample scripts able to do various things with
 these network dumps. See help page of each of them for more
-informations.
-</code></pre>
+informations.</p>
 
-<p>METHODS
-    *   new (\%settings)</p>
+<h1>
+<a name="methods" class="anchor" href="#methods"><span class="octicon octicon-link"></span></a>Methods</h1>
 
-<pre><code>    Static method.
+<pre><code>*   new (\%settings)
+
+    Static method.
 
     Creates a new pgShark object and returns it. It takes a hash as
     parameter with the following settings:
@@ -162,10 +163,12 @@ informations.
     parameter.
 </code></pre>
 
-<p>BINARIES
-    For details, see the output of parameter "--help" for each of them.</p>
+<h1>
+<a name="binaries" class="anchor" href="#binaries"><span class="octicon octicon-link"></span></a>Binaries</h1>
 
-<pre><code>*   pgs-badger
+<pre><code>For details, see the output of parameter "--help" for each of them.
+
+*   pgs-badger
 
     This script analyse the pcap traffics and outputs various statistics
     about what was found in PostgreSQL protocol.
@@ -238,35 +241,41 @@ informations.
     network on a given sampling period.
 </code></pre>
 
-<p>SEE ALSO
-    This module rely on two modules to parse message of protocols v2 and v3:
-    pgShark::protocol_2 and pgShark::protocol_3.</p>
+<h1>
+<a name="see-also" class="anchor" href="#see-also"><span class="octicon octicon-link"></span></a>See also</h1>
 
-<p>LICENSING
-    This program is open source, licensed under the simplified BSD license.
-    For license terms, see the LICENSE provided with the sources.</p>
+<pre><code>This module rely on two modules to parse message of protocols v2 and v3:
+pgShark::protocol_2 and pgShark::protocol_3.
+</code></pre>
 
-<p>AUTHORS
-    Jehan-Guillaume de Rorthais <a href="mailto:jgdr@dalibo.com">jgdr@dalibo.com</a></p>
+<h1>
+<a name="licensing" class="anchor" href="#licensing"><span class="octicon octicon-link"></span></a>LICENSING</h1>
 
-<pre><code>Nicolas Thauvin &lt;nicolas.thauvin@dalibo.com&gt;
+<pre><code>This program is open source, licensed under the simplified BSD license.
+For license terms, see the LICENSE provided with the sources.
+</code></pre>
+
+<h1>
+<a name="authors" class="anchor" href="#authors"><span class="octicon octicon-link"></span></a>AUTHORS</h1>
+
+<pre><code>Jehan-Guillaume de Rorthais &lt;jgdr@dalibo.com&gt;
+
+Nicolas Thauvin &lt;nicolas.thauvin@dalibo.com&gt;
 
 Guillaume Lelarge &lt;guillaume.lelarge@dalibo.com&gt;
 
-Copyright: (C) 2012-2013 Jehan-Guillaume de Rorthais - All rights
+Copyright: (C) 2012-2014 Jehan-Guillaume de Rorthais - All rights
 reserved.
 
 Dalibo's team. http://www.dalibo.org
 </code></pre>
-        </section>
-
-        <footer>
-          pgShark is maintained by <a href="https://github.com/dalibo">dalibo</a><br>
-          This page was generated by <a href="http://pages.github.com">GitHub Pages</a>. Tactile theme by <a href="https://twitter.com/jasonlong">Jason Long</a>.
-        </footer>
-
-        
-      </div>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/dalibo">dalibo</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
     </div>
+    <script src="javascripts/scale.fix.js"></script>
+    
   </body>
 </html>
