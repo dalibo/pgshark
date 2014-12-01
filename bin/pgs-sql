@@ -111,13 +111,18 @@ sub Bind {
 # we should probably send some debug message about it...
     return unless defined $prepd->{$sess_hash}->{$prepname};
 
+# Ignoring PREPARE BEGIN/COMMIT/ROLLBACK
+    if ( $prepd->{$sess_hash}{$prepname}{'query'} =~ /^\s*(begin|commit|rollback)/i ) {
+        return;
+    }
+
 # We need to wait until the first BIND to know the number of params before actually issue a PREPARE
 # query. If understood correctly from the doc, even prepd stmt without args must be binded,
 # so this piece of code will be executed for all prepd stmt.
 # If never binded, there's no portals, so execute the PREPARE stmt as it wasn't prepd yet
-    if (not scalar( keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} } )
-        )
-    {
+    if (
+      not scalar( keys %{ $prepd->{$sess_hash}->{$prepname}->{'portals'} } )
+    ) {
 
         printf_prefix "PREPARE %s ", $pg_msg, $prepname;
 
