@@ -30,6 +30,7 @@ my %args = (
     'rhost'     => undef,
     'rport'     => undef,
     'role'      => undef,
+    'trydb'     => undef,
     'timeout'   => 5,
 );
 
@@ -204,7 +205,17 @@ sub Replay {
     my $pg_ans    = shift;
     my $sess_hash = $pg_msg->{'sess_hash'};
 
-    return unless defined $sessions{$sess_hash};
+    unless ( defined $sessions{$sess_hash} ) {
+        if ( defined $args{'trydb'} ) {
+            warn "Forcing a sessions for $pg_msg->{'sess_hash'}"
+                ." using $args{'trydb'}\n";
+            $sessions{$sess_hash}{'database'} = $args{'trydb'};
+            openSocket($pg_msg);
+        }
+        else {
+            return;
+        }
+    }
 
     if (    $sessions{$sess_hash}{'msg_ts'}
         and $sessions{$sess_hash}{'msg_ts'} != $pg_msg->{'timestamp'} )
@@ -264,6 +275,7 @@ GetOptions(
         rport|rp=s
         role|U=s
         timeout|t=s
+        trydb|tdb=s
         }
 ) or pod2usage( -exitval => 2 );
 
