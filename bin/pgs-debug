@@ -199,6 +199,16 @@ sub CommandComplete {
     printf "COMMAND COMPLETE command='%s'\n\n", $pg_msg->{'command'};
 }
 
+sub CopyBothResponse {
+    my $pg_msg = shift;
+    prelude( $pg_msg );
+
+    printf
+        "COPY BOTH RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n",
+        $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
+        join( ', ', @{ $pg_msg->{'fields_formats'} } );
+}
+
 sub CopyData {
     my $pg_msg = shift;
 
@@ -548,6 +558,7 @@ $shark = pgShark->new(
             'Close'                           => \&Close,
             'CloseComplete'                   => \&CloseComplete,
             'CommandComplete'                 => \&CommandComplete,
+            'CopyBothResponse'                => \&CopyBothResponse,
             'CopyData'                        => \&CopyData,
             'CopyDone'                        => \&CopyDone,
             'CopyFail'                        => \&CopyFail,
