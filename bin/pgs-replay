@@ -15,6 +15,17 @@ use Pod::Usage;
 use IO::Socket;
 use IO::Select;
 
+BEGIN {
+
+    # set the DEBUG constant to 0 or 1
+    # When 0, optimize away all debug messages at compile time
+    eval q{
+        $ENV{'DEBUG'} = 0
+            unless defined $ENV{'DEBUG'} and $ENV{'DEBUG'};
+        use constant DEBUG => $ENV{'DEBUG'};
+    };
+}
+
 use constant READMAX      => 2048;
 
 my %sessions;
@@ -22,7 +33,6 @@ my $selects = new IO::Select();
 my $shark;
 my %args = (
     'help'      => 0,
-    'debug'     => 0,
     'interface' => '',
     'host'      => undef,
     'port'      => 5432,
@@ -46,7 +56,7 @@ sub readFromBackend {
     my $buff      = '';
     my @ready;
 
-    warn "readFromBackend: on session $sess_hash.";
+    pgShark::dprint 4 => "readFromBackend: on session $sess_hash.";
 
     # TODO: better timeout handling
 TIMELOOP: while ($timeout) {
@@ -57,7 +67,7 @@ TIMELOOP: while ($timeout) {
             # our socket is ready to be readed
             last TIMELOOP if ( $fh == $sock );
         }
-        warn "socket not ready ($timeout).";
+        pgShark::dprint 4 => "socket not ready ($timeout).";
         sleep 1;
         $timeout--;
     }
@@ -67,7 +77,7 @@ TIMELOOP: while ($timeout) {
     while ( $count == READMAX ) {
         $count = sysread( $sock, $buff, READMAX );
         if ( defined $count ) {
-            warn "  $count bytes readed.";
+            pgShark::dprint 4 => "  $count bytes readed.";
             $session->{'data'} .= $buff;
         }
 
@@ -100,7 +110,7 @@ sub nextMessage {
     }
 
     $session->{'data'} = substr( $session->{'data'}, $count );
-    warn "Seen a $pg_msg->{'type'} as answer to $sess_hash.";
+    pgShark::dprint 3 => "Seen a $pg_msg->{'type'} as answer to $sess_hash.";
 
     return $pg_msg;
 }
@@ -110,7 +120,7 @@ sub pg_connect {
     my $sock      = $sessions{$sess_hash}{'sock'};
     my $pg_msg;
 
-    warn "session $sess_hash\n";
+    pgShark::dprint 2 => "session $sess_hash";
 
     ## authentication
     my $msg
@@ -142,7 +152,7 @@ sub StartupMessage {
     my $pg_msg    = shift;
     my $sess_hash = $pg_msg->{'sess_hash'};
 
-    warn "StartupMessage: session $sess_hash.";
+    pgShark::dprint 3 => "StartupMessage: session $sess_hash.";
 
     $sessions{$sess_hash}{'database'} = $pg_msg->{'params'}->{'database'};
 }
@@ -153,7 +163,7 @@ sub openSocket {
     my $pg_msg    = shift;
     my $sess_hash = $pg_msg->{'sess_hash'};
 
-    warn "openSocket: session $sess_hash";
+    pgShark::dprint 4 => "openSocket: session $sess_hash";
 
     # if we don't have information about the session opening, ignore it
     return unless defined $sessions{$sess_hash};
@@ -161,14 +171,14 @@ sub openSocket {
     if ( substr( $args{'rhost'}, 0, 1 ) eq '/' ) {
         my $sock_path = "$args{'rhost'}/.s.PGSQL.$args{'rport'}";
 
-        warn "  opening unix socket : «$sock_path»";
+        pgShark::dprint 4 => "  opening unix socket : «$sock_path»";
         $sessions{$sess_hash}{'sock'} = IO::Socket::UNIX->new(
             'Type' => SOCK_STREAM,
             'Peer' => $sock_path
         );
     }
     else {
-        warn
+        pgShark::dprint 4 =>
             "  opening inet socket : «tcp://$args{'rhost'}:$args{'rport'}»";
         $sessions{$sess_hash}{'sock'} = IO::Socket::INET->new(
             'PeerAddr' => $args{'rhost'},
@@ -179,19 +189,19 @@ sub openSocket {
     }
 
     if ( not $sessions{$sess_hash}{'sock'} ) {
-        warn "  could not open socket for session $sess_hash. $!";
+        pgShark::dprint 1 => "  could not open socket for session $sess_hash. $!";
         delete $sessions{$sess_hash};
         return;
     }
 
-    warn "  socket for session $sess_hash.";
+    pgShark::dprint 4 => "  socket for session $sess_hash.";
 
     $selects->add( $sessions{$sess_hash}{'sock'} );
 
     $sessions{$sess_hash}{'data'} = '';
 
     if ( pg_connect($sess_hash) ) {
-        warn "  could not open pgsql session for $sess_hash.";
+        pgShark::dprint 1 => "  could not open pgsql session for $sess_hash.";
         delete $sessions{$sess_hash};
         return;
     }
@@ -207,8 +217,8 @@ sub Replay {
 
     unless ( defined $sessions{$sess_hash} ) {
         if ( defined $args{'trydb'} ) {
-            warn "Forcing a sessions for $pg_msg->{'sess_hash'}"
-                ." using $args{'trydb'}\n";
+            pgShark::dprint 2 => "Forcing a sessions for $pg_msg->{'sess_hash'}"
+                ." using $args{'trydb'}";
             $sessions{$sess_hash}{'database'} = $args{'trydb'};
             openSocket($pg_msg);
         }
@@ -227,7 +237,8 @@ sub Replay {
         $sessions{$sess_hash}{'msg_ts'} = $pg_msg->{'timestamp'};
     }
 
-    warn "Replay: replaying a '$pg_msg->{'type'}' for session $sess_hash.";
+    pgShark::dprint 3
+        => "Replay: replaying a '$pg_msg->{'type'}' for session $sess_hash.";
 
     my $sock = $sessions{$sess_hash}{'sock'};
 
@@ -254,7 +265,7 @@ sub Terminate {
 
     my $sock = $sessions{$sess_hash}{'sock'};
 
-    warn "Terminate: session $sess_hash.";
+    pgShark::dprint 2 => "Terminate: session $sess_hash.";
 
     print $sock $pg_msg->{'data'};
     $selects->remove($sock);
@@ -266,7 +277,6 @@ Getopt::Long::Configure('bundling');
 GetOptions(
     \%args, qw{
         help|?!
-        debug|d+
         interface|i=s
         host|h=s
         port|p=s
@@ -297,10 +307,6 @@ pod2usage(
 
 $args{'rhost'} = '/tmp' if $args{'rhost'} eq '';
 
-$SIG{'__WARN__'} = sub {
-    warn $_[0] if $args{'debug'};
-};
-
 $shark = pgShark->new(
     {   'procs' => {
             'AuthenticationOk' => \&openSocket,
@@ -320,8 +326,9 @@ $shark = pgShark->new(
             'Sync'             => \&Replay,
             'Terminate'        => \&Terminate
         },
-        'host' => $args{'host'},
-        'port' => $args{'port'},
+        'host'  => $args{'host'},
+        'port'  => $args{'port'},
+        'debug' => DEBUG
     }
 );
 
@@ -347,7 +354,7 @@ else {
 
     foreach my $f ( @{ $args{'read'} } ) {
 
-        warn "Replaying file $f...\n";
+        pgShark::dprint 1 => "Replaying file $f...";
 
         ( $shark->open( $f, \$err ) == 0 )
             or die("Can not read from file '$args{'read'}':\n$err");
