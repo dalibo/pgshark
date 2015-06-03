@@ -10,7 +10,7 @@ use warnings;
 
 use pgShark;
 use pgShark::protocol_3;
-use Getopt::Long;
+use Getopt::Long qw(:config bundling no_ignore_case_always);
 use Pod::Usage;
 use IO::Socket;
 use IO::Select;
@@ -26,7 +26,7 @@ my %args = (
     'interface' => '',
     'host'      => undef,
     'port'      => 5432,
-    'read'      => '',
+    'read'      => [],
     'rhost'     => undef,
     'rport'     => undef,
     'role'      => undef,
@@ -331,6 +331,10 @@ if ( $args{'interface'} ne '' ) {
 
     ( $shark->live( $args{'interface'}, \$err ) == 0 )
         or die("Can not open interface '$args{'interface'}':\n$err");
+
+    $shark->process_all();
+
+    $shark->close();
 }
 
 # we have no interface to listen on,
@@ -339,15 +343,21 @@ else {
     my $err = '';
 
     # read from stdin if no pcap file given
-    $args{'read'} = '-' if $args{'read'} eq '';
+    $args{'read'}[0] = '-' if scalar @{ $args{'read'} } == 0;
 
-    ( $shark->open( $args{'read'}, \$err ) == 0 )
-        or die("Can not read from file '$args{'read'}':\n$err");
+    foreach my $f ( @{ $args{'read'} } ) {
+
+        warn "Replaying file $f...\n";
+        print Dumper(\%sessions);
+
+        ( $shark->open( $f, \$err ) == 0 )
+            or die("Can not read from file '$args{'read'}':\n$err");
+
+        $shark->process_all();
+
+        $shark->close();
+    }
 }
-
-$shark->process_all();
-
-$shark->close();
 
 exit 0;
 
