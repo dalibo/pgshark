@@ -348,7 +348,6 @@ else {
     foreach my $f ( @{ $args{'read'} } ) {
 
         warn "Replaying file $f...\n";
-        print Dumper(\%sessions);
 
         ( $shark->open( $f, \$err ) == 0 )
             or die("Can not read from file '$args{'read'}':\n$err");
