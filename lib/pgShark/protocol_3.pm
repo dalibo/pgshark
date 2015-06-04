@@ -197,12 +197,12 @@ sub get_msg_len($$$) {
 
     # TODO: replace with a hash ?
 
-    return ( 16 < $len ? 16 : 0 ) if $type eq 'CancelRequest';
-    return ( 13 < $len ? 13 : 0 )
+    return ( 16 <= $len ? 16 : 0 ) if $type eq 'CancelRequest';
+    return ( 13 <= $len ? 13 : 0 )
         if $type eq 'BackendKeyData'
             or $type eq 'AuthenticationMD5Password';
-    return ( 11 < $len ? 11 : 0 ) if $type eq 'AuthenticationCryptPassword';
-    return ( 9 < $len ? 9 : 0 )
+    return ( 11 <= $len ? 11 : 0 ) if $type eq 'AuthenticationCryptPassword';
+    return ( 9 <= $len ? 9 : 0 )
         if $type eq 'AuthenticationOk'
             or $type eq 'AuthenticationKerberosV4'
             or $type eq 'AuthenticationKerberosV5'
@@ -210,9 +210,9 @@ sub get_msg_len($$$) {
             or $type eq 'AuthenticationSCMCredential'
             or $type eq 'AuthenticationGSS'
             or $type eq 'AuthenticationSSPI';
-    return ( 8 < $len ? 8 : 0 ) if $type eq 'SSLRequest';
-    return ( 6 < $len ? 6 : 0 ) if $type eq 'ReadyForQuery';
-    return ( 5 < $len ? 5 : 0 )
+    return ( 8 <= $len ? 8 : 0 ) if $type eq 'SSLRequest';
+    return ( 6 <= $len ? 6 : 0 ) if $type eq 'ReadyForQuery';
+    return ( 5 <= $len ? 5 : 0 )
         if $type eq 'BindComplete'
             or $type eq 'CloseComplete'
             or $type eq 'CopyDone'
@@ -231,7 +231,7 @@ sub get_msg_len($$$) {
         ? unpack( 'N',  $raw_data )
         : unpack( 'xN', $raw_data ) + 1;
 
-    return ( $ret < $len ) ? $ret : 0;
+    return ( $ret <= $len ) ? $ret : 0;
 }
 
 =item *
