@@ -41,8 +41,8 @@ my %args = (
     'rport'     => undef,
     'role'      => undef,
     'trydb'     => undef,
-    'timeout'   => 5,
 );
+my %socks_to_sess;
 
 #readFromBackend
 # @param $sess_hash Session hash to listen on
@@ -51,74 +51,83 @@ sub readFromBackend {
     my $sess_hash = shift;
     my $session   = $sessions{$sess_hash};
     my $sock      = $session->{'sock'};
-    my $timeout   = $args{'timeout'};
-    my $count     = READMAX;
+    my $timeout   = 0;
     my $buff      = '';
     my @ready;
 
     pgShark::dprint 4 => "readFromBackend: on session $sess_hash.";
 
     # TODO: better timeout handling
-TIMELOOP: while ($timeout) {
-        @ready = $selects->can_read(1);
+    TIMELOOP: while (1) {
+        $timeout++;
+        @ready = $selects->can_read();
 
         foreach my $fh (@ready) {
+            my $count = READMAX;
+            my $curr_sess = $socks_to_sess{$fh->sockport};
+
+            while ( defined $count and $count == READMAX ) {
+                $count = sysread( $fh, $buff, READMAX );
+                if ( defined $count ) {
+                    pgShark::dprint 4 => "  $count bytes readed.";
+                    $sessions{$curr_sess}{'data'} .= $buff;
+                }
+
+                # TODO must handle error on $count not defined
+            }
 
             # our socket is ready to be readed
             last TIMELOOP if ( $fh == $sock );
         }
-        pgShark::dprint 4 => "socket not ready ($timeout).";
-        sleep 1;
-        $timeout--;
+        next TIMELOOP;
     }
+
+    pgShark::dprint 4 => "socket not ready for $timeout loop.";
 
     return 1 unless $timeout > 0;
-
-    while ( $count == READMAX ) {
-        $count = sysread( $sock, $buff, READMAX );
-        if ( defined $count ) {
-            pgShark::dprint 4 => "  $count bytes readed.";
-            $session->{'data'} .= $buff;
-        }
-
-        # TODO must handle error on $count not defined
-    }
 
     return 0;
 }
 
-#nextMessage
+#fetchUntilReadyForQuery
 # @param $sess_hash Session hash to read next message from
-# @return next message
-sub nextMessage {
+# @return last message type on success, or undef
+sub fetchUntilReadyForQuery {
     my $sess_hash = shift;
     my $session   = $sessions{$sess_hash};
-    my $buff      = '';
-    my $count     = 0;
-    my $pg_msg    = { 'type' => '' };
+    my $msg_len;
+    my $type;
 
-    $count = pgsql_parser_backend( $pg_msg, $session->{'data'}, {} )
-        unless $session->{'data'} eq '';
+    do {{
+        $type = get_msg_type_backend( $session->{'data'}, {} );
 
-    return undef if $count == -1;
+        if ( not defined $type ) {
+            return undef if readFromBackend($sess_hash) == 1;
+            next ;
+        }
+        elsif ( $type eq '' ) {
+            pgShark::dprint 4 => "fetchUntilReadyForQuery ended with unknown type!";
+            return undef;
+        }
 
-    if ( $count == 0 ) {
-        return undef if readFromBackend($sess_hash) == 1;
+        $msg_len = get_msg_len( $type, $session->{'data'}, {} );
 
-        $count
-            = pgsql_parser_backend( $pg_msg, $session->{'data'}, {} );
-    }
+        if ( $msg_len == 0 ) {
+            return undef if readFromBackend($sess_hash) == 1;
+            next ;
+        }
 
-    $session->{'data'} = substr( $session->{'data'}, $count );
-    pgShark::dprint 3 => "Seen a $pg_msg->{'type'} as answer to $sess_hash.";
+        $session->{'data'} = substr( $session->{'data'}, $msg_len );
+        pgShark::dprint 3 => "Seen a $type as answer to $sess_hash.";
+    }} while defined $type and $type ne 'ReadyForQuery';
 
-    return $pg_msg;
+    return $type;
 }
 
 sub pg_connect {
     my $sess_hash = shift;
     my $sock      = $sessions{$sess_hash}{'sock'};
-    my $pg_msg;
+    my $type;
 
     pgShark::dprint 2 => "session $sess_hash";
 
@@ -133,15 +142,16 @@ sub pg_connect {
         $sessions{$sess_hash}{'database'}, "" );
     $sock->send($msg);
 
-    $pg_msg = nextMessage($sess_hash);
+    return 1 if readFromBackend($sess_hash) == 1;
+
+    $type = get_msg_type_backend( $sessions{$sess_hash}{'data'}, {} );
 
     return 1
-        if not defined $pg_msg
-            or $pg_msg->{'type'} ne 'AuthenticationOk';
+        if not defined $type or $type ne 'AuthenticationOk';
 
-    do {
-        $pg_msg = nextMessage($sess_hash);
-    } while $pg_msg->{'type'} ne 'ReadyForQuery';
+    pgShark::dprint 1 => "  $type.";
+
+    fetchUntilReadyForQuery( $sess_hash );
 
     $sessions{$sess_hash}{'msg_ts'} = 0;
 
@@ -197,6 +207,7 @@ sub openSocket {
     pgShark::dprint 4 => "  socket for session $sess_hash.";
 
     $selects->add( $sessions{$sess_hash}{'sock'} );
+    $socks_to_sess{ $sessions{$sess_hash}{'sock'}->sockport } = $sess_hash;
 
     $sessions{$sess_hash}{'data'} = '';
 
@@ -230,9 +241,7 @@ sub Replay {
     if (    $sessions{$sess_hash}{'msg_ts'}
         and $sessions{$sess_hash}{'msg_ts'} != $pg_msg->{'timestamp'} )
     {
-        do {
-            $pg_ans = nextMessage($sess_hash);
-        } while defined $pg_ans and $pg_ans->{'type'} ne 'ReadyForQuery';
+        fetchUntilReadyForQuery( $sess_hash );
 
         $sessions{$sess_hash}{'msg_ts'} = $pg_msg->{'timestamp'};
     }
@@ -284,7 +293,6 @@ GetOptions(
         rhost|rh=s
         rport|rp=s
         role|U=s
-        timeout|t=s
         trydb|tdb=s
         }
 ) or pod2usage( -exitval => 2 );
