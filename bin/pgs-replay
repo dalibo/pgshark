@@ -276,7 +276,12 @@ sub Terminate {
 
     pgShark::dprint 2 => "Terminate: session $sess_hash.";
 
+    fetchUntilReadyForQuery( $sess_hash );
+
     print $sock $pg_msg->{'data'};
+
+    fetchUntilReadyForQuery( $sess_hash );
+
     $selects->remove($sock);
     $sock->close();
     delete $sessions{$sess_hash};
