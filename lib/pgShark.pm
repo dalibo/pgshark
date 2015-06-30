@@ -58,7 +58,7 @@ use Net::Pcap qw(:functions);
 use POSIX ':signal_h';
 use Math::BigInt;
 use Pod::Usage;
-our $VERSION   = 0.2;
+our $VERSION   = 0.3;
 our @ISA       = ('Exporter');
 our @EXPORT    = qw/PCAP_FILTER_TEMPLATE dec2dot normalize_query/;
 our @EXPORT_OK = qw/PCAP_FILTER_TEMPLATE dec2dot normalize_query/;
@@ -78,7 +78,7 @@ BEGIN {
 # see tcpdump(8) section 'EXAMPLES'
 use constant PCAP_FILTER_TEMPLATE =>
     # catch IPv4 TCP traffic with given port
-    'ip and (tcp and port %s) and ( '
+    'ip and tcp and (port %s) and ( '
     # ignore packet with no data...
     . '(((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0) '
     # ...but the one with FIN or RST flags
@@ -175,16 +175,19 @@ sub new {
     $id++;
 
     my $self = {
-        'host' => defined $args{'host'} ? $args{'host'} : undef,
-        'id' => $id,
-        'pckt_count' => 0,
-        'port'       => defined $args{'port'} ? $args{'port'} : '5432',
-        'msg_count'  => 0,
-        'protocol'   => defined $args{'protocol'} ? $args{'protocol'} : '3',
-        'sessions'   => {},
-        'callbacks'   => {},
-        'can_detect_sr' => 0
+        'host'          => defined $args{'host'} ? $args{'host'} : undef,
+        'id'            => $id,
+        'pckt_count'    => 0,
+        'port'          => defined $args{'port'} ? $args{'port'} : '5432',
+        'msg_count'     => 0,
+        'protocol'      => defined $args{'protocol'} ? $args{'protocol'} : '3',
+        'sessions'      => {},
+        'callbacks'     => {},
+        'can_detect_sr' => 0,
+        'filter'        => ''
     };
+
+    $self->{'filter'} = sprintf PCAP_FILTER_TEMPLATE, $self->{'port'};
 
     # Converts the dot'ed IPADDR of the host to decimal
     # to dirct compare with address given from libpcap
@@ -225,17 +228,24 @@ sub new {
 sub _setFilter {
     my $self     = shift;
     my $c_filter = undef;
-    my $filter   = sprintf PCAP_FILTER_TEMPLATE, $self->{'port'};
 
-    dprint 2, "PCAP: set filter to: %s", $filter if DEBUG;
+    dprint 2, "PCAP: set filter to: %s", $self->{'filter'} if DEBUG;
 
-    return 1 unless defined $pcaps{ $self->{'id'} } and $filter;
+    return 1 unless defined $pcaps{ $self->{'id'} }
+        and $self->{'filter'};
 
     Net::Pcap::pcap_compile( $pcaps{ $self->{'id'} },
-        \$c_filter, $filter, 0, 0 );
+        \$c_filter, $self->{'filter'}, 0, 0 );
     Net::Pcap::pcap_setfilter( $pcaps{ $self->{'id'} }, $c_filter );
 
     return 0;
+}
+
+sub setFilter {
+    my $self     = shift;
+    my $filter   = shift;
+
+    $self->{'filter'} = $filter;
 }
 
 =item *
