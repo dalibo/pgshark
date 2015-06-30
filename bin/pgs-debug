@@ -15,7 +15,7 @@ my %args = (
     'interface' => '',
     'host'      => undef,
     'port'      => 5432,
-    'read'      => '',
+    'read'      => [],
     '2'         => 0,
     '3'         => 0
 );
@@ -618,7 +618,19 @@ else {
     my $err = '';
 
     # read from stdin if no pcap file given
-    $args{'read'} = '-' if $args{'read'} eq '';
+    $args{'read'}[0] = '-' if scalar @{ $args{'read'} } == 0;
+
+    foreach my $f ( @{ $args{'read'} } ) {
+
+        pgShark::dprint 1 => "Reading file $f...";
+
+        ( $shark->open( $f, \$err ) == 0 )
+            or die("Can not read from file '$f':\n$err");
+
+        $shark->process_all();
+
+        $shark->close();
+    }
 
     ( $shark->open( $args{'read'}, \$err ) == 0 )
         or die("Can not read from file '$args{'read'}':\n$err");

@@ -383,7 +383,7 @@ else {
         pgShark::dprint 1 => "Replaying file $f...";
 
         ( $shark->open( $f, \$err ) == 0 )
-            or die("Can not read from file '$args{'read'}':\n$err");
+            or die("Can not read from file '$f':\n$err");
 
         $shark->process_all();
 
