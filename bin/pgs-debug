@@ -8,6 +8,17 @@ use Getopt::Long;
 use Pod::Usage;
 use pgShark;
 
+BEGIN {
+
+    # set the DEBUG constant to 0 or 1
+    # When 0, optimize away all debug messages at compile time
+    eval q{
+        $ENV{'DEBUG'} = 0
+            unless defined $ENV{'DEBUG'} and $ENV{'DEBUG'};
+        use constant DEBUG => $ENV{'DEBUG'};
+    };
+}
+
 my $shark;
 my %args = (
     'help'      => 0,
@@ -631,9 +642,6 @@ else {
 
         $shark->close();
     }
-
-    ( $shark->open( $args{'read'}, \$err ) == 0 )
-        or die("Can not read from file '$args{'read'}':\n$err");
 }
 
 # on live capture, a ctrl-C interrupt the loop
