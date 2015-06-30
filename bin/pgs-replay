@@ -378,8 +378,6 @@ else {
     # read from stdin if no pcap file given
     $args{'read'}[0] = '-' if scalar @{ $args{'read'} } == 0;
 
-    print Dumper($args{'read'});
-
     foreach my $f ( @{ $args{'read'} } ) {
 
         pgShark::dprint 1 => "Replaying file $f...";
