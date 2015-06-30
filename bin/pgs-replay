@@ -39,6 +39,7 @@ my %args = (
     'read'      => [],
     'rhost'     => undef,
     'rport'     => undef,
+    'filter'    => undef,
     'role'      => undef,
     'trydb'     => undef,
 );
@@ -297,6 +298,7 @@ GetOptions(
         read|r=s
         rhost|rh=s
         rport|rp=s
+        filter|F=s
         role|U=s
         trydb|tdb=s
         }
@@ -344,6 +346,17 @@ $shark = pgShark->new(
         'debug' => DEBUG
     }
 );
+
+if ( defined $args{'filter'} ) {
+    # stolen from pgShark core
+    my $filter = 'ip and tcp and (%s) and ( '
+    . '(((ip[2:2] - ((ip[0]&0xf)<<2)) - ((tcp[12]&0xf0)>>2)) != 0) '
+    . 'or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0) ' . ')';
+
+    $filter = sprintf $filter, $args{'filter'};
+
+    $shark->setFilter( $filter );
+}
 
 # open a live capture on given interface
 if ( $args{'interface'} ne '' ) {
