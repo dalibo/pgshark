@@ -9,7 +9,6 @@ use strict;
 use warnings;
 
 use pgShark;
-use pgShark::protocol_3;
 use Getopt::Long qw(:config bundling no_ignore_case_always);
 use Pod::Usage;
 use IO::Socket;
@@ -36,6 +35,9 @@ my %args = (
     'interface' => '',
     'host'      => undef,
     'port'      => 5432,
+    'protocol'  => 3,
+    '2'         => 0,
+    '3'         => 0,
     'read'      => [],
     'rhost'     => undef,
     'rport'     => undef,
@@ -129,18 +131,30 @@ sub pg_connect {
     my $sess_hash = shift;
     my $sock      = $sessions{$sess_hash}{'sock'};
     my $type;
+    my $msg;
 
     pgShark::dprint 2 => "session $sess_hash";
 
     ## authentication
-    my $msg
-        = "user\0$args{'role'}\0database\0$sessions{$sess_hash}{'database'}\0\0";
+    if ( $args{'protocol'} eq '2' ) {
+        # protocol 2
+        $msg = pack( "NNZ64Z32Z192",
+            296, 131072,
+            $sessions{$sess_hash}{'database'},
+            $args{'role'}, ""
+        );
+    }
+    else {
+        # protocol 3
+        $msg
+            = "user\0$args{'role'}\0database\0$sessions{$sess_hash}{'database'}\0\0";
 
-    # TODO support protocol 2 ?
-    $msg = pack( "NNZ*Z*Z*Z*Z*",
-        8 + length($msg),
-        196608, "user", $args{'role'}, "database",
-        $sessions{$sess_hash}{'database'}, "" );
+        $msg = pack( "NNZ*Z*Z*Z*Z*",
+            8 + length($msg), 196608,
+            "user", $args{'role'},
+            "database", $sessions{$sess_hash}{'database'}, "" );
+    }
+
     $sock->send($msg);
 
     return 1 if readFromBackend($sess_hash) == 1;
@@ -301,7 +315,9 @@ GetOptions(
         filter|F=s
         role|U=s
         trydb|tdb=s
-        }
+        2+
+        3+
+    }
 ) or pod2usage( -exitval => 2 );
 
 pod2usage( -verbose => 2 ) if $args{'help'};
@@ -321,6 +337,16 @@ pod2usage(
 ) if $args{'interface'} ne '' and $args{'read'} ne '';
 
 $args{'rhost'} = '/tmp' if $args{'rhost'} eq '';
+$args{'protocol'} = $args{'2'} ? 2 : 3;
+
+if ( $args{'protocol'} eq '2' ) {
+    eval 'use pgShark::protocol_2';
+    die 'Could not load module pgShark::protocol_2!' if $@;
+}
+else {
+    eval 'use pgShark::protocol_3';
+    die 'Could not load module pgShark::protocol_3!' if $@;
+}
 
 $shark = pgShark->new(
     {   'procs' => {
@@ -341,9 +367,10 @@ $shark = pgShark->new(
             'Sync'             => \&Replay,
             'Terminate'        => \&Terminate
         },
-        'host'  => $args{'host'},
-        'port'  => $args{'port'},
-        'debug' => DEBUG
+        'host'     => $args{'host'},
+        'port'     => $args{'port'},
+        'protocol' => $args{'protocol'},
+        'debug'    => DEBUG
     }
 );
 
