@@ -84,6 +84,8 @@ use constant PCAP_FILTER_TEMPLATE =>
     # ...but the one with FIN or RST flags
     . 'or (tcp[tcpflags] & (tcp-fin|tcp-rst) != 0) ' . ')';
 
+use constant MAX_PCKT_SIZE => 65535;
+
 # "static" unique id over all created object
 my $id = 0;
 
@@ -654,6 +656,14 @@ sub pgsql_dissect {
     my $monolog = $self->{'sessions'}{$sess_hash}{$from};
 
     my $data_len = length $monolog->{'data'};
+
+    if ( $data_len > MAX_PCKT_SIZE ) {
+        dprint 3,
+        "PGSQL: Data length $data_len superior of 65535 bytes at timestamp %s (wrong protocol version?)!",
+            $pg_msg_orig->{'timestamp'}
+            if DEBUG;
+        return -1;
+    }
 
     do {
 
