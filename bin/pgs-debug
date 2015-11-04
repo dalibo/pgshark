@@ -6,6 +6,7 @@ use strict;
 use warnings;
 use Getopt::Long;
 use Pod::Usage;
+use POSIX;
 use pgShark;
 
 BEGIN {
@@ -21,7 +22,9 @@ BEGIN {
 
 my $shark;
 my %procs;
-my %args = (
+my @format_keys;
+my $format = "Packet: t=%T, session=%k\nPGSQL: type=%M, %>\n%@\n";
+my %args   = (
     'help'      => 0,
     'debug'     => 0,
     'interface' => '',
@@ -31,254 +34,254 @@ my %args = (
     '2'         => 0,
     '3'         => 0,
     'include'   => [],
-    'exclude'   => []
+    'exclude'   => [],
+    'format'    => ''
 );
 
-#prelude
-# Prints mandatored fields for any kind of message as prelude
-# @param $pg_msg The pgsql message hash
-sub prelude {
-    my $pg_msg       = shift;
+#log_output
+# behave like printf.
+# Computes and prints the data using the given format
+# @param $frmt
+# @param $pg_msg
+# @params vars, ...
+sub log_output {
+    my $pg_msg = shift;
+    my $frmt   = shift;
+    my $output = $format;
 
-    printf "Packet: t=%s, session=%s\n", $pg_msg->{'timestamp'},
-        $pg_msg->{'sess_hash'};
-    printf "PGSQL: type=%s, ", $pg_msg->{'type'};
-    if ( $pg_msg->{'from'} eq 'B' ) {
-        printf "B -> F\n";
+    $pg_msg->{'debug-data'} = sprintf $frmt, @_;
+
+    foreach my $sub (@format_keys) {
+        $sub->( \$output, $pg_msg );
     }
-    else {
-        printf "F -> B\n";
-    }
+
+    print "$output\n";
 }
 
 #code_reponse
 # Prints code and message of each fields from a error or notice message
 sub code_response {
     my $pg_msg = shift;
+    my $data   = '';
 
     foreach my $code ( keys %{ $pg_msg->{'fields'} } ) {
         my $value = $pg_msg->{'fields'}->{$code};
-    SWITCH: {
+        SWITCH: {
 
             #S C M D H P p q W F L R
             if ( $code eq 'S' ) {
-                printf "  Severity: '%s'\n", $value;
+                $data .= "  Severity: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'C' ) {
-                printf "  Code: '%s'\n", $value;
+                $data .= "  Code: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'M' ) {
-                printf "  Message: '%s'\n", $value;
+                $data .= "  Message: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'D' ) {
-                printf "  Detail: '%s'\n", $value;
+                $data .= "  Detail: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'H' ) {
-                printf "  Hint: '%s'\n", $value;
+                $data .= "  Hint: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'P' ) {
-                printf "  Position: '%s'n", $value;
+                $data .= "  Position: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'p' ) {
-                printf "  Internal position: '%s'\n", $value;
+                $data .= "  Internal position: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'q' ) {
-                printf "  Internal query: '%s'\n", $value;
+                $data .= "  Internal query: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'W' ) {
-                printf "  Where: '%s'\n", $value;
+                $data .= "  Where: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'F' ) {
-                printf "  File: '%s'\n", $value;
+                $data .= "  File: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'L' ) {
-                printf "  Line: '%s'\n", $value;
+                $data .= "  Line: '$value'\n";
                 last SWITCH;
             }
             if ( $code eq 'R' ) {
-                printf "  Routine: '%s'\n", $value;
+                $data .= "  Routine: '$value'\n";
                 last SWITCH;
             }
         }
     }
+
+    return $data;
 }
 
 sub Authentication {
     my $pg_msg = shift;
-    prelude( $pg_msg );
-
-    printf "AUTHENTIFICATION REQUEST code=%d ", $pg_msg->{'code'};
+    my $data = "AUTHENTIFICATION REQUEST code=$pg_msg->{'code'} ";
 
 SWITCH: {
         if ( $pg_msg->{'code'} == 0 ) {
-            printf "(SUCCESS)\n\n";
+            $data .= "(SUCCESS)";
             last SWITCH;
         }
         if ( $pg_msg->{'code'} == 2 ) {
-            printf "(Kerberos V5)\n\n";
+            $data .= "(Kerberos V5)";
             last SWITCH;
         }
         if ( $pg_msg->{'code'} == 3 ) {
-            printf "(clear-text password)\n\n";
+            $data .= "(clear-text password)";
             last SWITCH;
         }
         if ( $pg_msg->{'code'} == 5 ) {
-            printf "(MD5 salt='%s')\n\n", unpack( 'h*', $pg_msg->{'salt'} );
+            $data .= sprintf "(MD5 salt='%s')",
+                unpack( 'h*', $pg_msg->{'salt'} );
             last SWITCH;
         }
         if ( $pg_msg->{'code'} == 6 ) {
-            printf "(SCM)\n\n";
+            $data .= "(SCM)";
             last SWITCH;
         }
         if ( $pg_msg->{'code'} == 7 ) {
-            printf "(GSSAPI)\n\n";
+            $data .= "(GSSAPI)";
             last SWITCH;
         }
         if ( $pg_msg->{'code'} == 9 ) {
-            printf "(SSPI)\n\n";
+            $data .= "(SSPI)";
             last SWITCH;
         }
         if ( $pg_msg->{'code'} == 8 ) {
-            printf "(contains GSSAPI or SSPI data)\n\n";
+            $data .= "(contains GSSAPI or SSPI data)";
             last SWITCH;
         }
     }
+
+    log_output($pg_msg, $data);
 }
 
 sub BackendKeyData {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "BACKEND KEY DATA pid=%d, key=%d\n\n", $pg_msg->{'pid'},
-        $pg_msg->{'key'};
+    log_output( $pg_msg, "BACKEND KEY DATA pid=%d, key=%d",
+        $pg_msg->{'pid'}, $pg_msg->{'key'}
+    );
 }
 
 sub Bind {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
     map { $_ = 'NULL' if not defined } @{ $pg_msg->{'params'} };
 
-    printf
-        "BIND portal='%s', name='%s', num_formats=%d, formats=%s, num_params=%d, params=%s\n\n",
+    log_output( $pg_msg,
+        "BIND portal='%s', name='%s', num_formats=%d, formats=%s, num_params=%d, params=%s",
         $pg_msg->{'portal'}, $pg_msg->{'name'}, $pg_msg->{'num_formats'},
         join( ', ', @{ $pg_msg->{'params_types'} } ),
-        $pg_msg->{'num_params'}, join( ', ', @{ $pg_msg->{'params'} } );
+        $pg_msg->{'num_params'}, join( ', ', @{ $pg_msg->{'params'} } )
+    );
 }
 
 sub BindComplete {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "BIND COMPLETE\n\n";
+    log_output( $pg_msg, "BIND COMPLETE" );
 }
 
 sub CancelRequest {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "CANCEL REQUEST pid=%s, key=%s\n\n", $pg_msg->{'pid'},
-        $pg_msg->{'key'};
+    log_output( $pg_msg, "CANCEL REQUEST pid=%s, key=%s", $pg_msg->{'pid'},
+        $pg_msg->{'key'}
+    );
 }
 
 sub Close {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "CLOSE kind='%s', name='%s'\n\n", $pg_msg->{'kind'},
-        $pg_msg->{'name'};
+    log_output( $pg_msg, "CLOSE kind='%s', name='%s'", $pg_msg->{'kind'},
+        $pg_msg->{'name'}
+    );
 }
 
 sub CloseComplete {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "CLOSE COMPLETE\n\n";
+    log_output( $pg_msg, "CLOSE COMPLETE" );
 }
 
 sub CommandComplete {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "COMMAND COMPLETE command='%s'\n\n", $pg_msg->{'command'};
+    log_output( $pg_msg, "COMMAND COMPLETE command='%s'",
+        $pg_msg->{'command'}
+    );
 }
 
 sub CopyBothResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf
-        "COPY BOTH RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n",
+    log_output( $pg_msg,
+        "COPY BOTH RESPONSE copy format=%d, num_fields=%d, fields_formats=%s",
         $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
-        join( ', ', @{ $pg_msg->{'fields_formats'} } );
+        join( ', ', @{ $pg_msg->{'fields_formats'} } )
+    );
 }
 
 sub CopyData {
     my $pg_msg = shift;
 
-    prelude( $pg_msg );
-
-    printf "COPY DATA len=%d\n\n", length( $pg_msg->{'row'} );
+    log_output( $pg_msg, "COPY DATA len=%d", length( $pg_msg->{'row'} ) );
 }
 
 sub CopyDone {
     my $pg_msg = shift;
 
-    prelude( $pg_msg );
 
-    printf "COPY DONE\n\n";
+    log_output( $pg_msg, "COPY DONE" );
 }
 
 sub CopyFail {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "COPY FAIL error='%s'\n\n", $pg_msg->{'error'};
+    log_output( $pg_msg, "COPY FAIL error='%s'", $pg_msg->{'error'} );
 }
 
 sub CopyInResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf
-        "COPY IN RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n",
+    log_output( $pg_msg,
+        "COPY IN RESPONSE copy format=%d, num_fields=%d, fields_formats=%s",
         $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
-        join( ', ', @{ $pg_msg->{'fields_formats'} } );
+        join( ', ', @{ $pg_msg->{'fields_formats'} } )
+    );
 }
 
 sub CopyOutResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf
-        "COPY OUT RESPONSE copy format=%d, num_fields=%d, fields_formats=%s\n\n",
+    log_output( $pg_msg,
+        "COPY OUT RESPONSE copy format=%d, num_fields=%d, fields_formats=%s",
         $pg_msg->{'copy_format'}, $pg_msg->{'num_fields'},
-        join( ', ', @{ $pg_msg->{'fields_formats'} } );
+        join( ', ', @{ $pg_msg->{'fields_formats'} } )
+    );
 }
 
 sub CursorResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "CURSOR RESPONSE name='%s'\n\n", $pg_msg->{'name'};
+    log_output( $pg_msg, "CURSOR RESPONSE name='%s'", $pg_msg->{'name'} );
 }
 
 sub DataRow {
     my $pg_msg = shift;
     my $i      = 0;
-    prelude( $pg_msg );
-
-    printf "DATA ROW num_values=%d\n", $pg_msg->{'num_values'};
+    my $data = "DATA ROW num_values=$pg_msg->{'num_values'}\n";
 
     for my $value ( @{ $pg_msg->{'values'} } ) {
         $i++;
@@ -289,240 +292,215 @@ sub DataRow {
         else {
             $value->[1] = 'NULL';
         }
-        printf "  ---[Value %02d]---\n  length=%d\n  value=%s\n", $i,
+        $data .= sprintf "  ---[Value %02d]---\n  length=%d\n  value=%s\n", $i,
             @{$value};
     }
-    print "\n";
+    log_output( $pg_msg, $data );
 }
 
 sub Describe {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "DESCRIBE kind='%s', name='%s'\n\n", $pg_msg->{'kind'},
-        $pg_msg->{'name'};
+    log_output( $pg_msg, "DESCRIBE kind='%s', name='%s'", $pg_msg->{'kind'},
+        $pg_msg->{'name'}
+    );
 }
 
 sub EmptyQueryResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "EMPTY QUERY RESPONSE\n\n";
+    log_output( $pg_msg, "EMPTY QUERY RESPONSE" );
 }
 
 sub ErrorResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "ERROR RESPONSE\n";
-    code_response($pg_msg);
-
-    print "\n";
+    log_output( $pg_msg, "ERROR RESPONSE\n%s", code_response( $pg_msg ) );
 }
 
 sub Execute {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "EXECUTE name='%s', nb_rows=%d\n\n", $pg_msg->{'name'},
-        $pg_msg->{'nb_rows'};
+    log_output( $pg_msg, "EXECUTE name='%s', nb_rows=%d", $pg_msg->{'name'},
+        $pg_msg->{'nb_rows'}
+    );
 }
 
 sub Flush {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "FLUSH\n\n";
+    log_output( $pg_msg, "FLUSH" );
 }
 
 sub HotStandbyFeedback {
-	my $pg_msg = shift;
-	prelude($pg_msg);
+    my $pg_msg = shift;
 
-	printf "HOT-STANDBY FEEDBACK\n\n";
+    log_output( $pg_msg, "HOT-STANDBY FEEDBACK" );
 }
 
 sub NoData {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "NO DATA\n\n";
+    log_output( $pg_msg, "NO DATA" );
 }
 
 sub NoticeResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "NOTICE RESPONSE\n\n";
-    code_response($pg_msg);
-
-    print "\n";
+    log_output( $pg_msg, "NOTICE RESPONSE\n%s", code_response($pg_msg) );
 }
 
 sub NotificationResponse {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "NOTIFICATION RESPONSE pid=%d, channel='%s', payload='%s'\n\n",
-        $pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'},;
+    log_output( $pg_msg,
+        "NOTIFICATION RESPONSE pid=%d, channel='%s', payload='%s'",
+        $pg_msg->{'pid'}, $pg_msg->{'channel'}, $pg_msg->{'payload'}
+    );
 }
 
 sub ParameterDescription {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "PARAMETER DESCRIPTION: num_param=%d, params_oids=%s\n\n",
-        $pg_msg->{'num_params'}, join( ', ', @{ $pg_msg->{'params_types'} } );
+    log_output( $pg_msg, "PARAMETER DESCRIPTION: num_param=%d, params_oids=%s",
+        $pg_msg->{'num_params'}, join( ', ', @{ $pg_msg->{'params_types'} } )
+    );
 }
 
 sub ParameterStatus {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "PARAMETER STATUS name='%s', value='%s'\n\n", $pg_msg->{'name'},
-        $pg_msg->{'value'};
+    log_output( $pg_msg, "PARAMETER STATUS name='%s', value='%s'",
+        $pg_msg->{'name'}, $pg_msg->{'value'}
+    );
 }
 
 sub Parse {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "PARSE name='%s', num_params=%d, params_type=%s, query=%s\n\n",
+    log_output( $pg_msg,
+        "PARSE name='%s', num_params=%d, params_type=%s, query=%s",
         $pg_msg->{'name'}, $pg_msg->{'num_params'},
-        join( ', ', @{ $pg_msg->{'params_types'} } ), $pg_msg->{'query'};
+        join( ', ', @{ $pg_msg->{'params_types'} } ), $pg_msg->{'query'}
+    );
 }
 
 sub ParseComplete {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "PARSE COMPLETE\n\n";
+    log_output( $pg_msg, "PARSE COMPLETE" );
 }
 
 sub PasswordMessage {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "PASSWORD MESSAGE password=%s\n\n", $pg_msg->{'password'};
+    log_output( $pg_msg, "PASSWORD MESSAGE password=%s",
+        $pg_msg->{'password'}
+    );
 }
 
 sub PortalSuspended {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "PORTAL SUSPENDED\n\n";
+    log_output( $pg_msg, "PORTAL SUSPENDED" );
 }
 
 sub PrimaryKeepalive {
-	my $pg_msg = shift;
-	prelude($pg_msg);
+    my $pg_msg = shift;
 
-	printf "PRIMARY KEEP-ALIVE\n\n";
+    log_output( $pg_msg, "PRIMARY KEEP-ALIVE" );
 }
 
 sub Query {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "QUERY query=%s\n\n", $pg_msg->{'query'};
+    log_output( $pg_msg, "QUERY query=%s", $pg_msg->{'query'} );
 }
 
 sub ReadyForQuery {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
     $pg_msg->{'status'} = '?' if not defined $pg_msg->{'status'};
 
     if ( $pg_msg->{'status'} eq 'I' ) {
-        printf "READY FOR QUERY type=<IDLE>\n\n";
+        log_output( $pg_msg, "READY FOR QUERY type=<IDLE>" );
     }
     elsif ( $pg_msg->{'status'} eq 'T' ) {
-        printf "READY FOR QUERY type=<IDLE> in transaction\n\n";
+        log_output( $pg_msg, "READY FOR QUERY type=<IDLE> in transaction" );
     }
     elsif ( $pg_msg->{'status'} eq 'E' ) {
-        printf "READY FOR QUERY type=<IDLE> in transaction (aborted)\n\n";
+        log_output( $pg_msg, "READY FOR QUERY type=<IDLE> in transaction (aborted)" );
     }
     else {
-
         # protocol v2 has no status
-        printf "READY FOR QUERY\n\n";
+        log_output( $pg_msg, "READY FOR QUERY" );
     }
 }
 
 sub RowDescription {
     my $pg_msg = shift;
     my $i      = 0;
-    prelude( $pg_msg );
-
-    printf "ROW DESCRIPTION: num_fields=%d\n", $pg_msg->{'num_fields'};
+    my $data   = "ROW DESCRIPTION: num_fields=$pg_msg->{'num_fields'}\n";
 
     for my $field ( @{ $pg_msg->{'fields'} } ) {
         $i++;
-        printf
+        $data .= sprintf
             "  ---[Field %02d]---\n  name='%s'\n  type=%d\n  type_len=%d\n  type_mod=%d\n",
             $i, $field->[0], $field->[3], $field->[4], $field->[5];
 
-        printf( "  relid=%d\n  attnum=%d\n  format=%d\n",
+        $data = sprintf( "  relid=%d\n  attnum=%d\n  format=%d\n",
             $field->[1], $field->[2], $field->[6] )
             if defined $field->[1];
     }
-    print "\n";
+    log_output( $pg_msg, $data );
 }
 
 sub SSLAnswer {
     my $pg_msg = shift;
 
-    prelude( $pg_msg );
-
-    printf "SSL BACKEND ANSWER: %s\n\n", $pg_msg->{'ssl_answer'};
+    log_output( $pg_msg, "SSL BACKEND ANSWER: %s", $pg_msg->{'ssl_answer'} );
 }
 
 sub SSLRequest {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "SSL REQUEST\n\n";
+    log_output( $pg_msg, "SSL REQUEST" );
 }
 
 sub StandbyStatusUpdate {
-	my $pg_msg = shift;
-	prelude($pg_msg);
+    my $pg_msg = shift;
 
-	printf "STANDBY STATUS UPDATE\n\n";
+    log_output( $pg_msg, "STANDBY STATUS UPDATE" );
 }
 
 sub StartupMessage {
     my $pg_msg = shift;
     my $i      = 0;
-    prelude( $pg_msg );
-
-    printf "STARTUP MESSAGE version: %s\n", $pg_msg->{'version'};
+    my $data   = "STARTUP MESSAGE version: $pg_msg->{'version'}\n";
 
     foreach my $param ( keys %{ $pg_msg->{'params'} } ) {
-        printf "  %s=%s\n", $param, $pg_msg->{'params'}->{$param};
+        $data .= "  $param=$pg_msg->{'params'}{$param}\n";
     }
-    print "\n";
+
+    log_output( $pg_msg, $data);
 }
 
 sub Sync {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "SYNC\n\n";
+    log_output( $pg_msg, "SYNC" );
 }
 
 sub Terminate {
     my $pg_msg = shift;
-    prelude( $pg_msg );
 
-    printf "DISCONNECT\n\n";
+    log_output( $pg_msg, "DISCONNECT" );
 }
 
 sub XLogData {
-	my $pg_msg = shift;
-	prelude($pg_msg);
+    my $pg_msg = shift;
 
-	printf "XLOG DATA len=%d\n\n", length($pg_msg->{'data'});
+    log_output( $pg_msg, "XLOG DATA len=%d", length( $pg_msg->{'data'} ) );
 }
 
 Getopt::Long::Configure('bundling');
@@ -536,6 +514,7 @@ GetOptions(
         read|r=s
         include=s
         exclude=s
+        format=s
         2+
         3+
         }
@@ -624,6 +603,90 @@ if ( scalar @{ $args{'include'} } ) {
         next if grep { $t eq $_ } @{ $args{'include'} };
         delete $procs{ $t };
     }
+}
+
+
+$format = $args{'format'} unless $args{'format'} eq '';
+
+# prepare/compile output
+if ( $format =~ /%[HhkMRrTt>]/ ) {
+
+    my $re_H    = qr/%H/;
+    my $re_h    = qr/%h/;
+    my $re_k    = qr/%k/;
+    my $re_M    = qr/%M/;
+    my $re_R    = qr/%R/;
+    my $re_r    = qr/%r/;
+    my $re_T    = qr/%T/;
+    my $re_t    = qr/%t/;
+    my $re_dir  = qr/%>/;
+    my $re_data = qr/%@/;
+
+    push @format_keys, sub {
+            my $src_ip = pgShark::dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
+            ${ $_[0] } =~ s/$re_H/$src_ip/g;
+        }
+        if $format =~ $re_H;
+
+    push @format_keys, sub {
+            my $dest_ip = pgShark::dec2dot( $_[1]->{'tcpip'}->{'dest_ip'} );
+            ${ $_[0] } =~ s/$re_h/$dest_ip/g;
+        }
+        if $format =~ $re_h;
+
+    push @format_keys, sub {
+            ${ $_[0] } =~ s/$re_k/$_[1]->{'sess_hash'}/g;
+        }
+        if $format =~ $re_k;
+
+    push @format_keys, sub {
+            ${ $_[0] } =~ s/$re_M/$_[1]->{'type'}/g;
+        }
+        if $format =~ $re_k;
+
+    push @format_keys, sub {
+            my $src_ip   = pgShark::dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
+            my $src_port = $_[1]->{'tcpip'}->{'src_port'};
+            ${ $_[0] } =~ s/$re_R/$src_ip:$src_port/g;
+        }
+        if $format =~ $re_R;
+
+    push @format_keys, sub {
+            my $dest_ip   = pgShark::dec2dot( $_[1]->{'tcpip'}->{'dest_ip'} );
+            my $dest_port = $_[1]->{'tcpip'}->{'dest_port'};
+            ${ $_[0] } =~ s/$re_r/$dest_ip:$dest_port/g;
+        }
+        if $format =~ $re_r;
+
+    push @format_keys, sub {
+            ${ $_[0] } =~ s/$re_T/$_[1]->{'timestamp'}/g;
+        }
+        if $format =~ $re_T;
+
+    push @format_keys, sub {
+            ${ $_[0] } =~ s
+                /$re_t
+                /strftime('%Y-%m-%d %H:%M:%S %Z', localtime $_[1]->{'timestamp'})
+                /gex;
+        }
+        if $format =~ $re_t;
+
+    push @format_keys, sub {
+            my $dir;
+            if ( $_[1]->{'from'} eq 'B' ) {
+                $dir = "B -> F";
+            }
+            else {
+                $dir = "F -> B";
+            }
+            ${ $_[0] } =~ s/$re_dir/$dir/g;
+        }
+        if $format =~ $re_dir;
+
+    push @format_keys, sub {
+            ${ $_[0] } =~ s/$re_data/$_[1]->{'debug-data'}/g;
+        }
+        if $format =~ $re_data;
 }
 
 $shark = pgShark->new(
@@ -749,6 +812,49 @@ L<http://www.postgresql.org/docs/current/static/protocol-message-formats.html>
 See C<--exclude> as well. If a message type is given in both exclude and include
 arguments, it is excluded.
 
+=item B<--format> <format string>
+
+This parameter allows you to format the output the way you want. % characters
+begin "escape sequences" that are replaced with status information as outlined
+below. Unrecognized escapes are ignored. Other characters are copied straight
+to the log line. Some escapes might not be available depending on the context.
+
+The default format is the following:
+
+  Packet: t=%T, session=%k\nPGSQL: type=%M, %>\n%@\n
+
+=over 3
+
+=item B<%H>
+Source host
+
+=item B<%h>
+Destination host
+
+=item B<%k>
+Hash key of the session (src ip and src port concatenated)
+
+=item B<%R>
+Source host and port
+
+=item B<%r>
+Destination host and port
+
+=item B<%T>
+Raw timestamp
+
+=item B<%t>
+Human readable timestamp
+
+=item B<< %> >>
+Direction of the message, either C<< B -> F >> (Backend to Frontend) or
+C<< F -> B >> (Frontend to Backend).
+
+=item B<%@>
+The debug datas related to the current message.
+
+=back
+
 =back
 
 =head1 EXAMPLE
@@ -762,15 +868,19 @@ and PasswordMessage messages:
 
   pgs-debug --host 127.0.0.1 -i lo --include AuthenticationOk --include PasswordMessage
 
+To have a terse output, you can use the following format:
+
+  pgs-debug -p 5494 -h 127.0.0.1 -i lo --format "%t [%k] %>: %M"
+
 The following example shows how to work with a server that is B<NOT> listening on localhost and the default 5432 port. (1)
 dump from C<eth0> every packets from/to the port 5490. C<-s 0> is requiered on some older version of tcpdump to dump
 the whole packets. (2) Here C<--host> and C<--port> are B<important> to notify pgshark who is the PostgreSQL server in the network dump and its working port.
 
 =over 2
 
-C<tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490'> (1)
+  tcpdump -i eth0 -w /tmp/tcp_5490.pcap -s 0 'tcp and port 5490' (1)
 
-C<pgs-debug --port 5490 --host 192.168.42.5 -r /tmp/tcp_5490.pcap> (2)
+  pgs-debug --port 5490 --host 192.168.42.5 -r /tmp/tcp_5490.pcap (2)
 
 =back
 
