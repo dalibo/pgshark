@@ -20,6 +20,7 @@ BEGIN {
 }
 
 my $shark;
+my %procs;
 my %args = (
     'help'      => 0,
     'debug'     => 0,
@@ -28,7 +29,9 @@ my %args = (
     'port'      => 5432,
     'read'      => [],
     '2'         => 0,
-    '3'         => 0
+    '3'         => 0,
+    'include'   => [],
+    'exclude'   => []
 );
 
 #prelude
@@ -531,6 +534,8 @@ GetOptions(
         host|h=s
         port|p=s
         read|r=s
+        include=s
+        exclude=s
         2+
         3+
         }
@@ -551,63 +556,78 @@ pod2usage(
 
 $args{'protocol'} = $args{'2'} ? 2 : 3;
 
-$shark = pgShark->new(
-    {   'procs' => {
-            'AuthenticationOk'                => \&Authentication,
-            'AuthenticationKerberosV5'        => \&Authentication,
-            'AuthenticationCleartextPassword' => \&Authentication,
-            'AuthenticationCryptPassword'     => \&Authentication,
-            'AuthenticationMD5Password'       => \&Authentication,
-            'AuthenticationSCMCredential'     => \&Authentication,
-            'AuthenticationGSS'               => \&Authentication,
-            'AuthenticationSSPI'              => \&Authentication,
-            'AuthenticationGSSContinue'       => \&Authentication,
-            'BackendKeyData'                  => \&BackendKeyData,
-            'Bind'                            => \&Bind,
-            'BindComplete'                    => \&BindComplete,
-            'CancelRequest'                   => \&CancelRequest,
-            'Close'                           => \&Close,
-            'CloseComplete'                   => \&CloseComplete,
-            'CommandComplete'                 => \&CommandComplete,
-            'CopyBothResponse'                => \&CopyBothResponse,
-            'CopyData'                        => \&CopyData,
-            'CopyDone'                        => \&CopyDone,
-            'CopyFail'                        => \&CopyFail,
-            'CopyInResponse'                  => \&CopyInResponse,
-            'CopyOutResponse'                 => \&CopyOutResponse,
-            'CursorResponse'                  => \&CursorResponse,
-            'DataRow'                         => \&DataRow,
-            'Describe'                        => \&Describe,
-            'EmptyQueryResponse'              => \&EmptyQueryResponse,
-            'ErrorResponse'                   => \&ErrorResponse,
-            'Execute'                         => \&Execute,
-            'Flush'                           => \&Flush,
+%procs = (
+    'AuthenticationOk'                => \&Authentication,
+    'AuthenticationKerberosV5'        => \&Authentication,
+    'AuthenticationCleartextPassword' => \&Authentication,
+    'AuthenticationCryptPassword'     => \&Authentication,
+    'AuthenticationMD5Password'       => \&Authentication,
+    'AuthenticationSCMCredential'     => \&Authentication,
+    'AuthenticationGSS'               => \&Authentication,
+    'AuthenticationSSPI'              => \&Authentication,
+    'AuthenticationGSSContinue'       => \&Authentication,
+    'BackendKeyData'                  => \&BackendKeyData,
+    'Bind'                            => \&Bind,
+    'BindComplete'                    => \&BindComplete,
+    'CancelRequest'                   => \&CancelRequest,
+    'Close'                           => \&Close,
+    'CloseComplete'                   => \&CloseComplete,
+    'CommandComplete'                 => \&CommandComplete,
+    'CopyBothResponse'                => \&CopyBothResponse,
+    'CopyData'                        => \&CopyData,
+    'CopyDone'                        => \&CopyDone,
+    'CopyFail'                        => \&CopyFail,
+    'CopyInResponse'                  => \&CopyInResponse,
+    'CopyOutResponse'                 => \&CopyOutResponse,
+    'CursorResponse'                  => \&CursorResponse,
+    'DataRow'                         => \&DataRow,
+    'Describe'                        => \&Describe,
+    'EmptyQueryResponse'              => \&EmptyQueryResponse,
+    'ErrorResponse'                   => \&ErrorResponse,
+    'Execute'                         => \&Execute,
+    'Flush'                           => \&Flush,
 
-            # 'FunctionCall' => sub {},
-            # 'FunctionCallResponse' => sub {},
-            'NoData'               => \&NoData,
-            'NoticeResponse'       => \&NoticeResponse,
-            'NotificationResponse' => \&NotificationResponse,
-            'ParameterDescription' => \&ParameterDescription,
-            'ParameterStatus'      => \&ParameterStatus,
-            'Parse'                => \&Parse,
-            'ParseComplete'        => \&ParseComplete,
-            'PasswordMessage'      => \&PasswordMessage,
-            'PortalSuspended'      => \&PortalSuspended,
-            'Query'                => \&Query,
-            'ReadyForQuery'        => \&ReadyForQuery,
-            'RowDescription'       => \&RowDescription,
-            'SSLAnswer'            => \&SSLAnswer,
-            'SSLRequest'           => \&SSLRequest,
-            'StartupMessage'       => \&StartupMessage,
-            'Sync'                 => \&Sync,
-            'Terminate'            => \&Terminate,
-            # replication messages
-            'HotStandbyFeedback'   => \&HotStandbyFeedback,
-            'PrimaryKeepalive'     => \&PrimaryKeepalive,
-            'StandbyStatusUpdate'  => \&StandbyStatusUpdate,
-            'XLogData'             => \&XLogData
-        },
+    # 'FunctionCall' => sub {},
+    # 'FunctionCallResponse' => sub {},
+    'NoData'               => \&NoData,
+    'NoticeResponse'       => \&NoticeResponse,
+    'NotificationResponse' => \&NotificationResponse,
+    'ParameterDescription' => \&ParameterDescription,
+    'ParameterStatus'      => \&ParameterStatus,
+    'Parse'                => \&Parse,
+    'ParseComplete'        => \&ParseComplete,
+    'PasswordMessage'      => \&PasswordMessage,
+    'PortalSuspended'      => \&PortalSuspended,
+    'Query'                => \&Query,
+    'ReadyForQuery'        => \&ReadyForQuery,
+    'RowDescription'       => \&RowDescription,
+    'SSLAnswer'            => \&SSLAnswer,
+    'SSLRequest'           => \&SSLRequest,
+    'StartupMessage'       => \&StartupMessage,
+    'Sync'                 => \&Sync,
+    'Terminate'            => \&Terminate,
+    # replication messages
+    'HotStandbyFeedback'   => \&HotStandbyFeedback,
+    'PrimaryKeepalive'     => \&PrimaryKeepalive,
+    'StandbyStatusUpdate'  => \&StandbyStatusUpdate,
+    'XLogData'             => \&XLogData
+);
+
+if ( scalar @{ $args{'exclude'} } ) {
+    for my $t ( @{ $args{'exclude'} } ) {
+        delete $procs{ $t };
+    }
+}
+
+if ( scalar @{ $args{'include'} } ) {
+    for my $t ( keys %procs ) {
+        next if grep { $t eq $_ } @{ $args{'include'} };
+        delete $procs{ $t };
+    }
+}
+
+$shark = pgShark->new(
+    {   'procs'    => \%procs,
         'host'     => $args{'host'},
         'port'     => $args{'port'},
         'protocol' => $args{'protocol'},
@@ -706,17 +726,41 @@ By default, B<pgs-debug> will read from stdin if neither B<--read> or B<--interf
 Read PostgreSQL traffic from given pcap file. Conflict with B<--interface>.
 By default, B<pgs-debug> will read from stdin if neither B<--read> or B<--interface> are given.
 
+=item B<--exclude> <message type>
+
+This argument allows you to exclude some message base on their name. You can
+give as many C<--exclude> as needed.
+
+You will find the list of the available messages here:
+L<http://www.postgresql.org/docs/current/static/protocol-message-formats.html>
+
+See C<--include> as well. If a message type is given in both exclude and include
+arguments, it is excluded.
+
+=item B<--include> <message type>
+
+This argument allows you to select what messages you want to catch, base on
+their name. any other message type will be ignored. You can give as many
+C<--include> as needed.
+
+You will find the list of the available messages here:
+L<http://www.postgresql.org/docs/current/static/protocol-message-formats.html>
+
+See C<--exclude> as well. If a message type is given in both exclude and include
+arguments, it is excluded.
+
 =back
 
 =head1 EXAMPLE
 
 Listening on interface C<eth0>, debugging PostgreSQL messages with a cluster reachable on '192.168.42.5':
 
-=over 2
+  pgs-debug --host 192.168.42.5 -i eth0
 
-C<pgs-debug --host 192.168.42.5 -i eth0>
+Listening on interface C<lo>, cluster available from '127.0.0.1', only show AuthenticationOk
+and PasswordMessage messages:
 
-=back
+  pgs-debug --host 127.0.0.1 -i lo --include AuthenticationOk --include PasswordMessage
 
 The following example shows how to work with a server that is B<NOT> listening on localhost and the default 5432 port. (1)
 dump from C<eth0> every packets from/to the port 5490. C<-s 0> is requiered on some older version of tcpdump to dump
