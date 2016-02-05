@@ -21,10 +21,13 @@ BEGIN {
 }
 
 my $shark;
+
 my %procs;
+my %sessions;
 my @format_keys;
-my $format = "Packet: t=%T, session=%k\nPGSQL: type=%M, %>\n%@\n";
-my %args   = (
+my $track_session = 0;
+my $format        = "Packet: t=%T, session=%k\nPGSQL: type=%M, %>\n%@\n";
+my %args          = (
     'help'      => 0,
     'debug'     => 0,
     'interface' => '',
@@ -480,6 +483,9 @@ sub StartupMessage {
 
     foreach my $param ( keys %{ $pg_msg->{'params'} } ) {
         $data .= "  $param=$pg_msg->{'params'}{$param}\n";
+
+        $sessions{$pg_msg->{'sess_hash'}}{$param} = $pg_msg->{'params'}{$param}
+            if $track_session and $param =~ /application_name|database|user/;
     }
 
     log_output( $pg_msg, $data);
@@ -493,6 +499,8 @@ sub Sync {
 
 sub Terminate {
     my $pg_msg = shift;
+
+    delete $sessions{$pg_msg->{'sess_hash'}};
 
     log_output( $pg_msg, "DISCONNECT" );
 }
@@ -609,16 +617,19 @@ if ( scalar @{ $args{'include'} } ) {
 $format = $args{'format'} unless $args{'format'} eq '';
 
 # prepare/compile output
-if ( $format =~ /%[HhkMRrTt>]/ ) {
+if ( $format =~ /%[aduHhkMRrTt>]/ ) {
 
-    my $re_H    = qr/%H/;
+    my $re_a    = qr/%a/;
+    my $re_d    = qr/%d/;
     my $re_h    = qr/%h/;
+    my $re_H    = qr/%H/;
     my $re_k    = qr/%k/;
     my $re_M    = qr/%M/;
     my $re_R    = qr/%R/;
     my $re_r    = qr/%r/;
     my $re_T    = qr/%T/;
     my $re_t    = qr/%t/;
+    my $re_u    = qr/%u/;
     my $re_dir  = qr/%>/;
     my $re_data = qr/%@/;
 
@@ -642,7 +653,7 @@ if ( $format =~ /%[HhkMRrTt>]/ ) {
     push @format_keys, sub {
             ${ $_[0] } =~ s/$re_M/$_[1]->{'type'}/g;
         }
-        if $format =~ $re_k;
+        if $format =~ $re_M;
 
     push @format_keys, sub {
             my $src_ip   = pgShark::dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
@@ -687,6 +698,33 @@ if ( $format =~ /%[HhkMRrTt>]/ ) {
             ${ $_[0] } =~ s/$re_data/$_[1]->{'debug-data'}/g;
         }
         if $format =~ $re_data;
+
+    if ( $format =~ $re_a ) {
+        $track_session = 1;
+        push @format_keys, sub {
+            return ${ $_[0] } =~ s/$re_a//
+                unless defined $sessions{$_[1]->{'sess_hash'}};
+            ${ $_[0] } =~ s/$re_a/$sessions{$_[1]->{'sess_hash'}}{'application_name'}/g;
+        }
+    }
+
+    if ( $format =~ $re_d ) {
+        $track_session = 1;
+        push @format_keys, sub {
+            return ${ $_[0] } =~ s/$re_d//
+                unless defined $sessions{$_[1]->{'sess_hash'}};
+            ${ $_[0] } =~ s/$re_d/$sessions{$_[1]->{'sess_hash'}}{'database'}/g;
+        }
+    }
+
+    if ( $format =~ $re_u ) {
+        $track_session = 1;
+        push @format_keys, sub {
+            return ${ $_[0] } =~ s/$re_u//
+                unless defined $sessions{$_[1]->{'sess_hash'}};
+            ${ $_[0] } =~ s/$re_u/$sessions{$_[1]->{'sess_hash'}}{'user'}/g;
+        }
+    }
 }
 
 $shark = pgShark->new(
@@ -825,6 +863,13 @@ The default format is the following:
 
 =over 3
 
+=item B<%a>
+Application name. Known if set by the application on login and if the startup
+message has been captured.
+
+=item B<%d>
+Database name. Known if the startup message has been captured.
+
 =item B<%H>
 Source host
 
@@ -845,6 +890,9 @@ Raw timestamp
 
 =item B<%t>
 Human readable timestamp
+
+=item B<%u>
+User name. Known if the startup message has been captured.
 
 =item B<< %> >>
 Direction of the message, either C<< B -> F >> (Backend to Frontend) or
