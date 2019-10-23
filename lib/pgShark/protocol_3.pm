@@ -41,25 +41,27 @@ our @EXPORT_OK = qw/pgsql_parser_backend pgsql_parser_frontend
 
 my %frontend_msg_type = (
     'B' => 'Bind',
-
     # CancelRequest has no code
     'C' => 'Close',
-    'd' => 'CopyData',
-    'c' => 'CopyDone',
+    'd' => 'CopyData', # backend and frontend message
+    'c' => 'CopyDone', # backend and frontend message
     'f' => 'CopyFail',
     'D' => 'Describe',
     'E' => 'Execute',
     'H' => 'Flush',
     'F' => 'FunctionCall',
     'P' => 'Parse',
-    'p' => 'PasswordMessage',
+    'p' => 'PasswordMessage', # or GSSResponse or SASLInitialResponse or SASLResponse
     'Q' => 'Query',
-
     # SSLRequest has no code
+    # GSSENCRequest has no code
     # StartupMessage has no code
     'S' => 'Sync',
     'X' => 'Terminate'
 );
+# pre-compile to save time during parsing
+# do not include 'd' which is checked if neither of bellow msg match during parsing
+my $frontend_type_re = qr/^([BCcfDEHFPpQSX]).{4}/s;
 
 my %backend_msg_type = (
     'R' => 'Authentication',
@@ -67,16 +69,16 @@ my %backend_msg_type = (
     '2' => 'BindComplete',
     '3' => 'CloseComplete',
     'C' => 'CommandComplete',
-    'W' => 'CopyBothResponse',
-    'd' => 'CopyData',
-    'c' => 'CopyDone',
+    'd' => 'CopyData', # backend and frontend message
+    'c' => 'CopyDone', # backend and frontend message
     'G' => 'CopyInResponse',
     'H' => 'CopyOutResponse',
-    'P' => 'CursorResponse',
+    'W' => 'CopyBothResponse',
     'D' => 'DataRow',
     'I' => 'EmptyQueryResponse',
     'E' => 'ErrorResponse',
     'V' => 'FunctionCallResponse',
+    'v' => 'NegotiateProtocolVersion',
     'n' => 'NoData',
     'N' => 'NoticeResponse',
     'A' => 'NotificationResponse',
@@ -87,6 +89,9 @@ my %backend_msg_type = (
     'Z' => 'ReadyForQuery',
     'T' => 'RowDescription'
 );
+# pre-compile to save time during parsing
+# do not include 'R' and 'd' which are checked if neither of bellow msg match during parsing
+my $backend_type_re  = qr/^([ K23CcGHWDIEVvnNAtS1sZT]).{4}/s;
 
 my %authentication_codes = (
     0 => 'AuthenticationOk',
@@ -97,8 +102,11 @@ my %authentication_codes = (
     5 => 'AuthenticationMD5Password',
     6 => 'AuthenticationSCMCredential',
     7 => 'AuthenticationGSS',
+    8 => 'AuthenticationGSSContinue',
     9 => 'AuthenticationSSPI',
-    8 => 'AuthenticationGSSContinue'
+    10 => 'AuthenticationSASL',
+    11 => 'AuthenticationSASLContinue',
+    12 => 'AuthenticationSASLFinal'
 );
 
 my %parsers = (
@@ -112,13 +120,18 @@ my %parsers = (
     'AuthenticationGSS'               => \&AuthenticationGSS,
     'AuthenticationSSPI'              => \&AuthenticationSSPI,
     'AuthenticationGSSContinue'       => \&AuthenticationGSSContinue,
+    'AuthenticationSASL'              => \&AuthenticationSASL,
+    'AuthenticationSASLContinue'      => \&AuthenticationSASLContinue,
+    'AuthenticationSASLFinal'         => \&AuthenticationSASLFinal,
     'BackendKeyData'                  => \&BackendKeyData,
+    'Begin'                           => \&Begin,
     'Bind'                            => \&Bind,
     'BindComplete'                    => \&BindComplete,
     'CancelRequest'                   => \&CancelRequest,
     'Close'                           => \&Close,
     'CloseComplete'                   => \&CloseComplete,
     'CommandComplete'                 => \&CommandComplete,
+    'Commit'                          => \&Commit,
     'CopyBothResponse'                => \&CopyBothResponse,
     'CopyData'                        => \&CopyData,
     'CopyDone'                        => \&CopyDone,
@@ -126,6 +139,7 @@ my %parsers = (
     'CopyInResponse'                  => \&CopyInResponse,
     'CopyOutResponse'                 => \&CopyOutResponse,
     'DataRow'                         => \&DataRow,
+    'Delete'                          => \&Delete,
     'Describe'                        => \&Describe,
     'EmptyQueryResponse'              => \&EmptyQueryResponse,
     'ErrorResponse'                   => \&ErrorResponse,
@@ -133,10 +147,15 @@ my %parsers = (
     'Flush'                           => \&Flush,
     'FunctionCall'                    => \&FunctionCall,
     'FunctionCallResponse'            => \&FunctionCallResponse,
+    'GSSENCRequest'                   => \&GSSENCRequest,
+    'GSSResponse'                     => \&GSSResponse,
     'HotStandbyFeedback'              => \&HotStandbyFeedback,
+    'Insert'                          => \&Insert,
+    'NegotiateProtocolVersion'        => \&NegotiateProtocolVersion,
     'NoData'                          => \&NoData,
     'NoticeResponse'                  => \&NoticeResponse,
     'NotificationResponse'            => \&NotificationResponse,
+    'Origin'                          => \&Origin,
     'ParameterDescription'            => \&ParameterDescription,
     'ParameterStatus'                 => \&ParameterStatus,
     'Parse'                           => \&Parse,
@@ -146,18 +165,22 @@ my %parsers = (
     'PrimaryKeepalive'                => \&PrimaryKeepalive,
     'Query'                           => \&Query,
     'ReadyForQuery'                   => \&ReadyForQuery,
+    'Relation'                        => \&Relation,
     'RowDescription'                  => \&RowDescription,
+    'SASLInitialResponse'             => \&SASLInitialResponse,
+    'SASLResponse'                    => \&SASLResponse,
     'SSLAnswer'                       => \&SSLAnswer,
     'SSLRequest'                      => \&SSLRequest,
     'StandbyStatusUpdate'             => \&StandbyStatusUpdate,
     'StartupMessage'                  => \&StartupMessage,
     'Sync'                            => \&Sync,
     'Terminate'                       => \&Terminate,
+    'Truncate'                        => \&Truncate,
+    'Type'                            => \&Type,
+    'Update'                          => \&Update,
     'XLogData'                        => \&XLogData
 );
 
-my $backend_type_re  = qr/^([K23CGHWDIEVnNAtS1sZTc]).{4}/s;
-my $frontend_type_re = qr/^([BCfDEHFPpQSXc]).{4}/s;
 my $sslanswer_re     = qr/^[NY]$/;
 
 =item *
@@ -210,7 +233,7 @@ sub get_msg_len($$$) {
             or $type eq 'AuthenticationSCMCredential'
             or $type eq 'AuthenticationGSS'
             or $type eq 'AuthenticationSSPI';
-    return ( 8 <= $len ? 8 : 0 ) if $type eq 'SSLRequest';
+    return ( 8 <= $len ? 8 : 0 ) if $type eq 'SSLRequest' or $type eq 'GSSENCRequest';
     return ( 6 <= $len ? 6 : 0 ) if $type eq 'ReadyForQuery';
     return ( 5 <= $len ? 5 : 0 )
         if $type eq 'BindComplete'
@@ -266,10 +289,29 @@ sub get_msg_type_backend($$) {
         return 'CopyData' unless defined $state->{'replication'};
         return undef if length $raw_data < 6;
 
-        my $type = unpack( 'xxxxxA', $raw_data );
+        my $type = unpack( 'x5A', $raw_data );
 
-        return 'XLogData'         if $type eq 'w';
         return 'PrimaryKeepalive' if $type eq 'k';
+        if ( $type eq 'w'
+        and  defined $state->{'replication'}
+        and  defined $state->{'logical'} ) {
+            my $type = unpack( 'x30A', $raw_data );
+            return 'Begin'    if $type eq 'B';
+            return 'Commit'   if $type eq 'C';
+            return 'Origin'   if $type eq 'O';
+            return 'Relation' if $type eq 'R';
+            return 'Type'     if $type eq 'Y';
+            return 'Insert'   if $type eq 'I';
+            return 'Update'   if $type eq 'U';
+            return 'Delete'   if $type eq 'D';
+            return 'Truncate' if $type eq 'T';
+
+            # fallback
+            return 'XLogData';
+        }
+        else {
+            return 'XLogData' if $type eq 'w';
+        }
 
         # not known !
         return '';
@@ -320,6 +362,7 @@ sub get_msg_type_frontend($$) {
         my $code = unpack( 'xxxxN', $raw_data );
 
         return 'CancelRequest'  if $code == 80877102;
+        return 'GSSENCRequest'  if $code == 80877104;
         return 'SSLRequest'     if $code == 80877103;
         return 'StartupMessage' if $code == 196608;
 
@@ -471,6 +514,48 @@ sub AuthenticationMD5Password($$$) {
     $_[0]{'code'} = 5;
     $_[0]{'salt'} = substr( $_[1], 9, 4 );
     return 13;
+}
+
+# AuthenticationSASL
+#   code=int32
+#   name=String
+sub AuthenticationSASL($$$) {
+    my $len = unpack( 'xN', $_[1] );
+
+    return 0 if $len + 1 > length $_[1];
+
+    $_[0]{'code'} = 10;
+    $_[0]{'name'} = substr( $_[1], 9, $len - 8 );
+
+    return $len + 1;
+}
+
+# AuthenticationSASLContinue
+#   code=int32
+#   data=String
+sub AuthenticationSASLContinue($$$) {
+    my $len = unpack( 'xN', $_[1] );
+
+    return 0 if $len + 1 > length $_[1];
+
+    $_[0]{'code'} = 11;
+    $_[0]{'data'} = substr( $_[1], 9, $len - 8 );
+
+    return $len + 1;
+}
+
+# AuthenticationSASLFinal
+#   code=int32
+#   name=String
+sub AuthenticationSASLFinal($$$) {
+    my $len = unpack( 'xN', $_[1] );
+
+    return 0 if $len + 1 > length $_[1];
+
+    $_[0]{'code'} = 12;
+    $_[0]{'data'} = substr( $_[1], 9, $len - 8 );
+
+    return $len + 1;
 }
 
 # AuthenticationSCMCredential
@@ -849,8 +934,53 @@ sub FunctionCallResponse($$$) {
     return $len;
 }
 
+# message: F "GSSENCRequest"
+sub GSSENCRequest($$$) {
+    return 8;
+}
+
+# message: F(p) "GSSResponse"
+#   data: byte[n]
+sub GSSResponse($$$) {
+    my $len = unpack( 'xN', $_[1] );
+
+    return 0 if $len + 1 > length $_[1];
+
+    $_[0]{'data'} = substr( $_[1], 5, $len - 4 );
+
+    return $len + 1;
+}
+
+# message: F(h)
+#   ts=int64
+#   xmin=int32
+#   xmin_epoch=int32
+#   catalog_xmin=int32
+#   catalog_xmin_epoch=int32
 sub HotStandbyFeedback($$$) {
-    return unpack( 'xN', $_[1] ) + 1;
+    my $len = unpack( 'xN', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    ($_[0]{'ts'}, $_[0]{'xmin'}, $_[0]{'xmin_epoch'}, $_[0]{'catalog_xmin'},
+        $_[0]{'catalog_xmin_epoch'} ) = unpack( 'x6Q>NNNN', $_[1] );
+
+    return $len;
+}
+
+# message: B(v) NegotiateProtocolVersion
+#   minor=int32
+#   unknowns=String[]
+sub NegotiateProtocolVersion($$$) {
+    my $len = unpack( 'xN', $_[1] ) + 1;
+    my $unknowns;
+
+    return 0 if $len > length $_[1];
+
+    ( $_[0]{'minor'}, $unknowns ) = unpack( 'x5Nx4a*', $_[1] );
+    $_[0]{'unknowns'} = [ split /\0/, $unknowns ];
+
+    return $len;
 }
 
 sub NoData($$$) { return 5 }
@@ -936,8 +1066,16 @@ sub PasswordMessage($$$) {
 
 sub PortalSuspended($$$) { return 5 }
 
+# message: B(k) "PrimaryKeepalive"
+#  lsn=int64
+#  ts=int64
+#  ping=bool
 sub PrimaryKeepalive($$$) {
-    return unpack( 'xN', $_[1] ) + 1;
+    return 0 if length $_[1] < 23;
+
+    ( $_[0]{'lsn'}, $_[0]{'ts'}, $_[0]{'ping'} ) = unpack( 'x6Q>Q>c', $_[1] );
+
+    return 23;
 }
 
 # message: F(Q) "Query"
@@ -999,17 +1137,61 @@ sub RowDescription($$$) {
     return $len;
 }
 
-# message: SSLAnswer (B)
+# message: F(p) "SASLInitialResponse"
+#   name: string
+#   sz: int32
+#   data: byte[n]
+sub SASLInitialResponse($$$) {
+    my $len = unpack( 'N', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    ( $_[0]{'name'}, $_[0]{'sz'} ) = unpack( 'x5Z*N', $_[1] );
+
+    if ( $_[0]{'sz'} == -1 ) {
+        $_[0]{'data'} = '';
+    }
+    else {
+        $_[0]{'data'} = substr( $_[1], $_[0]{'sz'} * -1 );
+    }
+
+    return $len;
+}
+
+# message: F(p) "SASLResponse"
+#   data: byte[n]
+sub SASLResponse($$$) {
+    my $len = unpack( 'N', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+    $_[0]{'data'} = substr( $_[1], 5, $len - 5 );
+
+    return $len;
+}
+
+# message: "SSLAnswer" (B)
 sub SSLAnswer($$$) {
     $_[0]{'ssl_answer'} = substr( $_[1], 0, 1 );
 
     return 1;
 }
 
+# message: "SSLRequest" (F)
 sub SSLRequest($$$) { return 8 }
 
+# message: F(r) "StandbyStatusUpdate"
+#   written: int64
+#   flushed: int64
+#   applied: int64
+#   ts: int64
+#   ping: bool
 sub StandbyStatusUpdate($$$) {
-    return unpack( 'xN', $_[1] ) + 1;
+    return 0 if 39 > length $_[1];
+
+    ( $_[0]{'written'}, $_[0]{'flushed'}, $_[0]{'applied'}, $_[0]{'ts'}, $_[0]{'ping'} )
+        = unpack( 'x6Q>Q>Q>Q>C', $_[1] );
+
+    return 39;
 }
 
 # message: StartupMessage (F)
@@ -1033,7 +1215,8 @@ sub StartupMessage($$$) {
         $params{$param} = $value;
         $msg = substr( $msg, 2 + length($param) + length($value) );
         $_[2]{'replication'} = 1
-            if $param eq 'replication' and $value eq 'true';
+            if $param eq 'replication' and $value =~ m{^(?:true|on|yes|1|database)$}i;
+        $_[2]{'logical'} = 1 if $value eq 'database';
     }
 
     $_[0]{'params'} = \%params;
@@ -1045,8 +1228,262 @@ sub Sync($$$) { return 5 }
 
 sub Terminate($$$) { return 5 }
 
+
+# message: B(B) "Begin"
+#   lsn=int64         # XLogData part
+#   current_lsn=int64 # XLogData part
+#   current_ts=int64  # XLogData part
+#   xact_end_lsn=int64
+#   xact_ts=int64
+#   xid=int32
+sub Begin($$$) {
+    return 0 if 51 > length $_[1];
+
+    ( $_[0]{'lsn'}, $_[0]{'current_lsn'}, $_[0]{'current_ts'},
+      $_[0]{'xact_end_lsn'}, $_[0]{'xact_ts'}, $_[0]{'xid'} )
+        = unpack( 'x5 xQ>Q>Q> xQ>Q>N', $_[1] );
+
+    return 51;
+}
+
+# message: B(C) "Commit"
+#   lsn=int64         # XLogData part
+#   current_lsn=int64 # XLogData part
+#   current_ts=int64  # XLogData part
+#   flag=int8
+#   xact_lsn=int64
+#   xact_lsn_end=int64
+#   xact_ts=int64
+sub Commit($$$) {
+    return 0 if 56 > length $_[1];
+
+    ( $_[0]{'lsn'}, $_[0]{'current_lsn'}, $_[0]{'current_ts'},
+      $_[0]{'flag'}, $_[0]{'xact_lsn'}, $_[0]{'xact_lsn_end'}, $_[0]{'xact_ts'} )
+        = unpack( 'x5 xQ>Q>Q> xcQ>Q>Q>', $_[1] );
+
+    return 56;
+}
+
+# message: B(O) "Origin"
+#   lsn=int64         # XLogData part
+#   current_lsn=int64 # XLogData part
+#   current_ts=int64  # XLogData part
+#   xact_lsn=int64
+#   name=string
+sub Origin($$$) {
+    my $len = unpack( 'xN', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    ( $_[0]{'lsn'}, $_[0]{'current_lsn'}, $_[0]{'current_ts'},
+      $_[0]{'lsn'}, $_[0]{'name'} ) = unpack( 'x5 xQ>Q>Q> xQ>Z*', $_[1] );
+
+    return $len;
+}
+
+# message: B(R) "Relation"
+#   lsn=int64         # XLogData part
+#   current_lsn=int64 # XLogData part
+#   current_ts=int64  # XLogData part
+#   relid=int32
+#   nspname=string
+#   relname=string
+#   relident=int8
+#   cols={int8, string, int32, int32}[]
+sub Relation($$$) {
+    my @cols;
+    my $len = unpack( 'xN', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    ( $_[0]{'lsn'}, $_[0]{'current_lsn'}, $_[0]{'current_ts'},
+      $_[0]{'relid'}, $_[0]{'nspname'}, $_[0]{'relname'}, $_[0]{'relident'}, @cols )
+        = unpack( 'x5 xQ>Q>Q> xNZ*Z*c n/(cZ*NN)', $_[1] );
+
+    push @{ $_[0]{'cols'} }, [ splice(@cols, 0, 4) ] while @cols;
+
+    return $len;
+}
+
+# message: B(Y) "Type"
+#   lsn=int64         # XLogData part
+#   current_lsn=int64 # XLogData part
+#   current_ts=int64  # XLogData part
+#   typid=int32
+#   nspname=String
+#   typname=String
+sub Type($$$) {
+    my $len = unpack( 'xN', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    ( $_[0]{'lsn'}, $_[0]{'current_lsn'}, $_[0]{'current_ts'},
+      $_[0]{'typid'}, $_[0]{'nspname'}, $_[0]{'typname'} )
+        = unpack( 'x5 xQ>Q>Q> xNZ*Z*', $_[1] );
+
+    return $len;
+}
+
+# message: B(I) Insert
+#   lsn=int64         # XLogData part
+#   current_lsn=int64 # XLogData part
+#   current_ts=int64  # XLogData part
+#   relid=int32
+#   ident=byte
+#   data={ int16, byte, byte[n] }
+sub Insert($$$) {
+    my $bin;
+    my $ncols;
+    my $len = unpack( 'xN', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    ( $_[0]{'lsn'}, $_[0]{'current_lsn'}, $_[0]{'current_ts'},
+      $_[0]{'relid'}, $_[0]{'ident'}, $bin )
+        = unpack( 'x5 xQ>Q>Q> xNAa*', $_[1] );
+        #= unpack( 'x5 xQ>Q>Q> xNAnAN/a', $_[1] );
+
+    ( $ncols, $bin ) = unpack( 'na*', $bin );
+
+    while ( $ncols ) {
+        my $dat_kind;
+
+        ( $dat_kind, $bin ) = unpack( 'Aa*', $bin );
+        if ($dat_kind =~ /[nu]/) {
+            push @{ $_[0]{'tup'}{$_[0]{'ident'}} }, [ $dat_kind ];
+        }
+        else {
+            my ($sz, $data);
+            ($data, $bin) = unpack( 'N/aa*', $bin );
+            push @{ $_[0]{'tup'}{$_[0]{'ident'}} }, [ $dat_kind, $data ];
+        }
+
+        $ncols--;
+    }
+
+    return $len;
+}
+
+# message: B(I) Update
+#   lsn=int64         # XLogData part
+#   current_lsn=int64 # XLogData part
+#   current_ts=int64  # XLogData part
+#   relid=int32
+#   tup={ byte => {byte[, byte[n]]}[] }[]
+sub Update($$$) {
+    my $bin;
+    my $ncols;
+    my $len = unpack( 'xN', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    ( $_[0]{'lsn'}, $_[0]{'current_lsn'}, $_[0]{'current_ts'},
+      $_[0]{'relid'}, $bin ) = unpack( 'x5 xQ>Q>Q> xNa*', $_[1] );
+
+    {
+        my ( $tup_kind, $ncols, @tup );
+
+        ( $tup_kind, $ncols, $bin ) = unpack( 'Ana*', $bin );
+
+        while ( $ncols ) {
+            my $dat_kind;
+
+            ( $dat_kind, $bin ) = unpack( 'Aa*', $bin );
+            if ($dat_kind =~ /[nu]/) {
+                push @tup, [ $dat_kind ];
+            }
+            else {
+                my ($sz, $data);
+                ($data, $bin) = unpack( 'N/aa*', $bin );
+                push @tup, [ $dat_kind, $data ];
+            }
+
+            $ncols--;
+        }
+
+        $_[0]{'tup'}{$tup_kind} = \@tup;
+
+        redo unless $tup_kind eq 'N';
+    }
+
+    return $len;
+}
+
+# message: B(D) Delete
+#   lsn=int64         # XLogData part
+#   current_lsn=int64 # XLogData part
+#   current_ts=int64  # XLogData part
+#   relid=int32
+#   tup={ byte => {byte[, byte[n]]}[] }
+sub Delete($$$) {
+    my $bin;
+    my $tup_kind;
+    my $len = unpack( 'xN', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    ( $_[0]{'lsn'}, $_[0]{'current_lsn'}, $_[0]{'current_ts'},
+      $_[0]{'relid'}, $tup_kind, $bin )
+        = unpack( 'x5 xQ>Q>Q> xNAa*', $_[1] );
+
+    while ( length($bin) > 0 ) {
+        my ( $ncols, @tup );
+
+        ( $ncols, $bin ) = unpack( 'na*', $bin );
+
+        while ( $ncols ) {
+            my $dat_kind;
+            ( $dat_kind, $bin ) = unpack( 'Aa*', $bin );
+            if ($dat_kind =~ /[nu]/) {
+                push @tup, [ $dat_kind ];
+            }
+            else {
+                my $data;
+                ($data, $bin) = unpack( 'N/aa*', $bin );
+                push @tup, [ $dat_kind, $data ];
+            }
+            $ncols--;
+        }
+
+        $_[0]{'tup'}{$tup_kind} = \@tup;
+    }
+
+    return $len;
+}
+
+# message: B(T) "Truncate"
+#   lsn=int64         # XLogData part
+#   current_lsn=int64 # XLogData part
+#   current_ts=int64  # XLogData part
+#   cascade=bool
+#   restart=bool
+#   relid=int32[]
+sub Truncate($$$) {
+    my $opts;
+    my $len = unpack( 'xN', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    ( $_[0]{'lsn'}, $_[0]{'current_lsn'}, $_[0]{'current_ts'},
+      $opts ) = unpack( 'x5 xQ>Q>Q> xx[N]c', $_[1] );
+
+    $_[0]{'cascade'} = $opts & 1;
+    $_[0]{'restart'} = ($opts & 2) > 0;
+    @{ $_[0]{'relid'} } = unpack( 'x5 xx[QQQ] xx[N]xN*', $_[1] );
+
+    return $len;
+}
+
+
+
+
+
 sub XLogData($$$) {
-    return unpack( 'xN', $_[1] ) + 1;
+    my $len = unpack( 'xN', $_[1] ) + 1;
+
+    return 0 if $len > length $_[1];
+
+    return $len;
 }
 
 BEGIN {

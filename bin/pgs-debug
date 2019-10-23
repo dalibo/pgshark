@@ -164,6 +164,19 @@ SWITCH: {
             $data .= "(contains GSSAPI or SSPI data)";
             last SWITCH;
         }
+        if ( $pg_msg->{'code'} == 10 ) {
+            $data .= sprintf "(SASL mechanism: %s)",
+                $pg_msg->{'name'};
+            last SWITCH;
+        }
+        if ( $pg_msg->{'code'} == 11 ) {
+            $data .= "(contains SASL challenge)";
+            last SWITCH;
+        }
+        if ( $pg_msg->{'code'} == 12 ) {
+            $data .= "(contains SASL additional data)";
+            last SWITCH;
+        }
     }
 
     log_output($pg_msg, $data);
@@ -335,10 +348,26 @@ sub Flush {
     log_output( $pg_msg, "FLUSH" );
 }
 
+sub GSSENCRequest {
+    my $pg_msg = shift;
+
+    log_output( $pg_msg, "GSSAPI ENCRYPTION REQUEST" );
+}
+
+sub GSSResponse {
+    my $pg_msg = shift;
+
+    log_output( $pg_msg, "GSSAPI/SSPI RESPONSE" );
+}
+
 sub HotStandbyFeedback {
     my $pg_msg = shift;
 
-    log_output( $pg_msg, "HOT-STANDBY FEEDBACK" );
+    log_output( $pg_msg,
+        "HOT-STANDBY FEEDBACK ts=%s, xmin=%s, xmin_epoch=%s, catalog_xmin=%s, catalog_xmin_epoch=%s",
+        $pg_msg->{'ts'}, $pg_msg->{'xmin'}, $pg_msg->{'xmin_epoch'},
+        $pg_msg->{'catalog_xmin'}, $pg_msg->{'catalog_xmin_epoch'}
+    );
 }
 
 sub NoData {
@@ -351,6 +380,14 @@ sub NoticeResponse {
     my $pg_msg = shift;
 
     log_output( $pg_msg, "NOTICE RESPONSE\n%s", code_response($pg_msg) );
+}
+
+sub NegotiateProtocolVersion {
+    my $pg_msg = shift;
+
+    log_output( $pg_msg, "NEGOTIATE PROTOCOL VERSION minor=%d, unknowns=%s",
+        $pg_msg->{'minor'}, join( ', ', @{ $pg_msg->{'unknowns'} } )
+    );
 }
 
 sub NotificationResponse {
@@ -411,7 +448,8 @@ sub PortalSuspended {
 sub PrimaryKeepalive {
     my $pg_msg = shift;
 
-    log_output( $pg_msg, "PRIMARY KEEP-ALIVE" );
+    log_output( $pg_msg, "PRIMARY KEEPALIVE: lsn=%s ts=%s ping=%s",
+        $pg_msg->{'lsn'}, $pg_msg->{'ts'}, $pg_msg->{'ping'});
 }
 
 sub Query {
@@ -451,11 +489,23 @@ sub RowDescription {
             "  ---[Field %02d]---\n  name='%s'\n  type=%d\n  type_len=%d\n  type_mod=%d\n",
             $i, $field->[0], $field->[3], $field->[4], $field->[5];
 
-        $data = sprintf( "  relid=%d\n  attnum=%d\n  format=%d\n",
+        $data .= sprintf( "  relid=%d\n  attnum=%d\n  format=%d\n",
             $field->[1], $field->[2], $field->[6] )
             if defined $field->[1];
     }
     log_output( $pg_msg, $data );
+}
+
+sub SASLInitialResponse {
+    my $pg_msg = shift;
+
+    log_output( $pg_msg, "SASL INIT RESPONSE: mechanism=%s", $pg_msg->{'name'} );
+}
+
+sub SASLResponse {
+    my $pg_msg = shift;
+
+    log_output( $pg_msg, "SASL RESPONSE" );
 }
 
 sub SSLAnswer {
@@ -473,7 +523,11 @@ sub SSLRequest {
 sub StandbyStatusUpdate {
     my $pg_msg = shift;
 
-    log_output( $pg_msg, "STANDBY STATUS UPDATE" );
+    log_output( $pg_msg,
+        "STANDBY STATUS UPDATE: written=%s flushed=%s applied=%s ts=%s ping=%s",
+        $pg_msg->{'written'}, $pg_msg->{'flushed'}, $pg_msg->{'applied'},
+        $pg_msg->{'ts'}, $pg_msg->{'ping'}
+    );
 }
 
 sub StartupMessage {
@@ -505,10 +559,131 @@ sub Terminate {
     log_output( $pg_msg, "DISCONNECT" );
 }
 
-sub XLogData {
+# Logical replication
+
+sub Begin {
+    my $pg_msg = shift;
+    my $data   = sprintf "BEGIN xact_end_lsn=%s, xact_ts=%s, xid=%s",
+        $pg_msg->{'xact_end_lsn'}, $pg_msg->{'xact_ts'}, $pg_msg->{'xid'};
+
+    XLogData( $pg_msg, $data );
+}
+
+sub Commit {
+    my $pg_msg = shift;
+    my $data   = sprintf "COMMIT flag=%d, xact_lsn=%s, xact_lsn_end=%s, xact_ts=%s",
+        $pg_msg->{'flag'}, $pg_msg->{'xact_lsn'}, $pg_msg->{'xact_lsn_end'},
+        $pg_msg->{'xact_ts'};
+
+    XLogData( $pg_msg, $data );
+}
+
+sub Origin {
     my $pg_msg = shift;
 
-    log_output( $pg_msg, "XLOG DATA len=%d", length( $pg_msg->{'data'} ) );
+    log_output( $pg_msg, "ORIGIN");
+}
+
+sub Relation {
+    my $pg_msg = shift;
+    my $i      = 0;
+    my $data   = sprintf "RELATION relid=%d, nspname=%s, relname=%s, ident=%c\n",
+        $pg_msg->{'relid'}, $pg_msg->{'nspname'}, $pg_msg->{'relname'},
+        $pg_msg->{'relident'};
+
+    for my $field ( @{ $pg_msg->{'cols'} } ) {
+        $i++;
+        $data .= sprintf
+            "  ---[Field %02d]---\n  in key=%d\n  attrname=%s\n  typid=%d\n  typmod=%d\n",
+            $i, $field->[0], $field->[1], $field->[2], $field->[3];
+    }
+
+    XLogData( $pg_msg, $data );
+}
+
+sub Type {
+    my $pg_msg = shift;
+    my $data   = sprintf "TYPE typid=%d, nspname=%s, typname=%s",
+        $pg_msg->{'typid'}, $pg_msg->{'nspname'}, $pg_msg->{'typname'};
+
+    XLogData( $pg_msg, $data );
+}
+
+sub Insert {
+    my $pg_msg  = shift;
+    my $data    = sprintf "INSERT relid=%d\n", $pg_msg->{'relid'};
+    my ($k, $v) = each %{ $pg_msg->{'tup'} };
+
+    $data .= sprintf "  record: ident=%s, #cols=%d\n", $k, scalar @{ $v };
+
+    foreach my $r ( @{ $v } ) {
+        if ($r->[0] eq 't') {
+            $data .= sprintf "    field: kind=%s, data len=%d\n",
+                $r->[0], length $r->[1];
+        }
+        else {
+            $data .= sprintf "    field: kind=%s\n", $r->[0];
+        }
+    }
+
+    XLogData( $pg_msg, $data );
+}
+
+sub Update {
+    my $pg_msg = shift;
+    my $data   = sprintf "UPDATE relid=%d\n", $pg_msg->{'relid'};
+
+    foreach my $t ( keys %{$pg_msg->{'tup'}} ) {
+        $data .= sprintf "  record: ident=%s, #cols=%d\n", $t,
+            scalar @{ $pg_msg->{'tup'}{$t} };
+        foreach my $r ( @{ $pg_msg->{'tup'}{$t} } ) {
+            if ($r->[0] eq 't') {
+                $data .= sprintf "    field: kind=%s, data len=%d\n",
+                    $r->[0], length $r->[1];
+            }
+            else {
+                $data .= sprintf "    field: kind=%s\n", $r->[0];
+            }
+        }
+    }
+
+    XLogData( $pg_msg, $data );
+}
+
+sub Delete {
+    my $pg_msg = shift;
+    my $data   = sprintf "DELETE relid=%d\n", $pg_msg->{'relid'};
+    my ($kind, $tup) = each %{ $pg_msg->{'tup'} };
+
+    $data .= sprintf "  record: ident=%s, #cols=%d\n", $kind, scalar @{ $tup };
+    foreach my $r ( @{ $tup } ) {
+        if ($r->[0] eq 't') {
+            $data .= sprintf "    field: kind=%s, data len=%d\n",
+                $r->[0], length $r->[1];
+        }
+        else {
+            $data .= sprintf "    field: kind=%s\n", $r->[0];
+        }
+    }
+
+    XLogData( $pg_msg, $data );
+}
+
+sub Truncate {
+    my $pg_msg = shift;
+    my $data   = sprintf "TRUNCATE cascade=%d, restart=%d, relations=%s",
+        $pg_msg->{'cascade'}, $pg_msg->{'restart'}, join(',', @{ $pg_msg->{'relid'} });
+
+    XLogData( $pg_msg, $data );
+}
+
+sub XLogData {
+    my $pg_msg = shift;
+    my $data = "\n  $_[0]" // '';
+
+    log_output( $pg_msg, "XLOG DATA lsn=%s, curr_lsn=%s, curr_ts=%s" . $data,
+        $pg_msg->{'lsn'}, $pg_msg->{'current_lsn'}, $pg_msg->{'current_ts'}
+    );
 }
 
 Getopt::Long::Configure('bundling');
@@ -553,13 +728,18 @@ $args{'protocol'} = $args{'2'} ? 2 : 3;
     'AuthenticationGSS'               => \&Authentication,
     'AuthenticationSSPI'              => \&Authentication,
     'AuthenticationGSSContinue'       => \&Authentication,
+    'AuthenticationSASL'              => \&Authentication,
+    'AuthenticationSASLContinue'      => \&Authentication,
+    'AuthenticationSASLFinal'         => \&Authentication,
     'BackendKeyData'                  => \&BackendKeyData,
+    'Begin'                           => \&Begin,
     'Bind'                            => \&Bind,
     'BindComplete'                    => \&BindComplete,
     'CancelRequest'                   => \&CancelRequest,
     'Close'                           => \&Close,
     'CloseComplete'                   => \&CloseComplete,
     'CommandComplete'                 => \&CommandComplete,
+    'Commit'                          => \&Commit,
     'CopyBothResponse'                => \&CopyBothResponse,
     'CopyData'                        => \&CopyData,
     'CopyDone'                        => \&CopyDone,
@@ -568,36 +748,46 @@ $args{'protocol'} = $args{'2'} ? 2 : 3;
     'CopyOutResponse'                 => \&CopyOutResponse,
     'CursorResponse'                  => \&CursorResponse,
     'DataRow'                         => \&DataRow,
+    'Delete'                          => \&Delete,
     'Describe'                        => \&Describe,
     'EmptyQueryResponse'              => \&EmptyQueryResponse,
     'ErrorResponse'                   => \&ErrorResponse,
     'Execute'                         => \&Execute,
     'Flush'                           => \&Flush,
-
     # 'FunctionCall' => sub {},
     # 'FunctionCallResponse' => sub {},
-    'NoData'               => \&NoData,
-    'NoticeResponse'       => \&NoticeResponse,
-    'NotificationResponse' => \&NotificationResponse,
-    'ParameterDescription' => \&ParameterDescription,
-    'ParameterStatus'      => \&ParameterStatus,
-    'Parse'                => \&Parse,
-    'ParseComplete'        => \&ParseComplete,
-    'PasswordMessage'      => \&PasswordMessage,
-    'PortalSuspended'      => \&PortalSuspended,
-    'Query'                => \&Query,
-    'ReadyForQuery'        => \&ReadyForQuery,
-    'RowDescription'       => \&RowDescription,
-    'SSLAnswer'            => \&SSLAnswer,
-    'SSLRequest'           => \&SSLRequest,
-    'StartupMessage'       => \&StartupMessage,
-    'Sync'                 => \&Sync,
-    'Terminate'            => \&Terminate,
-    # replication messages
-    'HotStandbyFeedback'   => \&HotStandbyFeedback,
-    'PrimaryKeepalive'     => \&PrimaryKeepalive,
-    'StandbyStatusUpdate'  => \&StandbyStatusUpdate,
-    'XLogData'             => \&XLogData
+    'GSSENCRequest'            => \&GSSENCRequest,
+    'GSSResponse'              => \&GSSResponse,
+    'HotStandbyFeedback'       => \&HotStandbyFeedback,
+    'Insert'                   => \&Insert,
+    'NegotiateProtocolVersion' => \&NegotiateProtocolVersion,
+    'NoData'                   => \&NoData,
+    'NoticeResponse'           => \&NoticeResponse,
+    'NotificationResponse'     => \&NotificationResponse,
+    'Origin'                   => \&Origin,
+    'ParameterDescription'     => \&ParameterDescription,
+    'ParameterStatus'          => \&ParameterStatus,
+    'Parse'                    => \&Parse,
+    'ParseComplete'            => \&ParseComplete,
+    'PasswordMessage'          => \&PasswordMessage,
+    'PortalSuspended'          => \&PortalSuspended,
+    'PrimaryKeepalive'         => \&PrimaryKeepalive,
+    'Query'                    => \&Query,
+    'ReadyForQuery'            => \&ReadyForQuery,
+    'Relation'                 => \&Relation,
+    'RowDescription'           => \&RowDescription,
+    'SASLInitialResponse'      => \&SASLInitialResponse,
+    'SASLResponse'             => \&SASLResponse,
+    'SSLAnswer'                => \&SSLAnswer,
+    'SSLRequest'               => \&SSLRequest,
+    'StandbyStatusUpdate'      => \&StandbyStatusUpdate,
+    'StartupMessage'           => \&StartupMessage,
+    'Sync'                     => \&Sync,
+    'Terminate'                => \&Terminate,
+    'Truncate'                 => \&Truncate,
+    'Type'                     => \&Type,
+    'Update'                   => \&Update,
+    'XLogData'                 => \&XLogData
 );
 
 if ( scalar @{ $args{'exclude'} } ) {
