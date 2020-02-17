@@ -6,7 +6,7 @@
 Synopsis
 ==================
 
-A simple exemple to count the number of connections and disconnections on localhost, live version:
+A simple example to count the number of connections and disconnections on localhost, live version:
 
 ```perl
         use pgShark;
