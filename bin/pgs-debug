@@ -297,7 +297,8 @@ sub CursorResponse {
 sub DataRow {
     my $pg_msg = shift;
     my $i      = 0;
-    my $data = "DATA ROW num_values=$pg_msg->{'num_values'}\n";
+    my $data   = "DATA ROW num_values=$pg_msg->{'num_values'}\n";
+    my @rows;
 
     for my $value ( @{ $pg_msg->{'values'} } ) {
         $i++;
@@ -308,10 +309,14 @@ sub DataRow {
         else {
             $value->[1] = 'NULL';
         }
-        $data .= sprintf "  ---[Value %02d]---\n  length=%d\n  value=%s\n", $i,
-            @{$value};
+        push @rows, $i, @$value;
     }
-    log_output( $pg_msg, $data );
+
+    log_output( $pg_msg,
+                "DATA ROW num_values=%d\n".
+                "  ---[Value %04d]---\n  length=%d\n  value=%s\n" x $i,
+                $pg_msg->{'num_values'},
+                @rows );
 }
 
 sub Describe {
