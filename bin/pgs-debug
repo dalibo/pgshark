@@ -812,14 +812,16 @@ if ( scalar @{ $args{'include'} } ) {
 $format = $args{'format'} unless $args{'format'} eq '';
 
 # prepare/compile output
-if ( $format =~ /%[aduHhkMRrTt>]/ ) {
+if ( $format =~ /%[aduHhkLMPRrTt>]/ ) {
 
     my $re_a    = qr/%a/;
     my $re_d    = qr/%d/;
     my $re_h    = qr/%h/;
     my $re_H    = qr/%H/;
     my $re_k    = qr/%k/;
+    my $re_L    = qr/%L/;
     my $re_M    = qr/%M/;
+    my $re_P    = qr/%P/;
     my $re_R    = qr/%R/;
     my $re_r    = qr/%r/;
     my $re_T    = qr/%T/;
@@ -846,9 +848,19 @@ if ( $format =~ /%[aduHhkMRrTt>]/ ) {
         if $format =~ $re_k;
 
     push @format_keys, sub {
+            ${ $_[0] } =~ s/$re_L/length($_[1]->{'data'})/gex;
+        }
+        if $format =~ $re_L;
+
+    push @format_keys, sub {
             ${ $_[0] } =~ s/$re_M/$_[1]->{'type'}/g;
         }
         if $format =~ $re_M;
+
+    push @format_keys, sub {
+            ${ $_[0] } =~ s/$re_P/$_[1]->{'tcpip'}{'pkt'}/g;
+        }
+        if $format =~ $re_P;
 
     push @format_keys, sub {
             my $src_ip   = pgShark::dec2dot( $_[1]->{'tcpip'}->{'src_ip'} );
@@ -1073,6 +1085,12 @@ Destination host
 
 =item B<%k>
 Hash key of the session (src ip and src port concatenated)
+
+=item B<%L>
+Lenght of the message
+
+=item B<%P>
+The network packet number
 
 =item B<%R>
 Source host and port

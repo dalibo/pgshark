@@ -591,6 +591,7 @@ sub process_packet {
 
         # tcp/ip properties
         'tcpip' => {
+            'pkt'       => $self->{'pckt_count'},
             'src_ip'    => $src_ip,
             'dest_ip'   => $dest_ip,
             'src_port'  => $src_port,
